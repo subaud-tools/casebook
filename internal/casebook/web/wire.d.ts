@@ -197,6 +197,7 @@ export interface MatchPreview {
   groups: RepoGroup[] | null;
   page: MatchRow[] | null;
   dispositions: string[] | null;
+  kinds: string[] | null;
 }
 
 export interface ReasonCount {
@@ -238,6 +239,7 @@ export interface DecisionVocabView {
   to_apply_hint: string;
   untick: string;
   left_open: string;
+  came_back: Record<string, string> | null;
   recommends: string;
   nav: NavVocab;
   hide_list: string;
@@ -516,6 +518,7 @@ export interface Rule {
 
 export interface TrackRecord {
   accepted: number;
+  decided_differently: number;
   rejected: number;
   pending: number;
 }
@@ -569,8 +572,10 @@ export interface LookIntoVocab {
 }
 
 export interface SummaryVocab {
-  one_session: string;
-  mixed: string;
+  to_decide: string;
+  came_back: string;
+  group: string;
+  not_recommended: string;
 }
 
 export interface CountWords {

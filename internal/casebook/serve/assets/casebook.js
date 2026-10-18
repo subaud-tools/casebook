@@ -25,21 +25,29 @@ function parse(hash) {
   const path = q === -1 ? full : full.slice(0, q);
   const query = q === -1 ? "" : full.slice(q + 1);
   const slash = path.indexOf("/");
+  const head = slash === -1 ? path : path.slice(0, slash);
+  if (head === "attention" || head === "rules") {
+    const id = slash === -1 ? "" : safeDecode(path.slice(slash + 1));
+    return {
+      section: "decide",
+      sub: "",
+      query: head === "rules" && id ? `rule=${encodeURIComponent(id)}` : query
+    };
+  }
   if (slash === -1) {
-    return { section: path || "attention", sub: "", query };
+    return { section: path || "decide", sub: "", query };
   }
-  const section = path.slice(0, slash);
-  const sub = safeDecode(path.slice(slash + 1));
-  if (section === "attention" && (sub === "board" || sub === "waiting")) {
-    return { section, sub: "due", query };
-  }
-  return { section, sub, query };
+  return { section: head, sub: safeDecode(path.slice(slash + 1)), query };
 }
-function attentionQuery(o) {
+function decideQuery(o) {
   const parts = [];
+  if (o.rule) parts.push(`rule=${o.rule}`);
   if (o.filters.length) parts.push(`filters=${o.filters.join(",")}`);
   if (o.flat) parts.push("flat");
   return parts.join("&");
+}
+function ruleHash(id) {
+  return `#/decide?rule=${encodeURIComponent(id)}`;
 }
 function flatFor(explicit, query, stored) {
   return explicit ? new URLSearchParams(query).has("flat") : stored;
@@ -167,16 +175,16 @@ function registerDock(make) {
 }
 var liveListeners = /* @__PURE__ */ new Map();
 function onLiveEvent(type, cb) {
-  let list4 = liveListeners.get(type);
-  if (!list4) {
-    list4 = [];
-    liveListeners.set(type, list4);
+  let list3 = liveListeners.get(type);
+  if (!list3) {
+    list3 = [];
+    liveListeners.set(type, list3);
   }
-  list4.push(cb);
+  list3.push(cb);
 }
 function emitLive(type, data) {
-  const list4 = liveListeners.get(type);
-  if (list4) for (const cb of list4) cb(data);
+  const list3 = liveListeners.get(type);
+  if (list3) for (const cb of list3) cb(data);
 }
 var booted = false;
 function boot() {
@@ -242,11 +250,10 @@ function start(first) {
   const handle = bar({
     brand: { name: "casebook", mark },
     sections: [
-      { id: "attention", label: "attention" },
-      { id: "rules", label: "rules" },
-      { id: "apply", label: "to apply" }
+      { id: "decide", label: "decide" },
+      { id: "apply", label: "apply" }
     ],
-    active: "attention",
+    active: "decide",
     onSection(id) {
       go(id);
     },
@@ -301,7 +308,7 @@ function start(first) {
   }
   const app = h("div", { class: "kit-app" });
   app.append(handle.el, banner, pushStrip);
-  let currentRoute = { section: "attention", sub: "", query: "" };
+  let currentRoute = { section: "decide", sub: "", query: "" };
   const dockHandles = [];
   let lastAttached = {};
   let lastTitle = "";
@@ -312,7 +319,7 @@ function start(first) {
   let dockTarget = null;
   const dockTargetListeners = [];
   const layer = makeKeyLayer(
-    (list4) => createKeys(list4 ? { list: list4 } : {}),
+    (list3) => createKeys(list3 ? { list: list3 } : {}),
     (m) => console.error(m)
   );
   const ctx = {
@@ -376,9 +383,9 @@ function start(first) {
     app.append(sec.list, sec.read);
   }
   if (sections.size === 0) {
-    const list4 = h("div", { class: "kit-list" });
+    const list3 = h("div", { class: "kit-list" });
     const read = h("div", { class: "kit-read" });
-    app.append(list4, read);
+    app.append(list3, read);
   }
   const rail = h("div", { class: "kit-rail" });
   for (const make of dockMakers) {
@@ -450,15 +457,22 @@ function start(first) {
     first && typeof first.cursor === "number" ? String(first.cursor) : void 0
   );
   for (const [k, id, label] of [
-    ["g a", "attention", "go to attention"],
-    ["g r", "rules", "go to rules"],
-    ["g p", "apply", "go to apply"]
+    ["g d", "decide", "go to decide"],
+    ["g a", "apply", "go to apply"]
   ]) {
     ctx.keys.register({ keys: k, label, run: () => go(id) });
   }
   onRoute((r) => {
     currentRoute = r;
-    const sectionId = r.section === "rules" ? "rules" : r.section === "apply" ? "apply" : "attention";
+    if (/^#\/(attention|rules)(\/|\?|$)/.test(location.hash)) {
+      const hash = r.query ? `#/decide?${r.query}` : "#/decide";
+      history.replaceState(
+        null,
+        "",
+        location.pathname + location.search + hash
+      );
+    }
+    const sectionId = r.section === "apply" ? "apply" : "decide";
     handle.setSection(sectionId);
     for (const [id, sec] of sections) {
       const active = id === sectionId;
@@ -490,7 +504,7 @@ function start(first) {
     summaryShown = mine;
     summary = s;
     const counts = s.counts ?? {};
-    handle.setCount("attention", counts["all"] ?? 0);
+    handle.setCount("decide", counts["all"] ?? 0);
     handle.setCount("apply", counts["to-apply"] ?? 0);
     paintStatus();
   }
@@ -682,13 +696,32 @@ function recommendLine(vocab2, key, by, source, disposition) {
   const who = vocab2.recommends.replaceAll("{session}", sessionName(by, source));
   return `${who} ${choiceLabel(vocab2, key, disposition)}`;
 }
+var CAME_BACK = "came-back";
 function rowSub(vocab2, it, flat) {
   const p = it.status !== "left-open" && it.proposal?.state === "pending" ? it.proposal : void 0;
   return [
-    it.new_activity ? it.due_reason : void 0,
+    it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : void 0,
     p && flat ? choiceLabel(vocab2, it.key, p.disposition) : void 0,
     p?.note || void 0
   ].filter(Boolean).join(" · ") || void 0;
+}
+function decideSummary(groups, total, rules, vocab2) {
+  const w = vocab2.summary;
+  const n = (t, k) => t.replaceAll("{n}", String(k));
+  const lines = [n(w.to_decide, total)];
+  const back = groups.find((g) => g.id === CAME_BACK);
+  if (back?.total) lines.push(n(w.came_back, back.total));
+  for (const g of groups) {
+    if (!g.source || !g.total) continue;
+    const rule = g.source.startsWith("rule:") ? g.source.slice(5) : "";
+    const who = rule ? rules.find((r) => r.rule.id === rule)?.rule.name || rule : sessionName(g.by, g.source);
+    lines.push(
+      n(w.group, g.total).replaceAll("{who}", who).replaceAll("{decision}", g.label)
+    );
+  }
+  const none = groups.find((g) => g.id === "none");
+  if (none?.total) lines.push(n(w.not_recommended, none.total));
+  return lines;
 }
 function countWord(total, ticked, words) {
   if (ticked > 0 && ticked < total)
@@ -840,11 +873,11 @@ var PICK_EXAMPLE = {
   "pr-or-issue": "tackle#58, a title, or https://github.com/owner/repo/pull/58",
   repo: "tackle, a name, or https://github.com/owner/repo"
 };
-function showChoiceError(root, message4) {
+function showChoiceError(root, message5) {
   const err = root.querySelector(".cb-choice-err");
   if (!err) return;
-  err.textContent = message4;
-  err.hidden = !message4;
+  err.textContent = message5;
+  err.hidden = !message5;
 }
 function renderChoices(ctx, kind, opts) {
   const grid = h2("div", { class: "cb-choices" });
@@ -1438,26 +1471,26 @@ function outwardGo(n) {
 }
 function plannedKeys(jobs) {
   const m = /* @__PURE__ */ new Map();
-  const rank = (h14) => h14.planned ? 0 : 1;
+  const rank = (h15) => h15.planned ? 0 : 1;
   for (const j of jobs) {
     if (!["planned", "approved", "running", "paused"].includes(j.state))
       continue;
-    const h14 = { id: j.id, planned: j.state === "planned" };
+    const h15 = { id: j.id, planned: j.state === "planned" };
     for (const s of j.steps ?? []) {
       const was = m.get(s.key);
-      if (!was || rank(h14) > rank(was) || rank(h14) === rank(was) && h14.id > was.id)
-        m.set(s.key, h14);
+      if (!was || rank(h15) > rank(was) || rank(h15) === rank(was) && h15.id > was.id)
+        m.set(s.key, h15);
     }
   }
   return m;
 }
-function heldLabel(h14) {
-  return `${h14.planned ? "in plan" : "in job"} #${h14.id}`;
+function heldLabel(h15) {
+  return `${h15.planned ? "in plan" : "in job"} #${h15.id}`;
 }
 function heldWhere(held) {
   const vs = [...held.values()];
-  const plans = vs.some((h14) => h14.planned);
-  const jobs = vs.some((h14) => !h14.planned);
+  const plans = vs.some((h15) => h15.planned);
+  const jobs = vs.some((h15) => !h15.planned);
   if (plans && jobs) return "in a plan or a job";
   return jobs ? "in a job" : "in a plan";
 }
@@ -1474,9 +1507,9 @@ function ageText(ms) {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h14 = Math.floor(m / 60);
-  if (h14 < 24) return `${h14}h`;
-  return `${Math.floor(h14 / 24)}d`;
+  const h15 = Math.floor(m / 60);
+  if (h15 < 24) return `${h15}h`;
+  return `${Math.floor(h15 / 24)}d`;
 }
 function observations(builtAt, intervalMs, now) {
   const age = now - builtAt;
@@ -1495,9 +1528,9 @@ function fmtAge(ts) {
   if (s < 60) return "now";
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h14 = Math.floor(m / 60);
-  if (h14 < 24) return `${h14}h`;
-  const d = Math.floor(h14 / 24);
+  const h15 = Math.floor(m / 60);
+  if (h15 < 24) return `${h15}h`;
+  const d = Math.floor(h15 / 24);
   if (d < 30) return `${d}d`;
   const mo = Math.floor(d / 30);
   if (mo < 12) return `${mo}mo`;
@@ -2827,11 +2860,11 @@ function needsCard(c, step, j, agent, hooks) {
   return el;
 }
 
-// attention.ts
+// decide-list.ts
 import {
-  list as list3,
+  list as list2,
   createSelection,
-  h as h10,
+  h as h11,
   ApiError as ApiError4
 } from "/_kit/kit.js";
 
@@ -3100,7 +3133,11 @@ function renderHistory(events, decisions, ownKey) {
 }
 function renderRecBox(ctx, detail, hooks) {
   const it = detail.item;
-  const slot = h6("div", { class: "cb-rec-empty" });
+  const slot = h6(
+    "div",
+    { class: "cb-rec-empty" },
+    h6("p", { class: "cb-rec-empty-says" }, "No recommendation yet.")
+  );
   const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
   if (!pending) return slot;
   void getVocab(ctx).then((vocab2) => {
@@ -3182,8 +3219,14 @@ function renderItem(ctx, detail, hooks = {}) {
       bodyWrap.append(fold("read more", h6("p", null, rest)));
     }
   }
+  const hasBody = it.kind === "pr" || it.kind === "issue" || !!it.due_reason || !!it.body;
   el.append(
-    h6("div", { class: "cb-lead" }, renderRecBox(ctx, detail, hooks), bodyWrap)
+    h6(
+      "div",
+      { class: "cb-lead" },
+      renderRecBox(ctx, detail, hooks),
+      hasBody ? bodyWrap : null
+    )
   );
   el.append(renderDecideSection(ctx, detail, hooks));
   el.append(
@@ -3207,21 +3250,16 @@ import { h as h7 } from "/_kit/kit.js";
 function trackRecord(r) {
   const parts = [];
   if (r.accepted) parts.push(`${r.accepted} accepted`);
+  if (r.decided_differently)
+    parts.push(`${r.decided_differently} decided differently`);
   if (r.rejected) parts.push(`${r.rejected} rejected`);
   if (r.pending) parts.push(`${r.pending} pending`);
   return parts.join(" · ");
 }
-function rowKicker(row) {
-  const rec = trackRecord(row.record);
-  const head = row.invalid ? "not valid" : `${row.matches} match · ${row.excluded} excluded`;
-  return rec ? `${head} · ${rec}` : head;
-}
-function sameAction(a, b) {
-  return a.disposition === b.disposition && (a.until ?? "") === (b.until ?? "") && (a.note ?? "") === (b.note ?? "");
-}
 function authorOf(createdBy) {
   const i = createdBy.indexOf(":");
   if (i > 0) return { agent: true, name: createdBy.slice(0, i) };
+  if (createdBy === "casebook") return { agent: false, name: "casebook" };
   return { agent: false, name: "you" };
 }
 function reasonSummary(by) {
@@ -3233,41 +3271,14 @@ function matchesHeading(total, by) {
   const why = reasonSummary(by);
   return `matches now · ${total}` + (why ? ` · ${why}` : "");
 }
-function conditionErrorIndex(message4) {
-  const m = /^condition (\d+): /.exec(message4);
+function conditionErrorIndex(message5) {
+  const m = /^condition (\d+): /.exec(message5);
   const n = m ? Number(m[1]) : 0;
   return n >= 1 ? n - 1 : -1;
-}
-function viewCounts(rules) {
-  let active = 0;
-  for (const r of rules) if (r.status === "active") active++;
-  return { all: rules.length, active, drafts: rules.length - active };
-}
-function sameConditions(a, b) {
-  if (a.length !== b.length) return false;
-  return a.every(
-    (c, i) => c.field === b[i].field && c.op === b[i].op && c.value === b[i].value
-  );
-}
-function sameRule(a, b) {
-  const ex = (r) => (r.exclude ?? []).map((x) => `${x.key}\0${x.reason ?? ""}`).join("\n");
-  return a.id === b.id && a.name === b.name && a.status === b.status && a.created_by === b.created_by && a.edited_at === b.edited_at && sameConditions(a.match ?? [], b.match ?? []) && sameAction(a.propose, b.propose) && ex(a) === ex(b);
-}
-function hasKindCondition(conds) {
-  return conds.some((c) => c.field === "kind");
 }
 function orList(words) {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
-}
-function kindHint(conds, allowed, all) {
-  if (hasKindCondition(conds) || !allowed.length) return "";
-  const missing = [...new Set(all)].filter((d) => !allowed.includes(d)).sort();
-  return missing.length ? `add a kind condition to propose ${orList(missing)}` : "";
-}
-function refusedDisposition(d, conds, allowed) {
-  const what = hasKindCondition(conds) ? "what this rule matches" : "every kind of item (the rule has no kind condition)";
-  return `${d} can’t be proposed for ${what} (allowed: ${allowed.join(", ")})`;
 }
 function slug(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
@@ -3344,14 +3355,19 @@ function ruleVocabulary(ctx) {
 function ruleOperators(ctx) {
   return ruleVocabularyView(ctx).then((v) => v.operators ?? []);
 }
-function noteTokens(ctx) {
-  return ruleVocabularyView(ctx).then((v) => v.note_tokens ?? []);
-}
 function picks(f) {
   return f.type === BOOL || f.type === ENUM && (f.values?.length ?? 0) > 0;
 }
 function choices(f) {
   return f.type === BOOL ? ["true", "false"] : f.values ?? [];
+}
+function durationWords(op, v) {
+  const m = /^(\d+)([hdw])$/.exec(v.trim());
+  if (!m) return v;
+  const n = Number(m[1]);
+  const unit = { h: "hour", d: "day", w: "week" }[m[2]];
+  const words = `${n} ${unit}${n === 1 ? "" : "s"}`;
+  return op === "older-than" ? `${words} ago` : words;
 }
 var TYPED = /* @__PURE__ */ new Set(["repo", "owner", "author", "label"]);
 function typed(f) {
@@ -3508,7 +3524,7 @@ function conditionEditor(ctx, rule, onChange) {
   function valueControl(i, f) {
     const c = conds[i];
     if (!editable || !f) {
-      const shown = c.op === "in" || c.op === "not-in" ? pickedValues(c).values.map((v) => valueLabel(f, v)).join(" or ") : valueLabel(f, c.value);
+      const shown = c.op === "in" || c.op === "not-in" ? pickedValues(c).values.map((v) => valueLabel(f, v)).join(" or ") : f?.type === DURATION ? durationWords(c.op, c.value) : valueLabel(f, c.value);
       return h7("span", { class: "cb-cond-v", "data-value": c.value }, shown);
     }
     if (picks(f)) return pickControl(c, f);
@@ -3538,7 +3554,7 @@ function conditionEditor(ctx, rule, onChange) {
       autocomplete: "off",
       "aria-label": `${fieldLabel(f)} value`
     });
-    const list4 = h7("div", {
+    const list3 = h7("div", {
       class: "cb-cond-sugg",
       hidden: true,
       role: "listbox"
@@ -3547,7 +3563,7 @@ function conditionEditor(ctx, rule, onChange) {
       "div",
       { class: "cb-cond-v cb-cond-typed", "data-value": c.value },
       chips,
-      h7("span", { class: "cb-cond-typed-box" }, input, list4)
+      h7("span", { class: "cb-cond-typed-box" }, input, list3)
     );
     let at2 = 0;
     let shown = [];
@@ -3592,7 +3608,7 @@ function conditionEditor(ctx, rule, onChange) {
       );
     }
     function mark() {
-      list4.querySelectorAll(".cb-cond-sugg-row").forEach((r, i) => {
+      list3.querySelectorAll(".cb-cond-sugg-row").forEach((r, i) => {
         r.classList.toggle("on", i === at2);
       });
     }
@@ -3632,7 +3648,7 @@ function conditionEditor(ctx, rule, onChange) {
       shown = [...pats.map((p) => p.value), ...hits.map((x) => x.value)];
       at2 = 0;
       const noun = NOUNS[f.name] ?? "values";
-      list4.replaceChildren(
+      list3.replaceChildren(
         h7(
           "div",
           { class: "cb-cond-sugg-head" },
@@ -3641,13 +3657,13 @@ function conditionEditor(ctx, rule, onChange) {
         ...pats.map((p) => option(p.value, p.count, p.hint, true)),
         ...hits.map((x) => option(x.value, x.count, "", false))
       );
-      list4.hidden = document.activeElement !== input || shown.length === 0;
+      list3.hidden = document.activeElement !== input || shown.length === 0;
       mark();
     }
     input.addEventListener("focus", () => void suggest());
     input.addEventListener("input", () => void suggest());
     input.addEventListener("blur", () => {
-      list4.hidden = true;
+      list3.hidden = true;
     });
     input.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
@@ -3660,12 +3676,12 @@ function conditionEditor(ctx, rule, onChange) {
         e.preventDefault();
         const q = input.value.trim();
         add2(
-          !list4.hidden && shown[at2] && shown[at2] !== q && !shown.includes(q) ? shown[at2] : q
+          !list3.hidden && shown[at2] && shown[at2] !== q && !shown.includes(q) ? shown[at2] : q
         );
-      } else if (e.key === "Escape" && !list4.hidden) {
+      } else if (e.key === "Escape" && !list3.hidden) {
         e.preventDefault();
         e.stopPropagation();
-        list4.hidden = true;
+        list3.hidden = true;
       } else if (e.key === "Backspace" && input.value === "" && values().values.length) {
         set(values().values.slice(0, -1));
       }
@@ -3951,16 +3967,16 @@ function conditionEditor(ctx, rule, onChange) {
   search.addEventListener("input", () => fillMenu());
   search.addEventListener("keydown", (e) => {
     if (e.isComposing) return;
-    const list4 = offered();
-    const at2 = list4.findIndex((r) => r.classList.contains("on"));
+    const list3 = offered();
+    const at2 = list3.findIndex((r) => r.classList.contains("on"));
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      if (!list4.length) return;
+      if (!list3.length) return;
       const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive(list4[(at2 + step + list4.length) % list4.length]);
+      setActive(list3[(at2 + step + list3.length) % list3.length]);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const f = fieldOf(list4[at2]?.dataset.field ?? "");
+      const f = fieldOf(list3[at2]?.dataset.field ?? "");
       if (f) addCondition(f);
     }
   });
@@ -3986,9 +4002,9 @@ function conditionEditor(ctx, rule, onChange) {
   });
   return el;
 }
-function setConditionError(editor, index, message4) {
-  if (message4 === null) errors.delete(editor);
-  else errors.set(editor, { index, message: message4 });
+function setConditionError(editor, index, message5) {
+  if (message5 === null) errors.delete(editor);
+  else errors.set(editor, { index, message: message5 });
   for (const e of editor.querySelectorAll(".cb-cond-err")) {
     e.hidden = true;
     e.textContent = "";
@@ -3996,14 +4012,14 @@ function setConditionError(editor, index, message4) {
   for (const r2 of editor.querySelectorAll(".cb-cond[data-invalid]")) {
     r2.removeAttribute("data-invalid");
   }
-  if (message4 === null) return;
+  if (message5 === null) return;
   const r = editor.querySelector(
     `.cb-cond[data-index="${index}"]`
   );
   const slot = r ? r.querySelector(".cb-cond-err") : editor.querySelector(":scope > .cb-cond-err");
   r?.setAttribute("data-invalid", "");
   if (slot) {
-    slot.textContent = message4;
+    slot.textContent = message5;
     slot.hidden = false;
   }
 }
@@ -4020,32 +4036,32 @@ function menuNav(menu, selector, opener, close) {
   });
   menu.addEventListener("keydown", (e) => {
     if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
-    const list4 = items();
-    if (!list4.length) return;
-    const at2 = list4.indexOf(document.activeElement);
+    const list3 = items();
+    if (!list3.length) return;
+    const at2 = list3.indexOf(document.activeElement);
     let next = -1;
     switch (e.key) {
       case "ArrowDown":
       case "ArrowRight":
-        next = at2 < 0 ? 0 : (at2 + 1) % list4.length;
+        next = at2 < 0 ? 0 : (at2 + 1) % list3.length;
         break;
       case "ArrowUp":
       case "ArrowLeft":
-        next = at2 < 0 ? list4.length - 1 : (at2 - 1 + list4.length) % list4.length;
+        next = at2 < 0 ? list3.length - 1 : (at2 - 1 + list3.length) % list3.length;
         break;
       case "Home":
         next = 0;
         break;
       case "End":
-        next = list4.length - 1;
+        next = list3.length - 1;
         break;
       default:
         return;
     }
     e.preventDefault();
     e.stopPropagation();
-    rove(list4[next]);
-    list4[next].focus();
+    rove(list3[next]);
+    list3[next].focus();
   });
   menu.addEventListener("focusout", (e) => {
     if (menu.hidden) return;
@@ -4100,6 +4116,7 @@ function makeFilterBar(ctx, hooks) {
   const el = h8(
     "div",
     { class: "cb-filters", "aria-label": "saved filters" },
+    h8("span", { class: "cb-bar-label" }, "filters"),
     chipsEl,
     errEl
   );
@@ -4155,6 +4172,7 @@ function makeFilterBar(ctx, hooks) {
       "div",
       { class: "cb-filter-menu", role: "menu", hidden: true },
       item("edit", () => hooks.onEdit(row)),
+      ...hooks.onMakeRule && !row.invalid ? [item("make a rule", () => hooks.onMakeRule?.(row))] : [],
       item("delete", () => void remove(id))
     );
     const onEsc = (e) => {
@@ -4310,396 +4328,452 @@ function filterEditor(ctx, row, hooks) {
   return { el, showError };
 }
 
-// rules.ts
-import {
-  list as list2,
-  h as h9,
-  facts as facts3,
-  buttons as buttons3,
-  card as card3,
-  sheet as sheet3,
-  ApiError as ApiError3
-} from "/_kit/kit.js";
-var HINT_SEP = " · ";
-var PREVIEW_DEBOUNCE_MS = 300;
-var PAGE2 = 200;
-var VIEWS2 = [
-  { id: "all", label: "all" },
-  { id: "active", label: "active" },
-  { id: "drafts", label: "drafts" }
-];
+// rule-editor.ts
+import { h as h9, ApiError as ApiError3 } from "/_kit/kit.js";
+var KINDS = ["repo", "pr", "issue", "branch", "worktree"];
+var OFFERED = (d) => d !== "wait" && d !== "watch";
 function message3(err) {
   return err instanceof Error ? err.message : String(err);
 }
-var isConflict = (err) => err instanceof ApiError3 && err.status === 409;
-function renderRule(ctx, detail, hooks) {
-  const id = detail.rule.id;
-  let saved = detail;
-  let base = detail.rule;
-  let work = [...base.match ?? []];
-  let workPropose = { ...base.propose };
-  let exclude = base.exclude ?? [];
-  let preview = detail.matches;
-  let dispositions = detail.matches.dispositions ?? [];
-  let shown = preview.page ?? [];
-  let invalid = null;
-  let conflict = null;
-  let grouped = false;
-  let seq = 0;
-  let timer = null;
-  let opened = PAGE2;
-  let queue = Promise.resolve();
-  const inTurn = (task) => {
-    const run = queue.then(task);
-    queue = run.catch(() => {
-    });
-    return run;
-  };
-  const doc = h9("article", { class: "cb-rule", "data-rule": id });
-  const el = h9("div", { class: "kit-doc" }, doc);
-  const dirty = () => !sameConditions(work, base.match ?? []) || !sameAction(workPropose, base.propose);
-  const isDraft = () => base.status !== "active";
-  const editable = () => isDraft() || !!saved.invalid;
-  const body = () => ({
-    ...base,
-    match: work,
-    propose: workPropose,
-    exclude
-  });
-  let factsEl = h9("div");
-  let editor = h9("div");
-  const titleEl = h9("h1", { class: "kit-h1" });
-  const kickEl = h9("p", { class: "kit-kick" });
-  const proseEl = h9("p");
-  const invalidEl = h9("div", { "data-testid": "rule-invalid" });
-  const conflictEl = h9("div", { "data-testid": "rule-conflict" });
-  const proposeEl = h9("div");
-  const proposeErrEl = h9("p", {
-    class: "cb-cond-err cb-propose-err",
-    "data-testid": "propose-err",
-    hidden: true
-  });
-  const heading = h9("h3", { class: "kit-label cb-matches-label" });
-  const groupChips = h9("span", { class: "cb-matches-view" });
-  const matchesEl = h9("div", {
-    class: "kit-table cb-matches",
-    "data-testid": "matches"
-  });
-  const actionsEl = h9("div", { class: "cb-rule-actions" });
-  const note = h9("p", { class: "cb-rule-note", role: "status" });
-  function drawFacts() {
-    const who = authorOf(base.created_by);
-    const byEl = h9("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
-    const next = facts3([
-      ["status", saved.invalid ? `${base.status} · not valid` : base.status],
-      ["matches", invalid ? "—" : String(preview.total)],
-      ["excluded", String(exclude.length)],
-      ["by", byEl]
-    ]);
-    factsEl.replaceWith(next);
-    factsEl = next;
+function dispositionLabel(vocab2, types, d) {
+  let best = "";
+  for (const k of types ?? KINDS) {
+    const kv = vocab2?.kinds?.find((x) => x.kind === k);
+    const c = kv?.choices?.find((x) => x.disposition === d);
+    if (c && (!best || c.label.length < best.length)) best = c.label;
   }
-  function drawProse() {
-    const who = authorOf(base.created_by);
-    const lifecycle2 = "Once active, casebook proposes new matches after every sync, and never overrides an item that’s already decided.";
-    if (!isDraft()) {
-      proseEl.replaceChildren(
-        "Active: casebook proposes new matches after every sync, and never overrides an item that’s already decided."
-      );
-    } else if (who.agent) {
-      proseEl.replaceChildren(
-        h9("span", { class: "cb-by-agent" }, who.name),
-        " drafted this rule. It proposes nothing until you activate it, and only you can. ",
-        lifecycle2
-      );
-    } else {
-      proseEl.replaceChildren(
-        "A draft proposes nothing until you activate it. ",
-        lifecycle2
-      );
-    }
-  }
-  function drawInvalid() {
-    if (!saved.invalid) {
-      invalidEl.replaceChildren();
-      return;
-    }
-    const skipped = base.status === "active";
-    invalidEl.replaceChildren(
-      card3({
-        edge: "signal",
-        head: skipped ? "not valid · active, but skipped at every sync" : "not valid",
-        body: h9(
-          "div",
-          null,
-          h9("p", { class: "cb-invalid-msg" }, saved.invalid),
-          h9(
-            "p",
-            { class: "cb-invalid-help" },
-            skipped ? "casebook proposes nothing from this rule until it is valid. Fix it and save it (it becomes a draft), or deactivate it." : "It can’t be activated or propose anything until it is valid."
-          )
-        )
-      })
-    );
-  }
-  function drawPropose() {
-    const p = workPropose;
-    if (editable() && refreshPropose) {
-      refreshPropose();
-      return;
-    }
-    refreshPropose = null;
-    const tr = (label, value) => h9(
-      "div",
-      { class: "kit-tr" },
-      h9("span", { class: "cb-cond-f" }, label),
-      h9("span"),
-      value
-    );
-    if (!editable()) {
-      drawChoices = () => {
-      };
-      proposeEl.replaceChildren(
-        h9(
-          "div",
-          { class: "kit-table cb-propose", "data-testid": "propose" },
-          tr(
-            "disposition",
-            h9(
-              "span",
-              {
-                class: "cb-cond-v" + (DANGER_DISPS.has(p.disposition) ? " cb-danger" : "")
-              },
-              p.disposition
-            )
-          ),
-          p.until ? tr("until", h9("span", { class: "cb-cond-v" }, p.until)) : null,
-          p.note ? tr("note", h9("span", { class: "cb-cond-v" }, p.note)) : null
-        )
-      );
-      return;
-    }
-    const pick = h9("button", {
-      type: "button",
-      class: "cb-cond-v cb-disp",
-      "aria-label": "disposition",
-      "aria-haspopup": "menu",
-      "aria-expanded": "false",
-      onclick() {
-        setMenu(menu.hidden);
-      }
-    });
-    const menu = h9("div", {
-      class: "cb-disp-menu",
-      role: "menu",
-      "aria-label": "dispositions",
-      hidden: true
-    });
-    const menuChips = h9("span", { class: "cb-disp-opts" });
-    const whyEl = h9("span", {
-      class: "cb-disp-why",
-      "data-testid": "disp-why"
-    });
-    menu.append(
-      h9("span"),
-      h9("span"),
-      h9("span", { class: "cb-disp-col" }, menuChips, whyEl)
-    );
-    menuNav(menu, ".cb-disp-opt", pick, () => {
-      if (!redrawing) setMenu(false);
-    });
-    const onEsc = (e) => {
-      if (e.key !== "Escape" || e.isComposing) return;
-      if (!menu.isConnected) {
-        document.removeEventListener("keydown", onEsc, true);
-        return;
-      }
-      e.preventDefault();
+  return best || d;
+}
+function ruleMenu(row, hooks) {
+  const id = row.rule.id;
+  const off = row.rule.status !== "active";
+  const more = h9("button", {
+    type: "button",
+    class: "cb-filter-more cb-rule-more",
+    "aria-label": `${row.rule.name || id}: edit, turn ${off ? "on" : "off"}`,
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    onclick(e) {
       e.stopPropagation();
-      setMenu(false);
-      pick.focus();
-    };
-    function setMenu(open) {
-      menu.hidden = !open;
-      pick.setAttribute("aria-expanded", String(open));
-      if (open) {
-        document.addEventListener("keydown", onEsc, true);
-        (menu.querySelector(".cb-disp-opt.on") ?? menu.querySelector(".cb-disp-opt"))?.focus();
-      } else {
-        document.removeEventListener("keydown", onEsc, true);
-      }
+      setMenu(menu.hidden);
     }
-    const needsUntil = () => !!workPropose.until || /^(wait|watch)$/.test(workPropose.disposition);
-    const choose = (d) => {
-      workPropose = { ...workPropose, disposition: d };
-      setMenu(false);
-      drawChoices();
-      untilRow.hidden = untilHint.hidden = !needsUntil();
-      edited();
-      pick.focus();
-    };
-    let chipsFor = "";
-    drawChoices = () => {
-      const cur = workPropose.disposition;
-      pick.textContent = cur || "choose…";
-      pick.dataset.value = cur;
-      pick.classList.toggle("cb-danger", DANGER_DISPS.has(cur));
-      whyEl.textContent = kindHint(work, dispositions, allDispositions);
-      drawProposeErr();
-      const sig = `${cur}
-${dispositions.join(" ")}`;
-      if (sig === chipsFor) return;
-      chipsFor = sig;
-      const have = new Map(
-        [...menuChips.querySelectorAll(".cb-disp-opt")].map(
-          (e) => [e.dataset.disp ?? "", e]
-        )
-      );
-      const chips = dispositions.map((d) => {
-        const chip = have.get(d) ?? h9(
+  });
+  more.textContent = "⋯";
+  const item = (label, run) => h9(
+    "button",
+    {
+      type: "button",
+      class: "cb-filter-menu-item",
+      role: "menuitem",
+      "data-act": label,
+      onclick(e) {
+        e.stopPropagation();
+        setMenu(false);
+        run();
+      }
+    },
+    label
+  );
+  const menu = h9(
+    "div",
+    { class: "cb-filter-menu", role: "menu", hidden: true },
+    item("edit", () => hooks.onEdit()),
+    item(off ? "turn on" : "turn off", () => hooks.onToggle())
+  );
+  const onEsc = (e) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu(false);
+    more.focus();
+  };
+  const onAway = (e) => {
+    if (!wrap.contains(e.target)) setMenu(false);
+  };
+  function setMenu(open) {
+    menu.hidden = !open;
+    more.setAttribute("aria-expanded", String(open));
+    if (open) {
+      document.addEventListener("keydown", onEsc, true);
+      document.addEventListener("mousedown", onAway, true);
+      menu.querySelector(".cb-filter-menu-item")?.focus();
+    } else {
+      document.removeEventListener("keydown", onEsc, true);
+      document.removeEventListener("mousedown", onAway, true);
+    }
+  }
+  menuNav(menu, ".cb-filter-menu-item", more, () => setMenu(false));
+  const wrap = h9(
+    "span",
+    { class: "cb-filter-item cb-rule-menu", "data-id": id },
+    more,
+    menu
+  );
+  return wrap;
+}
+async function toggleRule(ctx, row) {
+  const off = row.rule.status !== "active";
+  await ctx.api.post(off ? "/rules/activate" : "/rules/deactivate", {
+    id: row.rule.id
+  });
+}
+function makeRuleRow(_ctx, hooks) {
+  const addBtn = h9(
+    "button",
+    {
+      type: "button",
+      class: "kit-chip cb-filter-add",
+      "data-testid": "new-rule",
+      onclick() {
+        hooks.onNew();
+      }
+    },
+    "+ rule"
+  );
+  const listBtn = h9(
+    "button",
+    {
+      type: "button",
+      class: "kit-chip cb-rules-n",
+      "data-testid": "rules-n",
+      onclick() {
+        hooks.onList();
+      }
+    },
+    "rules 0"
+  );
+  const el = h9(
+    "div",
+    { class: "kit-chips cb-rule-row", "aria-label": "rules" },
+    addBtn,
+    listBtn
+  );
+  return {
+    el,
+    paint(rows) {
+      listBtn.textContent = `rules ${rows.length}`;
+    }
+  };
+}
+function ruleEditor(ctx, row, seed, hooks) {
+  let match = (row?.rule.match ?? seed?.match ?? []).map((c) => ({
+    ...c
+  }));
+  let disposition = row?.rule.propose.disposition ?? "";
+  let vocab2 = null;
+  let offered = [];
+  let kinds = null;
+  let seq = 0;
+  const dispEl = h9("span", {
+    class: "cb-cond-picks cb-rule-disps",
+    role: "group",
+    "aria-label": "what it proposes"
+  });
+  const note = h9("input", {
+    class: "cb-filter-name cb-rule-propose-note",
+    type: "text",
+    placeholder: "note, e.g. landed {how}; nothing unpushed",
+    "aria-label": "note"
+  });
+  note.value = row?.rule.propose.note ?? "";
+  const proposeErr = h9("p", { class: "cb-filter-name-err", hidden: true });
+  function paintDisps() {
+    const types = kinds ?? typesOf(match, KINDS);
+    dispEl.replaceChildren(
+      ...offered.map(
+        (d) => h9(
           "button",
           {
             type: "button",
-            role: "menuitemradio",
-            "data-disp": d,
+            class: "kit-chip cb-cond-pick" + (d === disposition ? " on" : "") + (DANGER_DISPS.has(d) ? " cb-rule-danger" : ""),
+            "data-value": d,
+            "aria-pressed": String(d === disposition),
             onclick() {
-              choose(d);
+              disposition = d;
+              proposeErr.hidden = true;
+              paintDisps();
             }
           },
-          d
-        );
-        chip.setAttribute("aria-checked", String(d === cur));
-        chip.className = "kit-chip cb-disp-opt" + (d === cur ? " on" : "") + (DANGER_DISPS.has(d) ? " cb-danger" : "");
-        return chip;
-      });
-      const focused = document.activeElement;
-      if (focused instanceof HTMLElement && menuChips.contains(focused) && !chips.includes(focused)) {
-        (chips.find((c) => c.classList.contains("on")) ?? chips[0] ?? pick).focus();
-      }
-      keepFocus(() => {
-        for (const [d, chip] of have) {
-          if (!chips.includes(chip)) {
-            have.delete(d);
-            chip.remove();
-          }
-        }
-        chips.forEach((chip, i) => {
-          const at2 = menuChips.children[i];
-          if (at2 !== chip) menuChips.insertBefore(chip, at2 ?? null);
-        });
-      });
-    };
-    const text = (field, placeholder2) => {
-      const input = h9("input", {
-        class: "cb-cond-v",
-        type: "text",
-        value: p[field] ?? "",
-        placeholder: placeholder2,
-        spellcheck: false,
-        "aria-label": field
-      });
-      input.addEventListener("input", () => {
-        const v = input.value;
-        workPropose = { ...workPropose, [field]: v || void 0 };
-        drawProposeErr();
-        edited();
-      });
-      return input;
-    };
-    const hint = (testid) => h9(
-      "div",
-      { class: "cb-prop-hint", "data-testid": testid },
-      h9("span"),
-      h9("span"),
-      h9("span", { class: "cb-prop-hint-t" })
+          dispositionLabel(vocab2, types, d)
+        )
+      )
     );
-    const untilIn = text("until", "");
-    const untilRow = tr("until", untilIn);
-    const untilHint = hint("until-hint");
-    untilRow.hidden = untilHint.hidden = !needsUntil();
-    const noteIn = text("note", "optional");
-    const noteHint = hint("note-hint");
-    const items = (el2, lead, words) => {
-      const out = [];
-      words.forEach((w, i) => {
-        if (i) out.push(HINT_SEP);
-        out.push(h9("span", { class: "cb-prop-hint-i" }, w));
+    if (!offered.length) {
+      dispEl.append(
+        h9(
+          "span",
+          { class: "cb-rule-hint" },
+          "add a condition to see what it can propose"
+        )
+      );
+    }
+  }
+  async function refreshOffered() {
+    const mine = ++seq;
+    const done = match.filter((c) => c.value.trim() !== "");
+    if (!done.length) {
+      offered = [];
+      paintDisps();
+      return;
+    }
+    try {
+      const p = await ctx.api.post("/rules/preview?limit=0", {
+        match: done
       });
-      el2.lastElementChild.replaceChildren(
-        ...words.length ? [lead, ...out] : []
+      if (mine !== seq) return;
+      offered = (p.dispositions ?? []).filter(
+        (d) => OFFERED(d) || d === row?.rule.propose.disposition
       );
-    };
-    void getVocab(ctx).then((v) => {
-      allDispositions = (v.kinds ?? []).flatMap((k) => k.allowed ?? []);
-      drawChoices();
-      const forms = v.until_forms ?? [];
-      if (forms[0]) untilIn.placeholder = `e.g. ${forms[0].example}`;
-      items(
-        untilHint,
-        "",
-        forms.map((f) => f.syntax)
+      kinds = p.kinds ?? null;
+      if (disposition && !offered.includes(disposition)) disposition = "";
+      paintDisps();
+    } catch {
+    }
+  }
+  const editor = conditionEditor(
+    ctx,
+    { match, status: "draft" },
+    (m) => {
+      match = m;
+      hooks.onDraft(match);
+      void refreshOffered();
+    }
+  );
+  if (row?.invalid) {
+    setConditionError(editor, conditionErrorIndex(row.invalid), row.invalid);
+  }
+  const name = h9("input", {
+    class: "cb-filter-name",
+    type: "text",
+    placeholder: "name",
+    "aria-label": "rule name",
+    onkeydown(e) {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        void save();
+      }
+    }
+  });
+  name.value = row?.rule.name ?? seed?.name ?? "";
+  const nameErr = h9("p", { class: "cb-filter-name-err", hidden: true });
+  const showNameError = (msg) => {
+    nameErr.hidden = msg === null;
+    nameErr.textContent = msg ?? "";
+  };
+  function showError(err) {
+    if (err === null) {
+      if (!row?.invalid || match.length) setConditionError(editor, -1, null);
+      return;
+    }
+    const msg = message3(err);
+    setConditionError(editor, conditionErrorIndex(msg), msg);
+  }
+  async function save() {
+    const n = name.value.trim();
+    const id = row ? row.rule.id : slug(n);
+    showNameError(null);
+    proposeErr.hidden = true;
+    if (!disposition) {
+      proposeErr.textContent = "choose what the rule proposes";
+      proposeErr.hidden = false;
+      return;
+    }
+    const until = row && disposition === row.rule.propose.disposition ? row.rule.propose.until : void 0;
+    try {
+      await ctx.api.post(
+        row ? `/rules/save${version ? `?version=${encodeURIComponent(version)}` : ""}` : "/rules/save?create=1",
+        {
+          id,
+          name: n,
+          match,
+          propose: { disposition, note: note.value.trim(), until }
+        }
       );
-    }).catch(() => {
-    });
-    void noteTokens(ctx).then((ts) => {
-      items(
-        noteHint,
-        "may use ",
-        ts.map((t) => `${t.token} ${t.meaning}`)
-      );
-    }).catch(() => {
-    });
-    refreshPropose = () => {
-      untilIn.value = workPropose.until ?? "";
-      noteIn.value = workPropose.note ?? "";
-      untilRow.hidden = untilHint.hidden = !needsUntil();
-      drawChoices();
-    };
-    proposeEl.replaceChildren(
+      hooks.onSaved(id);
+    } catch (err) {
+      const msg = message3(err);
+      if (err instanceof ApiError3 && err.status === 409) {
+        showNameError(msg);
+        return;
+      }
+      const i = conditionErrorIndex(msg);
+      if (i < 0 && /name|rule id/.test(msg)) {
+        showNameError(msg);
+        return;
+      }
+      if (i < 0 && /propose|disposition/.test(msg)) {
+        proposeErr.textContent = msg;
+        proposeErr.hidden = false;
+        return;
+      }
+      setConditionError(editor, i, msg);
+    }
+  }
+  const el = h9(
+    "div",
+    { class: "kit-doc" },
+    h9(
+      "article",
+      { class: "cb-filter-edit", "data-testid": "rule-editor" },
+      h9(
+        "h1",
+        { class: "kit-h1 cb-filter-title" },
+        row ? `edit ${row.rule.name || row.rule.id}` : "new rule"
+      ),
       h9(
         "div",
-        { class: "kit-table cb-propose", "data-testid": "propose" },
-        tr("disposition", pick),
-        menu,
-        untilRow,
-        untilHint,
-        tr("note", noteIn),
-        noteHint
+        { class: "cb-filter-acts" },
+        name,
+        h9(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn fill cb-filter-save",
+            onclick() {
+              void save();
+            }
+          },
+          "save"
+        ),
+        h9(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn cb-filter-cancel",
+            onclick() {
+              hooks.onCancel();
+            }
+          },
+          "cancel"
+        )
       ),
-      proposeErrEl
+      nameErr,
+      h9(
+        "div",
+        { class: "cb-rule-propose" },
+        h9("span", { class: "cb-rule-propose-l" }, "propose"),
+        dispEl,
+        note
+      ),
+      proposeErr,
+      h9(
+        "p",
+        { class: "cb-rule-hint" },
+        "Saving turns it on: matching items get this recommendation now and after every sync. Nothing is decided until you accept it."
+      ),
+      editor
+    )
+  );
+  void getVocab(ctx).then((v) => {
+    vocab2 = v;
+    paintDisps();
+  });
+  void refreshOffered();
+  let version = "";
+  if (row)
+    void ctx.api.get("/rule", { id: row.rule.id }).then((d) => {
+      version = d.version;
+    }).catch(() => {
+    });
+  return { el, showError };
+}
+
+// rules.ts
+import { h as h10, facts as facts3, buttons as buttons3, card as card3, sheet as sheet3 } from "/_kit/kit.js";
+var PREVIEW_DEBOUNCE_MS = 300;
+var PAGE2 = 200;
+function message4(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+function renderRule(ctx, detail, hooks) {
+  const rule = detail.rule;
+  const id = rule.id;
+  const off = rule.status !== "active";
+  let exclude = rule.exclude ?? [];
+  let preview = detail.matches;
+  let shown = preview.page ?? [];
+  let grouped = false;
+  let seq = 0;
+  const doc = h10("article", {
+    class: "cb-rule",
+    "data-rule": id,
+    "data-status": rule.status
+  });
+  doc.toggleAttribute("data-invalid", !!detail.invalid);
+  const el = h10("div", { class: "kit-doc" }, doc);
+  let factsEl = h10("div");
+  const heading = h10("h3", { class: "kit-label cb-matches-label" });
+  const groupChips = h10("span", { class: "cb-matches-view" });
+  const matchesEl = h10("div", {
+    class: "kit-table cb-matches",
+    "data-testid": "matches"
+  });
+  const note = h10("p", { class: "cb-rule-note", role: "status" });
+  function drawFacts() {
+    const who = authorOf(rule.created_by);
+    const byEl = h10("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
+    const rows = [
+      [
+        "status",
+        `${off ? "off" : "on"}${detail.invalid ? " · not valid" : ""}`
+      ],
+      ["matches", String(preview.total)],
+      ["excluded", String(exclude.length)],
+      ["by", byEl]
+    ];
+    const rec = trackRecord(detail.record);
+    if (rec) rows.push(["record", rec]);
+    const next = facts3(rows);
+    factsEl.replaceWith(next);
+    factsEl = next;
+  }
+  const invalidEl = detail.invalid ? card3({
+    edge: "signal",
+    head: "not valid",
+    body: h10(
+      "div",
+      null,
+      h10("p", { class: "cb-invalid-msg" }, detail.invalid),
+      h10(
+        "p",
+        { class: "cb-invalid-help" },
+        "casebook recommends nothing from this rule until it is valid. Edit it to fix it."
+      )
+    )
+  }) : h10("div");
+  const p = rule.propose;
+  const tr = (label, value) => h10(
+    "div",
+    { class: "kit-tr" },
+    h10("span", { class: "cb-cond-f" }, label),
+    h10("span"),
+    value
+  );
+  const dispEl = h10(
+    "span",
+    {
+      class: "cb-cond-v cb-disp-ro" + (DANGER_DISPS.has(p.disposition) ? " cb-danger" : ""),
+      "data-value": p.disposition
+    },
+    p.disposition
+  );
+  void getVocab(ctx).then((vocab2) => {
+    dispEl.textContent = dispositionLabel(
+      vocab2,
+      preview.kinds ?? null,
+      p.disposition
     );
-    drawChoices();
-  }
-  let drawChoices = () => {
-  };
-  let refreshPropose = null;
-  let redrawing = false;
-  function keepFocus(redraw) {
-    const focused = document.activeElement;
-    redrawing = true;
-    try {
-      redraw();
-    } finally {
-      redrawing = false;
-    }
-    if (focused instanceof HTMLElement && focused !== document.activeElement && focused.isConnected) {
-      focused.focus();
-    }
-  }
-  let allDispositions = [];
-  function drawProposeErr() {
-    let msg = "";
-    const d = workPropose.disposition;
-    if (saved.invalid?.startsWith("propose:") && sameAction(workPropose, base.propose) && sameConditions(work, base.match ?? [])) {
-      msg = saved.invalid;
-    } else if (d && dispositions.length && !dispositions.includes(d)) {
-      msg = refusedDisposition(d, work, dispositions);
-    }
-    proposeErrEl.textContent = msg;
-    proposeErrEl.hidden = !msg;
-  }
+  }).catch(() => {
+  });
+  const proposeEl = h10(
+    "div",
+    { class: "kit-table cb-propose", "data-testid": "propose" },
+    tr("decision", dispEl),
+    p.until ? tr("until", h10("span", { class: "cb-cond-v" }, p.until)) : null,
+    p.note ? tr("note", h10("span", { class: "cb-cond-v" }, p.note)) : null
+  );
   function box(on, label, run) {
-    return h9("span", {
+    return h10("span", {
       class: "kit-box",
       role: "checkbox",
       tabindex: 0,
@@ -4719,21 +4793,21 @@ ${dispositions.join(" ")}`;
   }
   function matchRow(m) {
     const why = m.reason === "matched" ? m.title || m.status : m.reason.toLowerCase();
-    return h9(
+    return h10(
       "div",
       { class: "cb-mr on", "data-key": m.key, title: m.title || m.key },
       box(true, `exclude ${m.key}`, () => untick(m.key)),
-      h9("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
-      h9("span", { class: "cb-mr-w" }, why)
+      h10("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
+      h10("span", { class: "cb-mr-w" }, why)
     );
   }
   function excludedRow(x) {
-    return h9(
+    return h10(
       "div",
       { class: "cb-mr x", "data-key": x.key },
       box(false, `include ${x.key}`, () => void include(x.key)),
-      h9("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
-      h9(
+      h10("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
+      h10(
         "span",
         { class: "cb-mr-w" },
         x.reason ? `excluded · ${x.reason}` : "excluded"
@@ -4741,27 +4815,16 @@ ${dispositions.join(" ")}`;
     );
   }
   function waitRow(text) {
-    return h9(
+    return h10(
       "div",
       { class: "cb-mr cb-mr-wait" },
-      h9("span"),
-      h9("span", { class: "cb-mr-k" }, text),
-      h9("span")
+      h10("span"),
+      h10("span", { class: "cb-mr-k" }, text),
+      h10("span")
     );
   }
   function drawMatches() {
-    matchesEl.removeAttribute("data-invalid");
-    if (invalid) {
-      heading.textContent = "matches now";
-      matchesEl.setAttribute("data-invalid", "");
-      matchesEl.replaceChildren(
-        waitRow("not previewed: the conditions aren’t valid")
-      );
-      groupChips.hidden = true;
-      return;
-    }
     heading.textContent = matchesHeading(preview.total, preview.by_reason);
-    groupChips.hidden = false;
     const out = [];
     if (grouped) {
       const rest = [...shown];
@@ -4770,11 +4833,11 @@ ${dispositions.join(" ")}`;
         for (const m of mine) rest.splice(rest.indexOf(m), 1);
         const why = reasonSummary(g.reasons);
         out.push(
-          h9(
+          h10(
             "div",
             { class: "cb-mgroup", "data-repo": g.repo },
-            h9("span", { class: "cb-mgroup-repo" }, g.repo),
-            h9(
+            h10("span", { class: "cb-mgroup-repo" }, g.repo),
+            h10(
               "span",
               { class: "cb-mr-w" },
               String(g.count) + (why ? ` · ${why}` : "")
@@ -4791,12 +4854,12 @@ ${dispositions.join(" ")}`;
     const more = preview.total - shown.length;
     if (more > 0) {
       out.push(
-        h9(
+        h10(
           "div",
           { class: "cb-mr cb-mr-more" },
-          h9("span"),
-          h9("span", { class: "cb-mr-k" }, `… ${more} more`),
-          h9(
+          h10("span"),
+          h10("span", { class: "cb-mr-k" }, `… ${more} more`),
+          h10(
             "button",
             {
               type: "button",
@@ -4814,7 +4877,7 @@ ${dispositions.join(" ")}`;
     matchesEl.replaceChildren(...out);
   }
   function drawGroupChips() {
-    const chip = (label, on) => h9(
+    const chip = (label, on) => h10(
       "button",
       {
         type: "button",
@@ -4833,91 +4896,39 @@ ${dispositions.join(" ")}`;
       chip("by repo", grouped)
     );
   }
-  function setPreview(p) {
-    invalid = null;
-    setConditionError(editor, -1, null);
-    preview = p;
-    shown = p.page ?? [];
-    if (p.dispositions) dispositions = p.dispositions;
-    drawChoices();
-    drawMatches();
-    drawFacts();
-  }
-  function setInvalid(msg) {
-    invalid = msg;
-    setConditionError(editor, conditionErrorIndex(msg), msg);
-    drawMatches();
-    drawFacts();
-  }
-  async function previewNow(depth = PAGE2) {
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    const mine = ++seq;
-    opened = depth;
-    try {
-      const b = body();
-      const p = await ctx.api.post("/rules/preview", b);
-      let rows = p.page ?? [];
-      while (rows.length < Math.min(Math.max(depth, opened), p.total)) {
-        const next = await ctx.api.post(
-          `/rules/preview?offset=${rows.length}&limit=${PAGE2}`,
-          b
-        );
-        if (mine !== seq || !(next.page ?? []).length) break;
-        rows = [...rows, ...next.page ?? []];
-      }
-      if (mine === seq) setPreview({ ...p, page: rows });
-    } catch (err) {
-      if (mine !== seq) return;
-      if (err instanceof ApiError3 && err.status === 400)
-        setInvalid(err.message);
-      else note.textContent = `preview failed: ${message3(err)}`;
-    }
-  }
-  function schedule(keepDepth = false) {
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      void previewNow(keepDepth ? Math.max(PAGE2, opened, shown.length) : PAGE2);
-    }, PREVIEW_DEBOUNCE_MS);
-  }
   async function loadMore() {
     const from = shown.length;
-    const q = `?offset=${from}&limit=${PAGE2}`;
-    opened = Math.max(opened, from + PAGE2);
     const mine = seq;
     try {
-      const p = await ctx.api.post(`/rules/preview${q}`, body());
+      const p2 = await ctx.api.post(
+        `/rules/preview?offset=${from}&limit=${PAGE2}`,
+        { ...rule, exclude }
+      );
       if (mine !== seq || shown.length !== from) return;
-      shown = [...shown, ...p.page ?? []];
-      preview = { ...p, page: shown };
+      shown = [...shown, ...p2.page ?? []];
+      preview = { ...p2, page: shown };
       drawMatches();
     } catch (err) {
-      note.textContent = `more matches failed: ${message3(err)}`;
+      note.textContent = `more matches failed: ${message4(err)}`;
     }
   }
   function applyExclusions(d) {
+    seq++;
     exclude = d.rule.exclude ?? [];
-    base = { ...base, exclude };
-    if (dirty() || invalid) {
-      void previewNow(Math.max(PAGE2, opened, shown.length));
-    } else {
-      seq++;
-      opened = PAGE2;
-      setPreview(d.matches);
-    }
+    preview = d.matches;
+    shown = preview.page ?? [];
+    drawMatches();
     drawFacts();
+    hooks.onChanged?.();
   }
   function untick(key) {
-    const reason = h9("input", {
+    const reason = h10("input", {
       class: "kit-note",
       type: "text",
       placeholder: "reason (optional)",
       "aria-label": "reason"
     });
-    const err = h9("p", { class: "cb-sheet-err", hidden: true });
+    const err = h10("p", { class: "cb-sheet-err", hidden: true });
     let sending = false;
     const go2 = async () => {
       if (sending) return;
@@ -4930,9 +4941,8 @@ ${dispositions.join(" ")}`;
         });
         sh.close();
         applyExclusions(d);
-        hooks.saved();
       } catch (e) {
-        err.textContent = message3(e);
+        err.textContent = message4(e);
         err.hidden = false;
         sending = false;
       }
@@ -4945,18 +4955,18 @@ ${dispositions.join(" ")}`;
     });
     const sh = sheet3({
       title: `exclude ${keyWithoutKind(key)}`,
-      body: h9(
+      body: h10(
         "div",
         { class: "cb-sheet-body" },
-        h9(
+        h10(
           "p",
           { class: "cb-sheet-preview" },
           "This rule skips it from now on. It stays listed here, unticked."
         ),
-        h9(
+        h10(
           "div",
           { class: "cb-sheet-row" },
-          h9("label", { class: "cb-sheet-label" }, "reason"),
+          h10("label", { class: "cb-sheet-label" }, "reason"),
           reason
         ),
         err
@@ -4976,695 +4986,137 @@ ${dispositions.join(" ")}`;
         key
       });
       applyExclusions(d);
-      hooks.saved();
     } catch (err) {
-      note.textContent = `not included: ${message3(err)}`;
+      note.textContent = `not included: ${message4(err)}`;
     }
   }
-  function drawConflict() {
-    if (!conflict) {
-      conflictEl.replaceChildren();
-      return;
-    }
-    const theirs = conflict.detail.rule;
-    const who = conflict.by ? authorOf(conflict.by).name : "";
-    const p = theirs.propose;
-    const theirsBody = h9(
-      "div",
-      null,
-      h9(
-        "p",
-        { class: "cb-conflict-help" },
-        "Your edits are kept below and not saved. Serve’s copy now:"
-      ),
-      theirs.name !== base.name ? h9("p", { class: "cb-conflict-name" }, theirs.name) : null,
-      conditionEditor(
-        ctx,
-        { match: theirs.match, status: "active", editable: false },
-        () => {
-        }
-      ),
-      h9(
-        "div",
-        { class: "kit-table cb-propose" },
-        h9(
-          "div",
-          { class: "kit-tr" },
-          h9("span", { class: "cb-cond-f" }, "disposition"),
-          h9("span"),
-          h9(
-            "span",
-            {
-              class: "cb-cond-v" + (DANGER_DISPS.has(p.disposition) ? " cb-danger" : ""),
-              "data-testid": "conflict-disposition"
-            },
-            p.disposition
-          )
-        ),
-        p.until ? h9(
-          "div",
-          { class: "kit-tr" },
-          h9("span", { class: "cb-cond-f" }, "until"),
-          h9("span"),
-          h9("span", { class: "cb-cond-v" }, p.until)
-        ) : null,
-        p.note ? h9(
-          "div",
-          { class: "kit-tr" },
-          h9("span", { class: "cb-cond-f" }, "note"),
-          h9("span"),
-          h9("span", { class: "cb-cond-v" }, p.note)
-        ) : null
-      ),
-      h9("p", { class: "cb-conflict-note", role: "status" })
-    );
-    conflictEl.replaceChildren(
-      card3({
-        edge: "signal",
-        head: who ? `changed while you were editing · by ${who}` : "changed while you were editing",
-        body: theirsBody,
-        actions: [
-          {
-            label: "reload theirs",
-            run() {
-              const d = conflict.detail;
-              conflict = null;
-              draw(d);
-            }
-          },
-          {
-            label: "keep mine",
-            run() {
-              const d = conflict.detail;
-              conflict = null;
-              draw(d, { match: work, propose: workPropose });
-            }
-          }
-        ]
-      })
-    );
-  }
-  function refuseActivate() {
-    const n = conflictEl.querySelector(".cb-conflict-note");
-    if (n) {
-      n.textContent = "Activate waits: reload their copy, or keep yours over it, first.";
-    }
-    conflictEl.scrollIntoView?.({ block: "nearest" });
-  }
-  function refuseInvalid() {
-    note.textContent = "not activated: fix what’s marked above";
-    invalidEl.scrollIntoView?.({ block: "nearest" });
-  }
-  async function afterConflict(what) {
-    try {
-      const d = await ctx.api.get("/rule", { id });
-      if (dirty()) {
-        conflict = { detail: d, by: "" };
-        drawConflict();
-        drawActions();
-        hooks.primaryChanged();
-      } else {
-        draw(d);
-        note.textContent = `It changed before you ${what} it; nothing was ${what}. Here is serve’s copy.`;
-      }
-    } catch (err) {
-      note.textContent = message3(err);
-    }
-  }
-  function saysWhatHeEdited(r) {
-    return sameConditions(r.match ?? [], work) && sameAction(r.propose, workPropose);
-  }
-  function settle(d) {
-    conflict = null;
-    if (d) {
-      draw(d);
-      return;
-    }
-    drawConflict();
-    drawActions();
-    hooks.primaryChanged();
-  }
-  async function save() {
-    if (conflict) {
-      refuseActivate();
-      return false;
-    }
-    const sentMatch = work.map((c) => ({ ...c }));
-    const sentPropose = { ...workPropose };
-    try {
-      const d = await ctx.api.post(
-        `/rules/draft?version=${encodeURIComponent(saved.version)}`,
-        { ...body(), match: sentMatch, propose: sentPropose }
-      );
-      const later = !sameConditions(work, sentMatch) || !sameAction(workPropose, sentPropose);
-      draw(d, later ? { match: work, propose: workPropose } : void 0);
-      hooks.saved();
-      if (conflict) {
-        const { detail: newer, by } = conflict;
-        settle(newer);
-        const who = by ? authorOf(by).name : "someone";
-        note.textContent = `Saved; then ${who} changed it. Here is serve’s copy; nothing else was done.`;
-        return false;
-      }
-      return true;
-    } catch (err) {
-      if (isConflict(err)) void afterConflict("saved");
-      else if (err instanceof ApiError3 && err.status === 400) {
-        if (conditionErrorIndex(err.message) >= 0) setInvalid(err.message);
-        else note.textContent = err.message;
-      } else note.textContent = `not saved: ${message3(err)}`;
-      return false;
-    }
-  }
-  function lifecycle(verb) {
-    return inTurn(() => lifecycleNow(verb));
-  }
-  async function lifecycleNow(verb) {
-    if (verb === "deactivate" && isDraft()) return;
-    if (verb === "activate" && !isDraft() && !dirty()) return;
-    if (verb === "activate" && conflict) {
-      refuseActivate();
-      return;
-    }
-    if (verb === "activate" && saved.invalid && !dirty()) {
-      refuseInvalid();
-      return;
-    }
-    try {
-      if (verb === "activate" && dirty() && !await save()) return;
-      if (verb === "activate" && saved.invalid) {
-        refuseInvalid();
-        return;
-      }
-      const d = await ctx.api.post(
-        `/rules/${verb}`,
-        verb === "activate" ? { id, version: saved.version } : { id }
-      );
-      draw(d);
-      hooks.saved();
-    } catch (err) {
-      if (isConflict(err)) void afterConflict(`${verb}d`);
-      else note.textContent = `not ${verb}d: ${message3(err)}`;
-    }
-  }
-  function proposeOnce() {
-    return inTurn(proposeOnceNow);
-  }
-  async function proposeOnceNow() {
-    try {
-      if (dirty() && !await save()) return;
-      const r = await ctx.api.post("/rules/propose-once", {
-        id
-      });
-      note.replaceChildren(
-        `${pluralize(r.proposed, "match", "matches")} proposed · `,
-        h9(
-          "button",
-          {
-            type: "button",
-            class: "cb-link",
-            onclick() {
-              ctx.route.go("attention", "proposed");
-            }
-          },
-          "see them in attention"
-        )
-      );
-      hooks.saved();
-    } catch (err) {
-      note.textContent = `not proposed: ${message3(err)}`;
-    }
-  }
-  function drawActions() {
-    const bs = [];
-    if (editable() && dirty()) {
-      bs.push({
-        label: isDraft() ? "save draft" : "save as draft",
-        run: () => void save()
-      });
-    }
-    if (isDraft() && !saved.invalid) {
-      bs.push({ label: "propose once", run: () => void proposeOnce() });
-    }
-    actionsEl.replaceChildren(bs.length ? buttons3(bs) : "", note);
-  }
-  function edited() {
-    note.textContent = "";
-    if (conflict && (!dirty() || saysWhatHeEdited(conflict.detail.rule))) {
-      settle(conflict.detail);
-      return;
-    }
-    drawActions();
-    hooks.primaryChanged();
-  }
-  function onEdit(m) {
-    work = m;
-    schedule();
-    edited();
-  }
-  function draw(d, keep) {
-    if (timer !== null) clearTimeout(timer);
-    timer = null;
-    seq++;
-    opened = PAGE2;
-    saved = d;
-    base = d.rule;
-    if (conflict && conflict.detail.version === d.version) conflict = null;
-    work = keep ? keep.match : [...base.match ?? []];
-    workPropose = keep ? keep.propose : { ...base.propose };
-    exclude = base.exclude ?? [];
-    preview = d.matches;
-    shown = preview.page ?? [];
-    dispositions = d.matches.dispositions ?? [];
-    invalid = d.invalid && !keep && (conditionErrorIndex(d.invalid) >= 0 || d.invalid.startsWith("rules/")) ? d.invalid : null;
-    doc.dataset.status = base.status;
-    doc.toggleAttribute("data-invalid", !!d.invalid);
-    kickEl.textContent = `rule · ${base.status} · rules/${id}.toml`;
-    titleEl.textContent = base.name || id;
-    editor = conditionEditor(
-      ctx,
-      { match: work, status: base.status, editable: editable() },
-      onEdit
-    );
-    factsEl = h9("div");
-    keepFocus(
-      () => doc.replaceChildren(
-        kickEl,
-        titleEl,
-        factsEl,
-        proseEl,
-        invalidEl,
-        conflictEl,
-        h9(
-          "h3",
-          { class: "kit-label" },
-          "when an undecided item matches all of"
-        ),
-        editor,
-        h9("h3", { class: "kit-label" }, "propose"),
-        proposeEl,
-        h9("div", { class: "cb-matches-head" }, heading, groupChips),
-        matchesEl,
-        actionsEl
-      )
-    );
-    note.textContent = "";
-    drawProse();
-    drawInvalid();
-    drawConflict();
-    drawPropose();
-    drawFacts();
-    drawGroupChips();
-    drawMatches();
-    if (invalid) setInvalid(invalid);
-    drawActions();
-    if (keep) schedule();
-    hooks.primaryChanged();
-  }
-  draw(detail);
-  return {
-    el,
-    id,
-    dirty,
-    primary() {
-      if (!isDraft()) {
-        return { label: "Deactivate", run: () => void lifecycle("deactivate") };
-      }
-      return { label: "Activate", run: () => void lifecycle("activate") };
-    },
-    update(d, by) {
-      if (d.version === saved.version) {
-        if (conflict) settle(null);
-        const was = (saved.rule.exclude ?? []).map((x) => x.key).join("\n");
-        const now = (d.rule.exclude ?? []).map((x) => x.key).join("\n");
-        saved = { ...saved, record: d.record, invalid: d.invalid };
-        if (was !== now || !sameRule(d.rule, base)) applyExclusions(d);
-        return;
-      }
-      if (!dirty() || saysWhatHeEdited(d.rule)) {
-        conflict = null;
-        draw(d);
-        return;
-      }
-      conflict = { detail: d, by };
-      drawConflict();
-      drawActions();
-      hooks.primaryChanged();
-    },
-    refresh() {
-      if (!invalid || dirty()) schedule(true);
-    }
-  };
-}
-function makeRules(ctx) {
-  const readEl = h9("div", { class: "kit-read cb-rules-read" });
-  let rows = [];
-  let view = "all";
-  let active = false;
-  let openId = null;
-  let doc = null;
-  let asking = false;
-  let opening = 0;
-  let painting = false;
-  let listSeq = 0;
-  let liveSeq = 0;
-  const statusOf = (r) => r.rule.status;
-  const inView = (r) => view === "all" || (view === "active" ? statusOf(r) === "active" : statusOf(r) !== "active");
-  const askEl = h9(
-    "button",
+  const bs = [
+    { label: "edit", run: () => hooks.onEdit() },
     {
-      type: "button",
-      class: "cb-link cb-rules-ask",
-      onclick() {
-        asking = true;
-        feed();
-        ctx.focusComposer();
-      }
-    },
-    ""
-  );
-  const nameAgent = () => {
-    askEl.textContent = `or ask ${ctx.agentName() || "the agent"} to draft one`;
-  };
-  nameAgent();
-  ctx.onAgentName(nameAgent);
-  const foot = h9(
-    "div",
-    { class: "cb-rules-foot" },
-    h9(
-      "button",
-      {
-        type: "button",
-        class: "kit-btn",
-        "data-testid": "new-rule",
-        onclick() {
-          newRule();
-        }
-      },
-      "new rule"
-    ),
-    askEl
-  );
-  function newRule() {
-    const name = h9("input", {
-      class: "kit-note",
-      type: "text",
-      placeholder: "e.g. Landed branches → delete",
-      "aria-label": "name"
-    });
-    const idIn = h9("input", {
-      class: "kit-note",
-      type: "text",
-      placeholder: "e.g. landed-branches",
-      spellcheck: false,
-      "aria-label": "id"
-    });
-    let idTyped = false;
-    name.addEventListener("input", () => {
-      if (!idTyped) idIn.value = slug(name.value);
-    });
-    idIn.addEventListener("input", () => {
-      idTyped = true;
-    });
-    const err = h9("p", { class: "cb-sheet-err", hidden: true });
-    let sending = false;
-    const create = async () => {
-      if (sending) return;
-      const id = idIn.value.trim();
-      const title = name.value.trim();
-      if (!id || !title) {
-        err.textContent = "A rule needs a name and an id.";
-        err.hidden = false;
-        return;
-      }
-      sending = true;
-      try {
-        await ctx.api.post("/rules/draft?create=1", {
-          id,
-          name: title,
-          status: "draft",
-          match: [],
-          propose: { disposition: "" }
+      label: off ? "turn on" : "turn off",
+      run: () => {
+        note.textContent = "";
+        void hooks.onToggle(off).catch((err) => {
+          note.textContent = message4(err);
         });
-        sh.close();
-        await loadList();
-        ctx.route.go("rules", id);
-      } catch (e) {
-        err.textContent = message3(e);
-        err.hidden = false;
-        sending = false;
       }
-    };
-    for (const input of [name, idIn]) {
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.isComposing) {
-          e.preventDefault();
-          void create();
-        }
-      });
     }
-    const sh = sheet3({
-      title: "new rule",
-      body: h9(
-        "div",
-        { class: "cb-sheet-body" },
-        h9(
-          "div",
-          { class: "cb-sheet-row" },
-          h9("label", { class: "cb-sheet-label" }, "name"),
-          name
+  ];
+  const actionsEl = h10("div", { class: "cb-rule-actions" }, buttons3(bs), note);
+  doc.replaceChildren(
+    h10("p", { class: "kit-kick" }, `rule · ${off ? "off" : "on"}`),
+    h10("h1", { class: "kit-h1" }, rule.name || id),
+    factsEl,
+    h10(
+      "p",
+      null,
+      off ? "Off: it recommends nothing until you turn it on." : "On: undecided items that match get this recommendation, now and after every sync. Nothing is decided until you accept it."
+    ),
+    invalidEl,
+    h10("h3", { class: "kit-label" }, "when an undecided item matches all of"),
+    conditionEditor(
+      ctx,
+      { match: rule.match, status: rule.status, editable: false },
+      () => {
+      }
+    ),
+    h10("h3", { class: "kit-label" }, "recommend"),
+    proposeEl,
+    h10("div", { class: "cb-matches-head" }, heading, groupChips),
+    matchesEl,
+    actionsEl
+  );
+  drawFacts();
+  drawGroupChips();
+  drawMatches();
+  return el;
+}
+function renderRuleList(ctx, rows, hooks) {
+  const note = h10("p", { class: "cb-rule-note", role: "status" });
+  const decision = (row) => h10("span", { class: "cb-rules-row-d" }, row.rule.propose.disposition);
+  const decisions = [];
+  const line = (row) => {
+    const off = row.rule.status !== "active";
+    const d = decision(row);
+    decisions.push([row, d]);
+    const state = row.invalid ? "not valid" : off ? "off" : "on";
+    return h10(
+      "li",
+      {
+        class: "cb-rules-row" + (off ? " cb-rule-off" : ""),
+        "data-id": row.rule.id
+      },
+      h10(
+        "button",
+        {
+          type: "button",
+          class: "cb-rules-row-open",
+          title: row.invalid ?? "",
+          onclick() {
+            hooks.onOpen(row);
+          }
+        },
+        h10("span", { class: "cb-rules-row-name" }, row.rule.name || row.rule.id),
+        h10(
+          "span",
+          {
+            class: "cb-rules-row-state",
+            "data-state": state
+          },
+          state
         ),
-        h9(
-          "div",
-          { class: "cb-sheet-row" },
-          h9("label", { class: "cb-sheet-label" }, "id"),
-          idIn
-        ),
-        h9(
-          "p",
-          { class: "cb-sheet-preview" },
-          "A draft: it proposes nothing until you activate it."
-        ),
-        err
+        d,
+        h10(
+          "span",
+          { class: "cb-rules-row-n" },
+          row.invalid ? "" : pluralize(row.matches, "match", "matches")
+        )
       ),
-      actions: [
-        { label: "create", fill: true, run: () => void create() },
-        { label: "cancel", run: () => sh.close() }
-      ]
-    });
-    sh.el.dataset.testid = "new-rule-sheet";
-    name.focus();
-  }
-  const handle = list2({
-    label: "rules",
-    views: VIEWS2.map((v) => ({ ...v, on: v.id === view })),
-    openOnMove: false,
-    row(r) {
-      const who = authorOf(r.rule.created_by);
-      const draft = r.rule.status !== "active";
-      return {
-        id: r.rule.id,
-        key: rowKicker(r),
-        title: r.rule.name || r.rule.id,
-        sub: who.agent && draft ? `drafted by ${who.name} · awaiting your review` : void 0,
-        meta: r.invalid ? "not valid" : r.rule.status
-      };
-    },
-    onChip(group, id) {
-      if (group !== "view") return;
-      view = id;
-      paintList();
-    },
-    onOpen(r) {
-      if (painting) return;
-      ctx.route.go("rules", r.rule.id);
-    },
-    foot
-  });
-  handle.el.classList.add("cb-rules-list");
-  function paintList() {
-    const c = viewCounts(rows.map((r) => r.rule));
-    const shown = rows.filter(inView);
-    handle.setChips(
-      "view",
-      VIEWS2.map((v) => ({ ...v, on: v.id === view, count: c[v.id] }))
-    );
-    handle.setItems(shown);
-    const els = handle.el.querySelectorAll(".kit-row");
-    els.forEach((rowEl, i) => {
-      const r = shown[i];
-      if (!r) return;
-      rowEl.dataset.rule = r.rule.id;
-      if (r.invalid) rowEl.title = r.invalid;
-      rowEl.querySelector(".kit-meta")?.classList.add(
-        "kit-pill",
-        r.invalid ? "cb-pill-invalid" : r.rule.status === "active" ? "ok" : "wait"
-      );
-    });
-    const openAt = shown.findIndex((r) => r.rule.id === openId);
-    if (openAt >= 0) {
-      painting = true;
-      try {
-        handle.open(openAt);
-      } finally {
-        painting = false;
-      }
-    }
-    ctx.bar.setCount("rules", c.all);
-    nameAgent();
-    if (!doc && !openId) drawEmpty();
-  }
-  async function loadList() {
-    const mine = ++listSeq;
-    try {
-      const v = await ctx.api.get("/rules");
-      if (mine !== listSeq) return;
-      rows = v.rules ?? [];
-      paintList();
-    } catch {
-    }
-  }
-  function drawEmpty() {
-    readEl.replaceChildren(
-      h9(
-        "div",
-        { class: "cb-read-empty" },
-        h9("p", { class: "cb-read-empty-section kit-label" }, "rules"),
-        h9(
-          "p",
-          { class: "cb-read-empty-count" },
-          pluralize(rows.length, "rule")
-        ),
-        h9(
-          "p",
-          { class: "cb-read-empty-prompt" },
-          "Select a rule to see it here."
-        )
-      )
-    );
-  }
-  function feed() {
-    if (!active) return;
-    ctx.setAttached(
-      doc ? { rule: doc.id } : asking ? { section: "rules" } : {}
-    );
-    ctx.setPrimary(doc ? doc.primary() : null);
-  }
-  const hooks = {
-    primaryChanged() {
-      if (active) ctx.setPrimary(doc ? doc.primary() : null);
-    },
-    saved() {
-      void loadList();
-    }
-  };
-  async function open(id) {
-    const mine = ++opening;
-    try {
-      const d = await ctx.api.get("/rule", { id });
-      if (mine !== opening || openId !== id) return;
-      doc = renderRule(ctx, d, hooks);
-      asking = false;
-      readEl.replaceChildren(doc.el);
-      readEl.scrollTop = 0;
-      feed();
-    } catch (err) {
-      if (mine !== opening) return;
-      doc = null;
-      readEl.replaceChildren(
-        h9(
-          "div",
-          { class: "cb-read-empty" },
-          h9("p", { class: "cb-read-empty-section kit-label" }, "rules"),
-          h9("p", { class: "cb-read-empty-prompt" }, message3(err))
-        )
-      );
-      feed();
-    }
-  }
-  function close() {
-    opening++;
-    openId = null;
-    doc = null;
-    drawEmpty();
-    feed();
-  }
-  const activateKey = {
-    keys: "a",
-    label: "activate the open draft",
-    group: "page",
-    run() {
-      if (!doc) return;
-      const p = doc.primary();
-      if (p?.label === "Activate") p.run();
-    }
-  };
-  const ruleKeys = [activateKey];
-  void loadList();
-  return {
-    id: "rules",
-    list: handle.el,
-    read: readEl,
-    // Rule rows can't be selected: the list keys here move and open.
-    listKeys: () => ({ nav: handle, selects: false }),
-    keys: () => ruleKeys,
-    show(sub) {
-      active = true;
-      const id = sub;
-      if (!id) {
-        if (openId) close();
-        else feed();
-      } else if (id !== openId) {
-        openId = id;
-        doc = null;
-        feed();
-        void open(id);
-      } else {
-        feed();
-      }
-      paintList();
-    },
-    hide() {
-      active = false;
-      asking = false;
-    },
-    onLive(type, data) {
-      if (type === "rules" || type === "gap") {
-        if (type === "gap") doc?.refresh();
-        void loadList();
-        const ev = data;
-        if (doc && openId && (!ev?.id || ev.id === openId)) {
-          const d = doc;
-          const mine = ++liveSeq;
-          void ctx.api.get("/rule", { id: openId }).then((detail) => {
-            if (mine === liveSeq && doc === d) d.update(detail, ev?.by ?? "");
-          }).catch(() => {
+      ruleMenu(row, {
+        onEdit: () => hooks.onEdit(row),
+        onToggle: () => {
+          note.textContent = "";
+          void hooks.onToggle(row).catch((err) => {
+            note.textContent = message4(err);
           });
         }
-      } else if (type === "index" || type === "decided") {
-        doc?.refresh();
-        if (type === "index") void loadList();
-      } else if (type === "proposals") {
-        void loadList();
-      }
-    },
-    primary() {
-      return doc ? doc.primary() : null;
-    }
+      })
+    );
   };
+  const el = h10(
+    "div",
+    { class: "kit-doc" },
+    h10(
+      "article",
+      { class: "cb-rules-doc", "data-testid": "rule-list" },
+      h10("h1", { class: "kit-h1" }, pluralize(rows.length, "rule")),
+      h10(
+        "p",
+        null,
+        "A rule recommends a decision for the undecided items it matches. Its recommendations are a group in the list, accepted in one go."
+      ),
+      rows.length ? h10("ul", { class: "cb-rules-rows" }, ...rows.map(line)) : h10("p", { class: "cb-read-empty-prompt" }, "No rules yet."),
+      note
+    )
+  );
+  void getVocab(ctx).then((vocab2) => {
+    for (const [row, d] of decisions)
+      d.textContent = dispositionLabel(
+        vocab2,
+        null,
+        row.rule.propose.disposition
+      );
+  }).catch(() => {
+  });
+  return el;
 }
 
-// attention.ts
+// decide-list.ts
 var RECOMMEND_THE_REST = "Please recommend the items casebook still needs a recommendation for: call casebook_next until it says done.";
 var PAGE_SIZE = 200;
 var selection = createSelection();
-var VIEWS3 = [
-  { id: "new", label: "new" },
-  { id: "due", label: "due" },
-  { id: "proposed", label: "proposed" }
-];
 function emptyFilters() {
-  return { view: "due", filters: [], q: "" };
+  return { filters: [], rule: null, q: "" };
 }
 var LEFT_OPEN = "left-open";
 var SIDEBAR = "casebook.sidebar";
@@ -5707,8 +5159,8 @@ function ageOf(it) {
 function isLeftOpen(it) {
   return it.status === "left-open";
 }
-function makeAttention(ctx) {
-  const readEl = h10("div", { class: "kit-read" });
+function makeDecide(ctx) {
+  const readEl = h11("div", { class: "kit-read" });
   let offset = 0;
   let totalItems = 0;
   let loadedItems = [];
@@ -5730,35 +5182,61 @@ function makeAttention(ctx) {
   let shown = [];
   let currentOpenKey = null;
   let shownDetail = null;
-  const viewCounts2 = {};
   let lastOrder = [];
   let deciding = null;
   let lastUndo = null;
   let vocab2 = null;
   let syncingOpen = false;
+  const discardAllBtn = h11("button", {
+    class: "kit-btn cb-discard-all",
+    type: "button",
+    hidden: true,
+    onclick() {
+      discardView();
+    }
+  });
   function renderReadEmpty() {
-    const nameEl = h10(
-      "p",
-      { class: "cb-read-empty-section kit-label" },
-      "attention"
-    );
-    const countEl = h10(
-      "p",
-      { class: "cb-read-empty-count" },
-      pluralize(totalItemsForView, "item")
-    );
-    const promptEl = h10(
+    const prompt = h11(
       "p",
       { class: "cb-read-empty-prompt" },
       "Select an item to see it here."
     );
-    return h10("div", { class: "cb-read-empty" }, nameEl, countEl, promptEl);
+    if (!vocab2)
+      return h11(
+        "div",
+        { class: "cb-read-empty", "data-testid": "decide-summary" },
+        prompt
+      );
+    const [head, ...rest] = decideSummary(
+      groups,
+      totalItemsForView,
+      ruleRows,
+      vocab2
+    );
+    discardAllBtn.hidden = viewRecs === 0 || !vocab2 || draft !== null;
+    if (vocab2)
+      discardAllBtn.textContent = vocab2.discard_all.replaceAll(
+        "{n}",
+        String(viewRecs)
+      );
+    return h11(
+      "div",
+      { class: "cb-read-empty", "data-testid": "decide-summary" },
+      h11("p", { class: "cb-read-empty-count" }, head ?? ""),
+      h11(
+        "ul",
+        { class: "cb-summary-lines" },
+        ...rest.map((l) => h11("li", null, l))
+      ),
+      discardAllBtn,
+      prompt
+    );
   }
   function updateReadEmptyCount() {
-    const countEl = readEl.querySelector(".cb-read-empty-count");
-    if (countEl) {
-      countEl.textContent = pluralize(totalItemsForView, "item");
-    }
+    const old = readEl.querySelector(
+      ':scope > [data-testid="decide-summary"]'
+    );
+    if (old) old.replaceWith(renderReadEmpty());
   }
   let active = false;
   function feedAttached() {
@@ -5771,25 +5249,76 @@ function makeAttention(ctx) {
   function showReadEmpty() {
     currentOpenKey = null;
     shownDetail = null;
+    listShown = false;
+    const rr = filters.rule && draft === null ? ruleRows.find((r) => r.rule.id === filters.rule) : void 0;
     readEl.replaceChildren(renderReadEmpty());
+    if (rr) void showRuleDoc(rr);
     feedAttached();
   }
-  showReadEmpty();
-  const summaryEl = h10("span", { class: "cb-summary" });
-  const discardAllBtn = h10("button", {
-    class: "kit-btn cb-discard-all",
-    type: "button",
-    hidden: true,
-    onclick() {
-      discardView();
+  let ruleDocSeq = 0;
+  async function showRuleDoc(rr) {
+    const mine = ++ruleDocSeq;
+    let d;
+    try {
+      d = await ctx.api.get("/rule", { id: rr.rule.id });
+    } catch {
+      return;
     }
-  });
+    if (mine !== ruleDocSeq || filters.rule !== rr.rule.id || draft !== null)
+      return;
+    if (currentOpenKey) return;
+    readEl.replaceChildren(
+      renderRule(ctx, d, {
+        onEdit() {
+          openRuleEditor(rr, null);
+        },
+        async onToggle() {
+          await toggleRule(ctx, rr);
+          await loadRules();
+          showReadEmpty();
+          void reload();
+        },
+        onChanged() {
+          void loadRules().then(() => void reload());
+        }
+      })
+    );
+  }
+  function showRuleList() {
+    if (draft !== null) closeFilterEditor(true);
+    if (currentOpenKey) goList();
+    currentOpenKey = null;
+    shownDetail = null;
+    listShown = true;
+    paintRuleList();
+    feedAttached();
+  }
+  function paintRuleList() {
+    readEl.replaceChildren(
+      renderRuleList(ctx, ruleRows, {
+        onOpen(row) {
+          listShown = false;
+          selectRule(row.rule.id);
+        },
+        onEdit(row) {
+          listShown = false;
+          openRuleEditor(row, null);
+        },
+        async onToggle(row) {
+          await toggleRule(ctx, row);
+          await loadRules();
+          void reload();
+        }
+      })
+    );
+  }
+  let listShown = false;
+  showReadEmpty();
   function buildFoot() {
-    const footRight = h10(
+    const footRight = h11(
       "div",
       { class: "cb-foot-right" },
-      discardAllBtn,
-      h10(
+      h11(
         "button",
         {
           class: "cb-foot-more",
@@ -5802,12 +5331,11 @@ function makeAttention(ctx) {
         `show ${PAGE_SIZE} more`
       )
     );
-    footEl = h10("div", { class: "cb-foot" }, summaryEl, footRight);
+    footEl = h11("div", { class: "cb-foot" }, footRight);
     return footEl;
   }
-  const handle = list3({
-    label: "attention",
-    views: VIEWS3.map((v) => ({ ...v, on: v.id === filters.view })),
+  const handle = list2({
+    label: "",
     filters: [],
     selection,
     openOnMove: false,
@@ -5843,17 +5371,6 @@ function makeAttention(ctx) {
         selectable: draft === null
       };
     },
-    onChip(group, id) {
-      if (group === "view") {
-        filters.view = id;
-        filters.filters = [];
-        filterBar.setError(null);
-        paintFilters();
-        handle.setChips("view", viewChips(id));
-        ctx.route.go("attention", id, attentionQuery({ flat, filters: [] }));
-        void reload();
-      }
-    },
     onOpen(it) {
       if (syncingOpen || draft !== null) return;
       ctx.route.go("item", it.key);
@@ -5861,8 +5378,8 @@ function makeAttention(ctx) {
     },
     foot: buildFoot()
   });
-  handle.el.classList.add("cb-attention");
-  const groupSwitch = h10(
+  handle.el.classList.add("cb-decide-list");
+  const groupSwitch = h11(
     "button",
     {
       type: "button",
@@ -5900,26 +5417,94 @@ function makeAttention(ctx) {
     },
     onEdit(row) {
       openFilterEditor(row);
+    },
+    onMakeRule(row) {
+      openRuleEditor(null, {
+        name: row.filter.name,
+        match: row.filter.match ?? []
+      });
     }
   });
+  let ruleRows = [];
+  const ruleRow = makeRuleRow(ctx, {
+    onNew() {
+      openRuleEditor(null, null);
+    },
+    onList() {
+      showRuleList();
+    }
+  });
+  async function loadRules() {
+    try {
+      const v = await ctx.api.get("/rules");
+      ruleRows = v.rules ?? [];
+      paintRules();
+      if (filters.rule && currentOpenKey === null && draft === null && !readEl.querySelector(".cb-rule"))
+        showReadEmpty();
+    } catch {
+    }
+  }
+  function paintRules() {
+    ruleRow.paint(ruleRows);
+    paintAll();
+    if (listShown && draft === null && !currentOpenKey) paintRuleList();
+  }
+  function selectRule(id) {
+    filters.rule = id;
+    if (id) filters.filters = [];
+    filterBar.setError(null);
+    paintFilters();
+    paintRules();
+    showReadEmpty();
+    goList();
+    void reload();
+  }
   let draft = null;
   let editor = null;
   let editingId = null;
   let draftHash = "";
   let draftTimer = null;
   let before = null;
-  const previewLine = h10("span", { class: "cb-preview-line", hidden: true });
+  const previewLine = h11("span", { class: "cb-preview-line", hidden: true });
   const rowsScroller = () => handle.el.querySelector(".kit-rows");
   function paintPreviewLine(text) {
     previewLine.hidden = text === null;
     previewLine.textContent = text ?? "";
   }
+  function openRuleEditor(row, seed) {
+    openEditor(
+      row ? row.rule.id : "",
+      row?.rule.match ?? seed?.match ?? [],
+      (hooks) => ruleEditor(ctx, row, seed, hooks),
+      (id) => {
+        void loadRules().then(() => selectRule(id));
+      },
+      "rule"
+    );
+  }
   function openFilterEditor(row) {
+    openEditor(
+      row ? row.filter.id : "",
+      row?.filter.match ?? [],
+      (hooks) => filterEditor(ctx, row, hooks),
+      (id) => {
+        filters.filters = [id];
+        filters.rule = null;
+        void loadFilters();
+        goList();
+        void reload();
+      },
+      "filter"
+    );
+  }
+  let editing = "filter";
+  function openEditor(id, start2, make, saved, kind) {
+    editing = kind;
     if (draftTimer !== null) clearTimeout(draftTimer);
     if (!before) {
       before = {
-        view: filters.view,
         filters: [...filters.filters],
+        rule: filters.rule,
         scroll: rowsScroller()?.scrollTop ?? 0,
         offset,
         totalItems,
@@ -5934,10 +5519,10 @@ function makeAttention(ctx) {
     }
     if (currentOpenKey) goList();
     showReadEmpty();
-    editingId = row ? row.filter.id : "";
-    draft = (row?.filter.match ?? []).map((c) => ({ ...c }));
+    editingId = id;
+    draft = start2.map((c) => ({ ...c })).filter((c) => c.value.trim() !== "");
     draftHash = location.hash;
-    editor = filterEditor(ctx, row, {
+    editor = make({
       onDraft(match) {
         draft = match.filter((c) => c.value.trim() !== "");
         if (draftTimer !== null) clearTimeout(draftTimer);
@@ -5946,13 +5531,9 @@ function makeAttention(ctx) {
           void reload();
         }, PREVIEW_DEBOUNCE_MS);
       },
-      onSaved(id) {
+      onSaved(id2) {
         closeFilterEditor(false);
-        filters.filters = [id];
-        void loadFilters();
-        handle.setChips("view", viewChips(""));
-        goList();
-        void reload();
+        saved(id2);
       },
       onCancel() {
         closeFilterEditor(true);
@@ -5961,9 +5542,9 @@ function makeAttention(ctx) {
     readEl.replaceChildren(editor.el);
     document.addEventListener("keydown", onEditorEsc);
     handle.el.classList.add("cb-previewing");
-    handle.setChips("view", viewChips(""));
     filterBar.paint(filterRows, []);
     filterBar.setError(null);
+    paintRules();
     paintAll();
     void reload();
     editor.el.querySelector(".cb-filter-name")?.focus();
@@ -5991,10 +5572,10 @@ function makeAttention(ctx) {
       paintAll();
       return;
     }
-    filters.view = b.view;
     filters.filters = b.filters;
+    filters.rule = b.rule;
     paintFilters();
-    handle.setChips("view", viewChips(activeView()));
+    paintRules();
     offset = b.offset;
     totalItems = b.totalItems;
     totalItemsForView = b.totalItems;
@@ -6014,10 +5595,7 @@ function makeAttention(ctx) {
     void reload();
   }
   function filtered() {
-    return filters.filters.length > 0;
-  }
-  function activeView() {
-    return filtered() || draft !== null ? "" : filters.view;
+    return filters.filters.length > 0 || filters.rule !== null;
   }
   function paintFilters() {
     filterBar.paint(filterRows, draft !== null ? [] : filters.filters);
@@ -6033,25 +5611,33 @@ function makeAttention(ctx) {
   }
   function goList() {
     ctx.route.go(
-      "attention",
-      filtered() ? "" : filters.view,
-      attentionQuery({ flat, filters: filters.filters })
+      "decide",
+      "",
+      decideQuery({
+        flat,
+        filters: filters.filters,
+        rule: filters.rule ?? ""
+      })
     );
   }
   function selectFilters(ids) {
     filters.filters = ids;
+    if (ids.length) filters.rule = null;
+    paintRules();
+    showReadEmpty();
     filterBar.setError(null);
     paintFilters();
-    handle.setChips("view", viewChips(activeView()));
     goList();
     void reload();
   }
   handle.el.querySelector('.kit-chips[data-group="view"]')?.after(
     filterBar.el,
-    h10("div", { class: "cb-list-tools" }, groupSwitch, previewLine)
+    ruleRow.el,
+    h11("div", { class: "cb-list-tools" }, groupSwitch, previewLine)
   );
   void loadFilters();
-  const hideBtn = h10(
+  void loadRules();
+  const hideBtn = h11(
     "button",
     {
       type: "button",
@@ -6062,13 +5648,13 @@ function makeAttention(ctx) {
     },
     "«"
   );
-  const showBtn = h10(
+  const showBtn = h11(
     "button",
     { type: "button", class: "cb-list-show" },
     "»"
   );
-  const railLabel = h10("span", { class: "cb-list-rail-label" });
-  const rail = h10(
+  const railLabel = h11("span", { class: "cb-list-rail-label" });
+  const rail = h11(
     "div",
     {
       class: "cb-list-rail",
@@ -6103,7 +5689,7 @@ function makeAttention(ctx) {
     }
   }
   function buildQuery(pageOffset) {
-    const p = draft !== null ? { match: JSON.stringify(draft) } : filtered() ? { filters: filters.filters.join(",") } : { view: filters.view };
+    const p = draft !== null ? { match: JSON.stringify(draft) } : filters.rule ? { view: "all", rule: filters.rule } : filtered() ? { filters: filters.filters.join(",") } : { view: "all" };
     p["offset"] = String(pageOffset);
     p["limit"] = String(PAGE_SIZE);
     if (filters.q) p["q"] = filters.q;
@@ -6158,7 +5744,7 @@ function makeAttention(ctx) {
       if (draft !== null) {
         editor?.showError(null);
         paintPreviewLine(
-          draft.length ? `previewing a draft filter · ${pluralize(data.total, "item")}` : "add a condition to preview"
+          draft.length ? `previewing a draft ${editing} · ${pluralize(data.total, "item")}` : "add a condition to preview"
         );
       }
       setRows();
@@ -6169,7 +5755,7 @@ function makeAttention(ctx) {
       const refused = err instanceof ApiError4 && err.status === 400;
       if (draft !== null && refused) {
         editor?.showError(err);
-        paintPreviewLine("previewing a draft filter · not valid yet");
+        paintPreviewLine(`previewing a draft ${editing} · not valid yet`);
       } else if (filtered() && refused) {
         filterBar.setError(err.message);
       }
@@ -6239,7 +5825,7 @@ function makeAttention(ctx) {
       if (!col) return;
       col.querySelector(".cb-row-looking")?.remove();
       const says = lookingLine(it.looking);
-      if (says) col.append(h10("div", { class: "cb-row-looking" }, says));
+      if (says) col.append(h11("div", { class: "cb-row-looking" }, says));
     });
     handle.el.classList.toggle("cb-flat", flat);
     if (flat) heads = [];
@@ -6300,7 +5886,7 @@ function makeAttention(ctx) {
       const g = navOrder().find((r) => r.key === k)?.group ?? "";
       return navGroups().find((x) => x.id === g)?.label ?? "";
     };
-    const button = (which, glyph, tip, target2, name, later) => h10(
+    const button = (which, glyph, tip, target2, name, later) => h11(
       "button",
       {
         type: "button",
@@ -6320,7 +5906,7 @@ function makeAttention(ctx) {
       glyph
     );
     const pos = words.position.replaceAll("{pos}", String(n.pos)).replaceAll("{total}", String(n.total)).replaceAll("{group}", n.label);
-    return h10(
+    return h11(
       "nav",
       { class: "cb-nav" },
       button(
@@ -6332,7 +5918,7 @@ function makeAttention(ctx) {
         false
       ),
       button("prev", "‹", words.prev_item, n.prev, shortKey, false),
-      h10("span", { class: "cb-nav-pos" }, pos),
+      h11("span", { class: "cb-nav-pos" }, pos),
       button("next", "›", words.next_item, n.next, shortKey, more),
       button(
         "nextGroup",
@@ -6411,7 +5997,7 @@ function makeAttention(ctx) {
       }
     }
   }
-  function headShell(id, label, n, box, hint, data) {
+  function headShell(id, label, n, box, hint, data, tags = [], more = null) {
     const isOpen = !collapsed.has(id);
     const toggleOpen = () => {
       if (collapsed.has(id)) collapsed.delete(id);
@@ -6419,10 +6005,10 @@ function makeAttention(ctx) {
       setRows();
       markOpenRow();
     };
-    const top = h10(
+    const top = h11(
       "div",
       { class: "cb-group-top" },
-      h10(
+      h11(
         "button",
         {
           type: "button",
@@ -6433,17 +6019,23 @@ function makeAttention(ctx) {
         },
         isOpen ? "▼" : "▶"
       ),
-      box ?? h10("span", { class: "cb-group-nobox" }),
-      h10(
+      box ?? h11("span", { class: "cb-group-nobox" }),
+      h11(
         "span",
         { class: "cb-group-name", onclick: toggleOpen },
-        h10("span", { class: "cb-group-label" }, label),
+        h11(
+          "span",
+          { class: "cb-group-line" },
+          h11("span", { class: "cb-group-label" }, label),
+          ...tags
+        ),
         hint
       ),
-      h10("span", { class: "cb-group-n" }, String(n))
+      h11("span", { class: "cb-group-n" }, String(n)),
+      more
     );
-    const acts = h10("div", { class: "cb-group-acts" });
-    const el = h10(
+    const acts = h11("div", { class: "cb-group-acts" });
+    const el = h11(
       "div",
       {
         class: "cb-group" + (isOpen ? "" : " collapsed"),
@@ -6456,7 +6048,7 @@ function makeAttention(ctx) {
     return { el, acts };
   }
   function groupButton(id, cls, label, run, off = false) {
-    return h10(
+    return h11(
       "button",
       {
         type: "button",
@@ -6476,7 +6068,7 @@ function makeAttention(ctx) {
     );
   }
   function groupHead(g) {
-    const box = h10("span", {
+    const box = h11("span", {
       class: "cb-group-box",
       role: "checkbox",
       "aria-checked": "false",
@@ -6485,11 +6077,29 @@ function makeAttention(ctx) {
         if (draft === null) void tickGroup(g);
       }
     });
-    const hint = g.outward && vocab2?.to_apply_hint ? h10("span", { class: "cb-group-where" }, vocab2.to_apply_hint) : null;
-    const { el, acts } = headShell(g.id, g.label, g.total, box, hint, {
-      group: g.id,
-      d: g.disposition
-    });
+    const hint = g.outward && vocab2?.to_apply_hint ? h11("span", { class: "cb-group-where" }, vocab2.to_apply_hint) : null;
+    const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
+    const rr = ruleId ? ruleRows.find((r) => r.rule.id === ruleId) : void 0;
+    const tags = ruleId ? [
+      h11("span", { class: "cb-group-tag" }, "rule"),
+      h11("span", { class: "cb-group-decision" }, g.label)
+    ] : [];
+    const more = rr ? ruleMenu(rr, {
+      onEdit: () => openRuleEditor(rr, null),
+      onToggle: () => void toggleRule(ctx, rr).then(() => loadRules()).then(() => reload()).catch(
+        (err) => showReadError(err instanceof Error ? err.message : String(err))
+      )
+    }) : null;
+    const { el, acts } = headShell(
+      g.id,
+      ruleId ? rr?.rule.name || ruleId : g.label,
+      g.total,
+      box,
+      hint,
+      { group: g.id, d: g.disposition, ...ruleId ? { rule: ruleId } : {} },
+      tags,
+      more
+    );
     const button = (cls, label, run, off = false) => groupButton(g.id, cls, label, run, off);
     function paint() {
       const ticked = tickedIn(g);
@@ -6503,13 +6113,17 @@ function makeAttention(ctx) {
         acts.replaceChildren();
         return;
       }
+      if (g.id === CAME_BACK) {
+        acts.replaceChildren();
+        return;
+      }
       if (g.id === "none") {
         const ask = t && asked !== t.id && !filtered() ? button(
           "fill cb-group-ask",
           vocab2.recommend_these.replaceAll("{session}", t.name).replaceAll("{n}", countWord(g.total, 0, vocab2.count_words)),
           askTheRest
         ) : null;
-        const note = t && asked === t.id ? h10(
+        const note = t && asked === t.id ? h11(
           "span",
           { class: "cb-group-note" },
           vocab2.asked.replaceAll("{session}", t.name)
@@ -6526,7 +6140,7 @@ function makeAttention(ctx) {
           button("fill cb-group-act", w.act, () => actGroup(g)),
           t ? button("cb-group-look", w.look, () => lookGroup(g), looked) : null,
           g.source.startsWith("rule:") ? null : button("cb-group-discard", w.discard, () => discardGroup(g)),
-          n > 0 ? h10(
+          n > 0 ? h11(
             "button",
             {
               type: "button",
@@ -6681,11 +6295,11 @@ function makeAttention(ctx) {
     if (!ctx.dockTarget() || !vocab2) return;
     try {
       if (!keys.length) return;
-      const message4 = vocab2.look_into.message_many.replaceAll(
+      const message5 = vocab2.look_into.message_many.replaceAll(
         "{keys}",
         keys.join(", ")
       );
-      const why = await ctx.askSession(message4, { keys }, "look-into");
+      const why = await ctx.askSession(message5, { keys }, "look-into");
       if (why) {
         showReadError(why);
         return;
@@ -6700,14 +6314,21 @@ function makeAttention(ctx) {
     const ticked = tickedIn(g);
     if (ticked.length && ticked.length < g.total) {
       const ids = ticked.map((k) => proposalOfKey.get(k)).filter((id) => id !== void 0);
-      openDiscardSheet(ctx, vocab2, ids.length, viewLabel(), { ids }, discarded);
+      openDiscardSheet(
+        ctx,
+        vocab2,
+        ids.length,
+        discardWhere(),
+        { ids },
+        discarded
+      );
       return;
     }
     openDiscardSheet(
       ctx,
       vocab2,
       g.total,
-      viewLabel(),
+      discardWhere(),
       groupFilters(g),
       discarded
     );
@@ -6724,41 +6345,7 @@ function makeAttention(ctx) {
         btn.hidden = true;
       }
     }
-    renderSummary();
     footEl.hidden = false;
-  }
-  function renderSummary() {
-    discardAllBtn.hidden = viewRecs === 0 || !vocab2 || draft !== null;
-    if (vocab2)
-      discardAllBtn.textContent = vocab2.discard_all.replaceAll(
-        "{n}",
-        String(viewRecs)
-      );
-    if (!vocab2) {
-      summaryEl.replaceChildren();
-      return;
-    }
-    const n = String(totalItemsForView);
-    const recs = groups.filter((g) => g.id !== "none");
-    const r = recs.reduce((sum, g) => sum + g.total, 0);
-    const makers = new Set(recs.map((g) => g.by?.id ?? g.source));
-    const one = r > 0 && r === totalItemsForView && makers.size === 1 && !recs[0].source.startsWith("rule:");
-    if (!one) {
-      summaryEl.replaceChildren(
-        vocab2.summary.mixed.replaceAll("{n}", n).replaceAll("{r}", String(r))
-      );
-      return;
-    }
-    const [before2, after = ""] = vocab2.summary.one_session.replaceAll("{n}", n).split("{session}");
-    summaryEl.replaceChildren(
-      before2,
-      h10(
-        "span",
-        { class: "cb-summary-who" },
-        sessionName(recs[0].by, recs[0].source)
-      ),
-      after
-    );
   }
   function markOpenRow() {
     if (!currentOpenKey) return;
@@ -6791,7 +6378,6 @@ function makeAttention(ctx) {
   }
   function discarded() {
     asked = "";
-    refreshSummary();
     void reload();
   }
   function discardView() {
@@ -6800,16 +6386,10 @@ function makeAttention(ctx) {
       ctx,
       vocab2,
       viewRecs,
-      viewLabel(),
+      discardWhere(),
       viewFilters(),
       discarded
     );
-  }
-  function refreshSummary() {
-    void ctx.api.get("/summary").then((sv) => {
-      applyCounts(sv.counts);
-    }).catch(() => {
-    });
   }
   async function openDetail(key) {
     currentOpenKey = key;
@@ -6849,7 +6429,7 @@ function makeAttention(ctx) {
     const w = lookIntoCard(words, t.name, key);
     const looking = lookingLine(shownDetail.item.looking);
     const n = Number(grid.dataset.cards) + 1;
-    const card6 = h10(
+    const card6 = h11(
       "button",
       {
         type: "button",
@@ -6874,9 +6454,9 @@ function makeAttention(ctx) {
           } else void refreshLooking(key);
         }
       },
-      h10("span", { class: "cb-choice-k" }, String(n)),
-      h10("span", { class: "cb-choice-label" }, w.label),
-      h10("span", { class: "cb-choice-says" }, looking || w.says)
+      h11("span", { class: "cb-choice-k" }, String(n)),
+      h11("span", { class: "cb-choice-label" }, w.label),
+      h11("span", { class: "cb-choice-says" }, looking || w.says)
     );
     if (old) old.replaceWith(card6);
     else grid.append(card6);
@@ -6941,7 +6521,7 @@ function makeAttention(ctx) {
       p.source,
       p.disposition
     ) : "the recommendation changed";
-    const show2 = h10(
+    const show2 = h11(
       "button",
       {
         type: "button",
@@ -6950,10 +6530,10 @@ function makeAttention(ctx) {
       },
       "show"
     );
-    const line = h10(
+    const line = h11(
       "p",
       { class: "cb-rec-fresh" },
-      h10("span", { class: "cb-rec-fresh-says" }, says),
+      h11("span", { class: "cb-rec-fresh-says" }, says),
       " · ",
       show2
     );
@@ -6962,27 +6542,37 @@ function makeAttention(ctx) {
     else readEl.querySelector(".cb-question")?.after(line);
   }
   function viewLabel() {
+    if (filters.rule) {
+      const rr = ruleRows.find((r) => r.rule.id === filters.rule);
+      return `rule ${rr?.rule.name || filters.rule}`;
+    }
     if (filtered()) return filterLabel(filterRows, filters.filters);
-    return VIEWS3.find((v) => v.id === filters.view)?.label ?? filters.view;
+    return "to decide";
   }
-  function showReadError(message4) {
+  function discardWhere() {
+    return filtered() ? viewLabel() : "the list";
+  }
+  function showReadError(message5) {
     if (readEl.querySelector(".cb-choice-err")) {
-      showChoiceError(readEl, message4);
+      showChoiceError(readEl, message5);
       return;
     }
     readEl.firstElementChild?.append(
-      h10("p", { class: "cb-choice-err" }, message4)
+      h11("p", { class: "cb-choice-err" }, message5)
     );
   }
   function showDone() {
     currentOpenKey = null;
     shownDetail = null;
     readEl.replaceChildren(
-      h10(
+      h11(
         "div",
         { class: "cb-read-empty" },
-        h10("p", { class: "cb-read-empty-section kit-label" }, "attention"),
-        h10("p", { class: "cb-read-done" }, `Nothing left in ${viewLabel()}.`)
+        h11(
+          "p",
+          { class: "cb-read-done" },
+          filtered() ? `Nothing left in ${viewLabel()}.` : "Nothing left to decide."
+        )
       )
     );
     feedAttached();
@@ -7116,19 +6706,6 @@ function makeAttention(ctx) {
       deciding = null;
     }
   }
-  function viewChips(activeId) {
-    return VIEWS3.map((v) => ({
-      ...v,
-      on: v.id === activeId,
-      count: viewCounts2[v.id]
-    }));
-  }
-  function applyCounts(counts) {
-    if (!counts) return;
-    for (const v of VIEWS3) viewCounts2[v.id] = 0;
-    Object.assign(viewCounts2, counts);
-    handle.setChips("view", viewChips(activeView()));
-  }
   {
     const urlQ = getUrlQ();
     if (urlQ) {
@@ -7202,7 +6779,6 @@ function makeAttention(ctx) {
     ...choiceKeys,
     ...jumpKeys
   ];
-  refreshSummary();
   void getVocab(ctx).then((v) => {
     vocab2 = v;
     setRows();
@@ -7223,38 +6799,49 @@ function makeAttention(ctx) {
       filters.q = urlQ;
       handle.setSearch(urlQ);
     }
-    const view = sub || "due";
-    const ids = sub ? [] : parseFilterIds(new URLSearchParams(query).get("filters"));
-    if (ids.length) {
+    const params = new URLSearchParams(query);
+    const ids = sub ? [] : parseFilterIds(params.get("filters"));
+    const ruleId = sub ? "" : params.get("rule") ?? "";
+    if (sub) {
+      if (!wasActive || sub !== currentOpenKey) void openDetail(sub);
+      void reload();
+    } else if (ruleId) {
+      flat = flatFor(true, query, storedFlat());
+      storeFlat(flat);
+      paintSwitch();
+      filters.rule = ruleId;
+      filters.filters = [];
+      paintFilters();
+      paintRules();
+      showReadEmpty();
+      void reload();
+    } else if (ids.length) {
+      filters.rule = null;
+      paintRules();
       flat = flatFor(true, query, storedFlat());
       storeFlat(flat);
       paintSwitch();
       filters.filters = ids;
       paintFilters();
-      handle.setChips("view", viewChips(""));
       showReadEmpty();
       void reload();
-    } else if (VIEWS3.some((v) => v.id === view)) {
-      flat = flatFor(sub !== "", query, storedFlat());
+    } else {
+      flat = flatFor(query !== "", query, storedFlat());
       storeFlat(flat);
       paintSwitch();
-      filters.view = view;
       if (filtered()) {
         filters.filters = [];
+        filters.rule = null;
         filterBar.setError(null);
         paintFilters();
+        paintRules();
       }
-      handle.setChips("view", viewChips(filters.view));
       showReadEmpty();
-      void reload();
-    } else if (sub) {
-      handle.setChips("view", viewChips(activeView()));
-      if (!wasActive || sub !== currentOpenKey) void openDetail(sub);
       void reload();
     }
   }
   return {
-    id: "attention",
+    id: "decide",
     list: handle.el,
     read: readEl,
     show,
@@ -7267,15 +6854,12 @@ function makeAttention(ctx) {
     keys: () => listKeys,
     onLive(type, data) {
       if (type === "gap") {
-        refreshSummary();
+        void loadRules();
         void reload();
         if (currentOpenKey && currentOpenKey !== deciding) {
           void openDetail(currentOpenKey);
         }
       } else if (type === "index") {
-        const s = data;
-        applyCounts(s?.counts ?? null);
-        refreshSummary();
         void reload();
       } else if (type === "decided") {
         const decidedPayload = data;
@@ -7286,7 +6870,6 @@ function makeAttention(ctx) {
         if (currentOpenKey && currentOpenKey !== deciding && decidedKeys.includes(currentOpenKey)) {
           void openDetail(currentOpenKey);
         }
-        refreshSummary();
         void reload();
       } else if (type === "proposals") {
         const propPayload = data;
@@ -7298,8 +6881,12 @@ function makeAttention(ctx) {
         if (currentOpenKey && currentOpenKey !== deciding && propKeys.includes(currentOpenKey)) {
           void proposalsChanged(currentOpenKey);
         }
-        refreshSummary();
         void reload();
+      } else if (type === "rules") {
+        void loadRules().then(() => {
+          if (filters.rule && !currentOpenKey && draft === null && !listShown && active)
+            showReadEmpty();
+        });
       } else if (type === "filters") {
         void loadFilters().then(() => {
           if (filtered()) void reload();
@@ -7325,7 +6912,7 @@ function makeAttention(ctx) {
 }
 
 // dock.ts
-import { h as h13, card as card5 } from "/_kit/kit.js";
+import { h as h14, card as card5 } from "/_kit/kit.js";
 
 // thread.ts
 function at(m) {
@@ -7339,7 +6926,7 @@ function threadOrder(ms) {
 }
 
 // composer.ts
-import { h as h11, ApiError as ApiError5 } from "/_kit/kit.js";
+import { h as h12, ApiError as ApiError5 } from "/_kit/kit.js";
 
 // attached.ts
 var KIND_PLURAL = { branch: "branches" };
@@ -7419,7 +7006,7 @@ function makeComposer(ctx, dock) {
   let override = null;
   let sending = false;
   const effective = () => override ?? context;
-  const value = h11("span", {
+  const value = h12("span", {
     class: "cb-comp-attached-value",
     contenteditable: "true",
     role: "textbox",
@@ -7427,10 +7014,10 @@ function makeComposer(ctx, dock) {
     spellcheck: false,
     "data-testid": "composer-attached"
   });
-  const line = h11(
+  const line = h12(
     "div",
     { class: "cb-comp-attached" },
-    h11("span", { class: "cb-comp-attached-prefix" }, "attached: "),
+    h12("span", { class: "cb-comp-attached-prefix" }, "attached: "),
     value
   );
   let editing = false;
@@ -7476,7 +7063,7 @@ function makeComposer(ctx, dock) {
       value.blur();
     }
   });
-  const input = h11("textarea", {
+  const input = h12("textarea", {
     class: "cb-comp-input",
     rows: 1,
     placeholder: "Message the agent…",
@@ -7494,14 +7081,14 @@ function makeComposer(ctx, dock) {
     e.preventDefault();
     void send(false);
   });
-  const note = h11("span", { class: "cb-comp-note", role: "status" });
-  const footer = h11(
+  const note = h12("span", { class: "cb-comp-note", role: "status" });
+  const footer = h12(
     "div",
     { class: "cb-comp-foot" },
-    h11("span", {}, "↵ send · ⌘↵ add to batch"),
+    h12("span", {}, "↵ send · ⌘↵ add to batch"),
     note
   );
-  const el = h11(
+  const el = h12(
     "div",
     { class: "cb-comp", "data-testid": "composer" },
     line,
@@ -7619,27 +7206,27 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h12, card as card4, fold as fold2, noteField as noteField4 } from "/_kit/kit.js";
+import { h as h13, card as card4, fold as fold2, noteField as noteField4 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
   let drafts = [];
   let loadSeq = 0;
-  const label = h12("span", { class: "kit-card-head cb-batch-label" });
-  const sendBtn = h12("button", {
+  const label = h13("span", { class: "kit-card-head cb-batch-label" });
+  const sendBtn = h13("button", {
     class: "kit-btn fill cb-batch-send",
     "data-testid": "batch-send",
     onclick() {
       void sendBatch();
     }
   });
-  const list4 = h12("div", { class: "cb-batch-drafts" });
+  const list3 = h13("div", { class: "cb-batch-drafts" });
   const el = card4({
-    body: h12(
+    body: h13(
       "div",
       {},
-      h12("div", { class: "cb-batch-head" }, label, sendBtn),
-      list4
+      h13("div", { class: "cb-batch-head" }, label, sendBtn),
+      list3
     )
   });
   el.classList.add("cb-batch");
@@ -7651,15 +7238,15 @@ function makeBatchTray(ctx, dock) {
     editing = null;
     el.hidden = drafts.length === 0;
     if (!drafts.length) {
-      list4.replaceChildren();
+      list3.replaceChildren();
       return;
     }
     label.textContent = `batch · ${pluralize(drafts.length, "draft")}`;
     sendBtn.textContent = `send ${drafts.length}`;
-    list4.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
+    list3.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
   }
   function actionBtn(text, action, aria, run, disabled = false) {
-    return h12(
+    return h13(
       "button",
       {
         class: "cb-batch-act",
@@ -7672,12 +7259,12 @@ function makeBatchTray(ctx, dock) {
     );
   }
   function draftRow(d, i) {
-    const text = h12("span", { class: "cb-batch-text" }, d.body);
-    const row = h12(
+    const text = h13("span", { class: "cb-batch-text" }, d.body);
+    const row = h13(
       "div",
       { class: "cb-batch-draft", "data-draft-id": String(d.id) },
       text,
-      h12(
+      h13(
         "span",
         { class: "cb-batch-acts" },
         actionBtn(
@@ -7836,17 +7423,17 @@ function countText(n, total) {
 function makeProgressLine() {
   let prog = null;
   let at2 = 0;
-  const text = h12("span", { class: "cb-prog-text" });
-  const age = h12("span", { class: "cb-prog-age" });
-  const fill = h12("span", { class: "cb-prog-fill" });
-  const bar2 = h12("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
-  const el = h12(
+  const text = h13("span", { class: "cb-prog-text" });
+  const age = h13("span", { class: "cb-prog-age" });
+  const fill = h13("span", { class: "cb-prog-fill" });
+  const bar2 = h13("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
+  const el = h13(
     "div",
     { class: "cb-prog", "data-testid": "progress-line" },
-    h12(
+    h13(
       "div",
       { class: "cb-prog-row" },
-      h12("span", { class: "cb-prog-dot" }),
+      h13("span", { class: "cb-prog-dot" }),
       text,
       age
     ),
@@ -7885,11 +7472,11 @@ function makeProgressLine() {
   };
 }
 function makeWaitingStrip() {
-  const count = h12("span", {});
-  const el = h12(
+  const count = h13("span", {});
+  const el = h13(
     "div",
     { class: "cb-wait", "data-testid": "waiting-strip" },
-    h12("span", { class: "cb-wait-word" }, "waiting"),
+    h13("span", { class: "cb-wait-word" }, "waiting"),
     count
   );
   el.hidden = true;
@@ -7911,15 +7498,15 @@ function clock(ts) {
 }
 function workedFold(msg) {
   const lines = msg.worked?.lines ?? [];
-  const history2 = h12(
+  const history2 = h13(
     "ol",
     { class: "cb-worked-lines" },
     ...lines.map(
-      (l) => h12(
+      (l) => h13(
         "li",
         { class: "cb-worked-line" },
-        h12("span", { class: "cb-worked-at" }, clock(l.at)),
-        h12("span", {}, l.text + countText(l.n, l.total))
+        h13("span", { class: "cb-worked-at" }, clock(l.at)),
+        h13("span", {}, l.text + countText(l.n, l.total))
       )
     )
   );
@@ -7953,19 +7540,19 @@ function stateLabel(msg) {
   return base;
 }
 function sessionItem(s, extra = "") {
-  const el = h13(
+  const el = h14(
     "button",
     { class: "cb-dock-pick-item", "data-session": s.id },
-    h13("span", { class: "cb-dock-dot" }),
-    h13("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
+    h14("span", { class: "cb-dock-dot" }),
+    h14("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
   );
   const meta = [sessionMeta(s), extra].filter(Boolean).join(" · ");
-  if (meta) el.append(h13("span", { class: "cb-dock-pick-meta" }, meta));
+  if (meta) el.append(h14("span", { class: "cb-dock-pick-meta" }, meta));
   return el;
 }
 function renderAgentBody(msg) {
-  const wrap = h13("div", { class: "cb-dock-body" });
-  const bodyP = h13("p", { class: "cb-dock-bodytext" });
+  const wrap = h14("div", { class: "cb-dock-body" });
+  const bodyP = h14("p", { class: "cb-dock-bodytext" });
   bodyP.textContent = msg.body;
   wrap.append(bodyP);
   const { attached } = msg;
@@ -7974,7 +7561,7 @@ function renderAgentBody(msg) {
     if (attached.keys && attached.keys.length > 0) {
       const shown = attached.keys.slice(0, 5);
       for (const k of shown) {
-        const a = h13("a", {
+        const a = h14("a", {
           class: "cb-dock-link",
           href: "#",
           onclick(e) {
@@ -7987,7 +7574,7 @@ function renderAgentBody(msg) {
       }
       if (attached.keys.length > 5) {
         links.push(
-          h13(
+          h14(
             "span",
             { class: "cb-dock-link-more" },
             `+${attached.keys.length - 5} more`
@@ -7997,7 +7584,7 @@ function renderAgentBody(msg) {
     }
     if (attached.open) {
       const k = attached.open;
-      const a = h13("a", {
+      const a = h14("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8010,12 +7597,12 @@ function renderAgentBody(msg) {
     }
     if (attached.rule) {
       const id = attached.rule;
-      const a = h13("a", {
+      const a = h14("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
           e.preventDefault();
-          go("rules", encodeURIComponent(id));
+          location.hash = ruleHash(id);
         }
       });
       a.textContent = id;
@@ -8023,7 +7610,7 @@ function renderAgentBody(msg) {
     }
     if (attached.job) {
       const id = attached.job;
-      const a = h13("a", {
+      const a = h14("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8035,7 +7622,7 @@ function renderAgentBody(msg) {
       links.push(a);
     }
     if (links.length > 0) {
-      const linkRow = h13("div", { class: "cb-dock-links" }, ...links);
+      const linkRow = h14("div", { class: "cb-dock-links" }, ...links);
       wrap.append(linkRow);
     }
   }
@@ -8046,24 +7633,24 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
   const isAgent = msg.author !== "court";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
   const age = fmtAge(msg.created_at);
-  const headEl = h13(
+  const headEl = h14(
     "div",
     { class: "cb-dock-ch" },
-    h13(
+    h14(
       "span",
       {
         class: isAgent ? "cb-dock-ch-name cb-dock-ch-agent" : "cb-dock-ch-name"
       },
       authorLabel
     ),
-    h13("span", { class: "cb-dock-ch-age" }, age)
+    h14("span", { class: "cb-dock-ch-age" }, age)
   );
   let bodyContent;
   if (isAgent) {
     bodyContent = renderAgentBody(msg);
   } else {
-    const bodyEl = h13("div", { class: "cb-dock-body" });
-    const bodyP = h13("p", { class: "cb-dock-bodytext" });
+    const bodyEl = h14("div", { class: "cb-dock-body" });
+    const bodyP = h14("p", { class: "cb-dock-bodytext" });
     bodyP.textContent = msg.body;
     bodyEl.append(bodyP);
     bodyContent = bodyEl;
@@ -8082,7 +7669,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       "interrupted"
     ];
     if (validStates.includes(msg.state)) {
-      stateEl = h13("div", {
+      stateEl = h14("div", {
         class: "cb-dock-state",
         "data-state": msg.state,
         style: `color:${stateColor(msg.state)}`
@@ -8090,7 +7677,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       stateEl.textContent = stateLabel(msg);
     }
   }
-  const fullBody = h13(
+  const fullBody = h14(
     "div",
     { class: "cb-dock-card-body" },
     headEl,
@@ -8104,12 +7691,12 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
       stateEl.textContent = "";
       stateEl.setAttribute("data-state", "stuck");
-      const stuckBold = h13("strong", { style: "font-weight:600" });
+      const stuckBold = h14("strong", { style: "font-weight:600" });
       stuckBold.textContent = "stuck";
       stateEl.append(`delivered ${ageStr} · `, stuckBold);
     }
     const d = delivery;
-    const releaseBtn = h13("button", {
+    const releaseBtn = h14("button", {
       class: "kit-btn",
       "data-action": "release",
       onclick() {
@@ -8120,7 +7707,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     const otherSessions = pickable(sessions).filter(
       (s) => s.id !== d.session_id
     );
-    const moveBtn = h13("button", {
+    const moveBtn = h14("button", {
       class: "kit-btn",
       "data-action": "move",
       onclick() {
@@ -8128,7 +7715,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       }
     });
     moveBtn.textContent = "move to another session";
-    fullBody.append(h13("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
+    fullBody.append(h14("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
   }
   const el = card5({
     edge: isAgent ? "agent" : "signal",
@@ -8163,16 +7750,16 @@ function openMoveSheet(ctx, delivery, targets) {
     return el;
   });
   if (items.length === 0) {
-    const noOther = h13(
+    const noOther = h14(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h13("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet4 = {
-    el: h13("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8207,16 +7794,16 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     return el;
   });
   if (items.length === 0) {
-    const noOther = h13(
+    const noOther = h14(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h13("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet4 = {
-    el: h13("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8243,10 +7830,10 @@ function buildSessionPicker(sessions, currentId, onSelect) {
   });
   if (items.length === 0) {
     items.push(
-      h13("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
+      h14("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
     );
   }
-  const picker = h13(
+  const picker = h14(
     "div",
     { class: "cb-dock-picker", role: "listbox" },
     ...items
@@ -8276,16 +7863,16 @@ function makeDock(ctx) {
   let currentDelivery = null;
   let urlRead = false;
   let auto = false;
-  const sessionDot = h13("span", { class: "cb-dock-dot" });
-  const sessionLabelEl = h13("span", {
+  const sessionDot = h14("span", { class: "cb-dock-dot" });
+  const sessionLabelEl = h14("span", {
     class: "cb-dock-session-label",
     "data-testid": "dock-session-name"
   });
-  const sessionMetaEl = h13("div", {
+  const sessionMetaEl = h14("div", {
     class: "cb-dock-meta-row",
     "data-testid": "dock-session-meta"
   });
-  const sessionPickerBtn = h13("button", {
+  const sessionPickerBtn = h14("button", {
     class: "cb-dock-agent-btn",
     "aria-label": "pick agent session",
     onclick(e) {
@@ -8301,27 +7888,27 @@ function makeDock(ctx) {
     }
   });
   sessionPickerBtn.textContent = "AGENT ▾";
-  const leftStatusRow = h13("div", { class: "cb-dock-left-row" });
+  const leftStatusRow = h14("div", { class: "cb-dock-left-row" });
   leftStatusRow.hidden = true;
-  const sessionHeader = h13(
+  const sessionHeader = h14(
     "div",
     { class: "cb-dock-header" },
-    h13(
+    h14(
       "div",
       { class: "cb-dock-header-row" },
-      h13("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
+      h14("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
       sessionPickerBtn
     ),
     sessionMetaEl,
     leftStatusRow
   );
-  const chooser = h13("div", {
+  const chooser = h14("div", {
     class: "cb-dock-chooser",
     "data-testid": "dock-chooser"
   });
   chooser.hidden = true;
-  const threadChips = h13("div", { class: "cb-dock-threads" });
-  const messageArea = h13("div", {
+  const threadChips = h14("div", { class: "cb-dock-threads" });
+  const messageArea = h14("div", {
     class: "cb-dock-messages",
     "data-testid": "dock-messages"
   });
@@ -8355,7 +7942,7 @@ function makeDock(ctx) {
       void batchTray.load(t.id);
     }
   });
-  const rail = h13("div", { class: "cb-dock-inner" });
+  const rail = h14("div", { class: "cb-dock-inner" });
   rail.append(
     sessionHeader,
     chooser,
@@ -8393,7 +7980,7 @@ function makeDock(ctx) {
     sessionHeader.title = sess.id;
     if (stale) {
       leftStatusRow.textContent = "";
-      const moveLink = h13("button", {
+      const moveLink = h14("button", {
         class: "cb-dock-move-link",
         "data-testid": "dock-move-link",
         onclick(e) {
@@ -8403,12 +7990,12 @@ function makeDock(ctx) {
         }
       });
       moveLink.textContent = "move to…";
-      const parts = [h13("span", {}, "left")];
+      const parts = [h14("span", {}, "left")];
       if (sess.queued > 0) {
-        parts.push(h13("span", { class: "cb-dock-sep" }, "·"));
-        parts.push(h13("span", {}, `${sess.queued} queued`));
+        parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
+        parts.push(h14("span", {}, `${sess.queued} queued`));
       }
-      parts.push(h13("span", { class: "cb-dock-sep" }, "·"));
+      parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
       parts.push(moveLink);
       leftStatusRow.append(...parts);
       leftStatusRow.hidden = false;
@@ -8432,7 +8019,7 @@ function makeDock(ctx) {
     chooser.hidden = false;
     chooser.setAttribute("data-state", state);
     const offered = pickable(sessions).filter((s) => s.id !== currentSessionId);
-    const lead = h13("p", {
+    const lead = h14("p", {
       class: "cb-dock-chooser-lead",
       "data-testid": "dock-chooser-lead"
     });
@@ -8454,7 +8041,7 @@ function makeDock(ctx) {
   function renderThreadChips() {
     threadChips.innerHTML = "";
     for (const t of threads) {
-      const chip = h13("button", {
+      const chip = h14("button", {
         class: "kit-chip" + (t.id === currentThreadId ? " on" : ""),
         "data-thread": String(t.id),
         onclick() {
@@ -8464,7 +8051,7 @@ function makeDock(ctx) {
       chip.textContent = t.name;
       threadChips.append(chip);
     }
-    const addChip = h13("button", {
+    const addChip = h14("button", {
       class: "kit-chip cb-dock-add",
       "data-testid": "dock-add-thread",
       onclick() {
@@ -8483,7 +8070,7 @@ function makeDock(ctx) {
     }
     const cards = [];
     if (messages.length === 0) {
-      cards.push(h13("p", { class: "cb-dock-empty" }, "no messages"));
+      cards.push(h14("p", { class: "cb-dock-empty" }, "no messages"));
     }
     const name = agentName();
     for (const msg of messages) {
@@ -8780,8 +8367,7 @@ function makeDock(ctx) {
 }
 
 // entry.ts
-registerSection(makeAttention);
-registerSection(makeRules);
+registerSection(makeDecide);
 registerSection(makeApply);
 registerDock(makeDock);
 boot();

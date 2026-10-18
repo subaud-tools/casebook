@@ -487,6 +487,18 @@ func (s *Server) rebuild(ctx context.Context) error {
 	// Bug 1: EvaluateActive now returns rule-level Propose errors (joined).
 	// Surface them as index notices so the page can display them, and log
 	// to stderr for diagnostics.
+	// A rule's recommendations it no longer makes (it was turned off,
+	// deleted or edited) are withdrawn first, so an edited rule re-proposes
+	// in this same rebuild.
+	var withdrawn []propose.Proposal
+	if fromRules, err := s.Props.PendingFromRules(ctx); err != nil {
+		notices = append(notices, "rules: "+err.Error())
+	} else if stale := rules.Stale(allRules, res, now, fromRules); len(stale) > 0 {
+		if withdrawn, err = s.Props.WithdrawRuleProposals(ctx, stale); err != nil {
+			notices = append(notices, "rules: "+err.Error())
+		}
+	}
+
 	var proposed []propose.Proposal
 	if len(active) > 0 {
 		var evalErr error
@@ -507,6 +519,15 @@ func (s *Server) rebuild(ctx context.Context) error {
 	// The index is set: announcing it can no longer fail the rebuild (a
 	// caller would report an error for a change that happened).
 	s.publish(ctx, "index", map[string]any{"counts": s.Index.Counts(pending), "head": s.Index.Head()})
+	if len(withdrawn) > 0 {
+		ids := make([]int64, 0, len(withdrawn))
+		keys := make([]string, 0, len(withdrawn))
+		for _, p := range withdrawn {
+			ids = append(ids, p.ID)
+			keys = append(keys, p.Key)
+		}
+		s.publish(ctx, "proposals", map[string]any{"ids": ids, "keys": keys, "state": propose.Withdrawn})
+	}
 	if len(proposed) > 0 {
 		s.publish(ctx, "rules", map[string]int{"proposed": len(proposed)})
 		// Each rule's proposals, as the page hears an agent's: by source.
@@ -723,7 +744,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/agent/open", s.agentOpen)
 	m.HandleFunc("POST /api/agent/settled", s.agentSettled)
 	m.HandleFunc("GET /api/agent/interrupted", s.agentInterrupted)
-	m.HandleFunc("POST /api/agent/rule-draft", s.agentRuleDraft)
+	m.HandleFunc("POST /api/agent/rule-save", s.agentRuleSave)
 	m.HandleFunc("POST /api/agent/job-step", s.agentJobStep)
 	m.HandleFunc("POST /api/agent/job-ask", s.agentJobAsk)
 	// apply
@@ -741,6 +762,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/rules", s.getRules)
 	m.HandleFunc("GET /api/rule", s.getRule)
 	m.HandleFunc("POST /api/rules/draft", s.postRulesDraft)
+	m.HandleFunc("POST /api/rules/save", s.postRulesSave)
 	m.HandleFunc("POST /api/rules/preview", s.postRulesPreview)
 	m.HandleFunc("POST /api/rules/exclude", s.postRulesExclude)
 	m.HandleFunc("POST /api/rules/include", s.postRulesInclude)

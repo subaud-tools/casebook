@@ -79,6 +79,14 @@ const (
 	GroupNoneLabel = "Not recommended yet"
 )
 
+// GroupCameBack is the group of an Attention view's items that were
+// decided and came back (due, drift, conflict), whatever recommends them;
+// it is listed first. GroupCameBackLabel is its name.
+const (
+	GroupCameBack      = "came-back"
+	GroupCameBackLabel = "Came back"
+)
+
 // GroupView is one group of an Attention view: the items whose pending
 // proposals share a source, a disposition (watch reads as wait) and the
 // label of that choice for the item's kind. ID is
@@ -362,7 +370,7 @@ type RuleRow struct {
 
 // RuleDetailView is the response body of GET /api/rule, POST /api/rules/draft,
 // POST /api/rules/activate, POST /api/rules/deactivate, POST /api/rules/exclude,
-// POST /api/rules/include, and POST /api/agent/rule-draft.
+// POST /api/rules/include, and POST /api/agent/rule-save.
 type RuleDetailView struct {
 	Rule    rules.Rule        `json:"rule"`
 	Record  rules.TrackRecord `json:"record"`
@@ -385,6 +393,9 @@ type MatchPreview struct {
 	// Dispositions is what the rule may propose: those valid for every kind
 	// of item its conditions can match (rules.Dispositions).
 	Dispositions []string `json:"dispositions"`
+	// Kinds are the item types its conditions can match (rules.Kinds), so
+	// the page names each decision as it reads for them.
+	Kinds []string `json:"kinds"`
 }
 
 // ReasonCount is one reason bucket inside a MatchPreview.
@@ -452,8 +463,8 @@ type DecisionVocabView struct {
 	LookMany       string `json:"look_many"`
 	DiscardMany    string `json:"discard_many"`
 	RecommendThese string `json:"recommend_these"`
-	// DiscardAll is the pinned summary's button ({n}: the number of
-	// items), Summary its line.
+	// DiscardAll is the summary's button ({n}: the number of items),
+	// Summary its lines.
 	DiscardAll string       `json:"discard_all"`
 	Summary    SummaryVocab `json:"summary"`
 	CountWords CountWords   `json:"count_words"`
@@ -463,6 +474,9 @@ type DecisionVocabView struct {
 	Untick      string `json:"untick"`
 	// LeftOpen is the left-open group's label (its count beside it).
 	LeftOpen string `json:"left_open"`
+	// CameBack says why an item in the "Came back" group came back, by
+	// its status, when the item gives no reason of its own (due_reason).
+	CameBack map[string]string `json:"came_back"`
 	// Recommends is the open item's recommendation box's kicker
 	// ({session}: who recommends).
 	Recommends string `json:"recommends"`
@@ -499,12 +513,16 @@ type NavVocab struct {
 	Later     string `json:"later"`
 }
 
-// SummaryVocab is the pinned summary line: OneSession when every item the
-// view lists is recommended by one session ({n}: the items, {session}: its
-// name), Mixed otherwise ({r}: how many are recommended).
+// SummaryVocab is decide's summary, in the middle pane with nothing open:
+// ToDecide ({n}: everything to decide), CameBack ({n}: the items that came
+// back), Group, one line per rule's or agent's recommendations ({who}: the
+// rule's name or the session's, {decision}: the group's label, {n}: its
+// size), and NotRecommended ({n}: the rest).
 type SummaryVocab struct {
-	OneSession string `json:"one_session"`
-	Mixed      string `json:"mixed"`
+	ToDecide       string `json:"to_decide"`
+	CameBack       string `json:"came_back"`
+	Group          string `json:"group"`
+	NotRecommended string `json:"not_recommended"`
 }
 
 // CountWords are the words that fill a group button's {n} (CountWord):

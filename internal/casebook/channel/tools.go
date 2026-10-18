@@ -21,8 +21,8 @@ func Tools() []channelmcp.Tool {
 	return []channelmcp.Tool{
 		{Name: "casebook_status", Description: "The attention counts, whether the user has the casebook page open, and what changed since you last looked: how many of your proposals the user accepted, and each one they changed or rejected with their reason.",
 			InputSchema: schema(`{"type":"object","properties":{}}`)},
-		{Name: "casebook_open", Description: "Open the casebook page in the user's browser, straight at one item (key) or an Attention view (view), or at the front with neither. The page opens attached to this session: the user's messages from it come to you. Only when they ask, or when you hand them something to review; never repeatedly.",
-			InputSchema: schema(`{"type":"object","properties":{"key":{"type":"string","description":"an item key: open at that item"},"view":{"type":"string","enum":["new","due","proposed","all"],"description":"open at this Attention view"}}}`)},
+		{Name: "casebook_open", Description: "Open the casebook page in the user's browser, straight at one item (key), or at the front without one. The page opens attached to this session: the user's messages from it come to you. Only when they ask, or when you hand them something to review; never repeatedly.",
+			InputSchema: schema(`{"type":"object","properties":{"key":{"type":"string","description":"an item key: open at that item"}}}`)},
 		{Name: "casebook_attention", Description: "List items needing attention, newest first. view: new (undecided), due (due/drift/conflict), proposed (a proposal is pending), all. The reply ends with the saved filters casebook knows.",
 			InputSchema: schema(`{"type":"object","properties":{"view":{"type":"string","enum":["new","due","proposed","all"]},"filters":{"type":"array","items":{"type":"string"},"description":"saved filter ids: every item matching all of them, whatever its status (view is then ignored)"},"kind":{"type":"string","enum":["repo","pr","issue","branch","worktree"]},"repo":{"type":"string","description":"owner/name or owner"},"q":{"type":"string","description":"substring of key or title"},"offset":{"type":"integer"},"limit":{"type":"integer"}}}`)},
 		{Name: "casebook_show", Description: "One item: its observation, decision, pending proposal, evidence and recent history.",
@@ -39,7 +39,7 @@ func Tools() []channelmcp.Tool {
 			InputSchema: schema(`{"type":"object","properties":{"text":{"type":"string"},"n":{"type":"integer"},"total":{"type":"integer"}},"required":["text"]}`)},
 		{Name: "casebook_reply", Description: "Settle the user's messages by id (the number in [m-N]). state: received, working, answered, declined or failed. text is your reply, shown in the thread. Every delivered message must end answered, declined or failed. You may also settle a message from a previous turn that was left unanswered; use answered, declined or failed.",
 			InputSchema: schema(`{"type":"object","properties":{"ids":{"type":"array","items":{"type":"integer"}},"state":{"type":"string","enum":["received","working","answered","declined","failed"]},"text":{"type":"string"}},"required":["ids","state"]}`)},
-		{Name: "casebook_rule_draft", Description: "Create or update a draft rule (the user activates it; you never can). Provide a rule object with id, name, match conditions and a propose block. status must be \"draft\" or omitted; setting it to \"active\" is refused. The draft must be complete and valid: a condition casebook doesn't know, a disposition the rule's kind doesn't allow (with no kind condition, only keep, wait and ignore), or an until that isn't date(YYYY-MM-DD), merged(<pr>), closed(<pr|issue>), inactive(90d) or released(<repo>) is refused with the reason, and nothing is written. Conditions are numbered from 1.",
+		{Name: "casebook_rule_save", Description: "Create or update a rule; it is on once saved: undecided items that match get its recommendation now and after every sync (the user accepts or rejects each; nothing is decided). You may edit only rules you created. Provide a rule object with id, name, match conditions and a propose block. The rule must be complete and valid: a condition casebook doesn't know, a disposition the rule's kind doesn't allow (with no kind condition, only keep, wait and ignore), or an until that isn't date(YYYY-MM-DD), merged(<pr>), closed(<pr|issue>), inactive(90d) or released(<repo>) is refused with the reason, and nothing is written. Conditions are numbered from 1.",
 			InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string","description":"rule id: lower-case letters, digits and hyphens"},"name":{"type":"string"},"match":{"type":"array","items":{"type":"object","properties":{"Field":{"type":"string"},"Op":{"type":"string"},"Value":{"type":"string"}}}},"propose":{"type":"object","properties":{"Disposition":{"type":"string"},"Until":{"type":"string"},"Note":{"type":"string"}}},"note":{"type":"string","description":"a short note about what this rule is for"}},"required":["id","name","match","propose"]}`)},
 		{Name: "casebook_job_step", Description: "Report an apply job step's progress. state: started (beginning work on the step), reported (command dispatched — casebook verifies the outcome), paused (precondition failed; provide detail), failed (command error; provide detail). Only the session the job was approved for may call this.",
 			InputSchema: schema(`{"type":"object","properties":{"job":{"type":"integer","description":"job id"},"step":{"type":"integer","description":"step id"},"state":{"type":"string","enum":["started","reported","paused","failed"]},"detail":{"type":"string","description":"reason for paused or failed"}},"required":["job","step","state"]}`)},
@@ -106,7 +106,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		// Court's messages from it come here. No session: nobody's page.
 		open := func(session string) func() (string, error) {
 			return func() (string, error) {
-				body := map[string]any{"key": a.Key, "view": a.View}
+				body := map[string]any{"key": a.Key}
 				if session != "" {
 					body["session"] = session
 				}
@@ -131,11 +131,8 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err != nil {
 			return "", err
 		}
-		switch {
-		case a.Key != "":
+		if a.Key != "" {
 			return "opened the casebook page at " + a.Key + note, nil
-		case a.View != "":
-			return "opened the casebook page at the " + a.View + " view" + note, nil
 		}
 		return "opened the casebook page" + note, nil
 	case "casebook_attention":
@@ -189,7 +186,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/reply", map[string]any{"session": ch.ID.Session, "ids": a.IDs, "state": a.State, "text": a.Text}, &out)
 			return pretty(out), err
 		})
-	case "casebook_rule_draft":
+	case "casebook_rule_save":
 		if err := needSession(); err != nil {
 			return "", err
 		}
@@ -204,7 +201,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 			}
 			if len(args) > 0 {
 				if err := json.Unmarshal(args, &rd); err != nil {
-					return "", fmt.Errorf("bad rule_draft arguments: %w", err)
+					return "", fmt.Errorf("bad rule_save arguments: %w", err)
 				}
 			}
 			// Build match conditions using snake_case json keys (Fix 2: rules structs
@@ -246,7 +243,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 				},
 			}
 			var out map[string]any
-			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/rule-draft", body, &out)
+			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/rule-save", body, &out)
 			if err != nil {
 				return "", err
 			}
