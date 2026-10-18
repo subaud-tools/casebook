@@ -1,28 +1,25 @@
-// choices.ts — the decide step's answer cards and the Not now picker.
+// choices.ts — the decide step's decision buttons and the Not now picker.
 //
 // renderChoices(ctx, kind, opts) returns an element holding:
-//   - the choice cards, two to a row: a number, serve's label and serve's
-//     sentence for what happens; the recommended one says "recommended" (in
-//     the agent's colour), the chosen one has the signal border;
-//   - Not now's conditions (serve's not_now forms) as chips under the cards,
+//   - the decision buttons, short: serve's label only, serve's sentence for
+//     what happens and when as the hover (title); the recommended one marked
+//     "recommended" (in the agent's colour) above it, the chosen one "chosen"
+//     and the signal border;
+//   - Not now's conditions (serve's not_now forms) as chips under the row,
 //     shown when Not now is picked, with one field when a condition asks for a
 //     value: a date, or (a PR, a PR or issue, a repo) a search of the items
 //     casebook tracks that also takes a pasted GitHub URL or key, offering
 //     an untracked one as "‹key› · not tracked; checked on the next sync";
 //   - for one item, the closing comment a close asks for (.cb-close-comment)
-//     under the cards, shown when a close card is picked: the kit's note
+//     under the row, shown when a close button is picked: the kit's note
 //     field and two buttons, "close with this comment" (↵ in the field too)
 //     and "close without comment" (no note); Esc cancels it;
 //   - an error line (.cb-choice-err) for serve's answer when it refuses.
 //
-// askClosingComment(root, onNote) opens the same field for accepting a close
-// recommendation: empty (the recommendation's reason is never the comment),
-// its buttons calling onNote(note) instead of opts.onPick.
-//
-// Picking a card calls opts.onPick(disposition); Not now calls
+// Picking a button calls opts.onPick(disposition); Not now calls
 // opts.onPick('wait', until) once its condition is complete; a close (one
 // item) calls opts.onPick('close', undefined, note) from its buttons, note
-// '' for none. Every word the cards and chips show comes from GET
+// '' for none. Every word the buttons and chips show comes from GET
 // /api/decisions/vocabulary. The element is the only state: a number key
 // clicks its nth .cb-choice, and the caller shows an error with
 // showChoiceError(root, message).
@@ -50,8 +47,8 @@ export interface ChoicesOpts {
   /** The decided close's note: what the closing-comment field starts with. */
   note?: string;
   onPick(d: string, until?: string, note?: string): void;
-  /** The decision cards are in the grid (once): the open item's "Look
-   * into it" card goes after them (decide-list.ts). */
+  /** The decision buttons are in the row (once): the open item's "Look
+   * into it" button goes after them (decide-list.ts). */
   onCards?(grid: HTMLElement): void;
 }
 
@@ -62,29 +59,6 @@ const CLOSE = 'close';
 const COMMENT_PLACEHOLDER = 'closing comment, posted when you approve the plan';
 const CLOSE_WITH = 'close with this comment';
 const CLOSE_WITHOUT = 'close without comment';
-
-// The open closing-comment fields, by their choices' root: what
-// askClosingComment opens.
-const commentFields = new WeakMap<
-  HTMLElement,
-  { open(onNote?: (note: string) => void): void }
->();
-
-/**
- * askClosingComment opens root's closing-comment field (renderChoices for one
- * item), empty, on its close card; its buttons call onNote(note), '' for
- * none. False when root has none (a selection's cards).
- */
-export function askClosingComment(
-  root: ParentNode,
-  onNote: (note: string) => void,
-): boolean {
-  const wrap = root.querySelector<HTMLElement>('.cb-choices-wrap');
-  const field = wrap ? commentFields.get(wrap) : undefined;
-  if (!field) return false;
-  field.open(onNote);
-  return true;
-}
 
 /** asNotNow maps watch, which the page no longer offers, onto Not now. */
 export function asNotNow(d: string | undefined): string | undefined {
@@ -131,7 +105,6 @@ export function renderChoices(
     comment?.el ?? null,
     err,
   );
-  if (comment) commentFields.set(root, comment);
 
   void getVocab(ctx).then((vocab) => {
     const choices: ChoiceVocab[] = opts.keys
@@ -149,20 +122,20 @@ export function renderChoices(
   });
 
   function mark(d: string | undefined): void {
-    // Only the decision cards: the Look into it card (no data-d) is never
-    // chosen, even when nothing is (d undefined).
+    // Only the decision buttons: the Look into it button (no data-d) is
+    // never chosen, even when nothing is (d undefined).
     for (const card of grid.querySelectorAll<HTMLElement>(
       '.cb-choice[data-d]',
     )) {
-      const on = card.dataset.d === d;
-      card.classList.toggle('on', on);
-      const k = card.querySelector<HTMLElement>('.cb-choice-k');
-      if (k) k.textContent = kickText(card);
+      card.classList.toggle('on', card.dataset.d === d);
+      const k = card.querySelector<HTMLElement>('.cb-choice-mark');
+      if (k) k.textContent = markText(card);
     }
   }
 
-  function kickText(card: HTMLElement): string {
-    const parts = [card.dataset.n ?? ''];
+  // markText is the line above a button: "recommended", "chosen", both.
+  function markText(card: HTMLElement): string {
+    const parts: string[] = [];
     if (card.classList.contains('rec')) parts.push('recommended');
     if (card.classList.contains('on')) parts.push('chosen');
     return parts.join(' \u00b7 ');
@@ -174,9 +147,10 @@ export function renderChoices(
       {
         type: 'button',
         class:
-          'kit-card cb-choice' +
+          'kit-btn cb-choice' +
           (rec ? ' rec' : '') +
           (c.disposition === 'delete' ? ' danger' : ''),
+        title: c.says,
         dataset: { d: c.disposition, n: String(n) },
         onclick() {
           showChoiceError(root, '');
@@ -188,32 +162,30 @@ export function renderChoices(
           }
           notNow.hidden = true;
           if (comment && c.disposition === CLOSE) {
-            comment.open(undefined, false);
+            comment.open();
             return;
           }
           comment?.close();
           opts.onPick(c.disposition);
         },
       },
-      h('span', { class: 'cb-choice-k' }),
+      h('span', { class: 'cb-choice-mark' }),
       h('span', { class: 'cb-choice-label' }, c.label),
-      h('span', { class: 'cb-choice-says' }, c.says),
     );
-    const k = card.querySelector<HTMLElement>('.cb-choice-k');
-    if (k) k.textContent = kickText(card);
+    const k = card.querySelector<HTMLElement>('.cb-choice-mark');
+    if (k) k.textContent = markText(card);
     return card;
   }
 
-  // closeComment is the closing-comment field a close card opens: the kit's
-  // note field and its two buttons. Nothing is decided until a button (or ↵
-  // in the field); Esc, wherever focus is, closes it and unpicks the card.
+  // closeComment is the closing-comment field a close button opens: the
+  // kit's note field and its two buttons. Nothing is decided until a button
+  // (or ↵ in the field); Esc, wherever focus is, closes it and unpicks the
+  // button.
   function closeComment(): {
     el: HTMLElement;
-    open(onNote?: (note: string) => void, scroll?: boolean): void;
+    open(): void;
     close(): void;
   } {
-    // Whom the buttons answer: the decide (a close card), or an accept.
-    let answer: ((note: string) => void) | null = null;
     const field = noteField({
       value: '',
       placeholder: COMMENT_PLACEHOLDER,
@@ -221,10 +193,8 @@ export function renderChoices(
       onCommit() {},
     });
     field.setAttribute('aria-label', 'closing comment');
-    const decide = (note: string): void => {
-      if (answer) answer(note.trim());
-      else opts.onPick(CLOSE, undefined, note.trim());
-    };
+    const decide = (note: string): void =>
+      opts.onPick(CLOSE, undefined, note.trim());
     field.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.isComposing) decide(field.value);
     });
@@ -261,18 +231,13 @@ export function renderChoices(
       el.hidden = true;
       document.removeEventListener('keydown', onEsc, true);
     }
-    // A card's open doesn't scroll: the cards and what is above them stay
-    // where Court clicked. An accept (the recommendation box) scrolls the
-    // field into view.
-    function open(onNote?: (note: string) => void, scroll = true): void {
-      answer = onNote ?? null;
-      // A decided close starts from its comment; an accept, and anything
-      // else, empty.
-      field.value = !onNote && opts.chosen === CLOSE ? (opts.note ?? '') : '';
-      if (onNote) mark(CLOSE);
+    // Opening doesn't scroll: the buttons and what is above them stay where
+    // Court clicked. A decided close starts from its comment.
+    function open(): void {
+      field.value = opts.chosen === CLOSE ? (opts.note ?? '') : '';
       el.hidden = false;
       document.addEventListener('keydown', onEsc, true);
-      field.focus({ preventScroll: !scroll });
+      field.focus({ preventScroll: true });
     }
     return { el, open, close };
   }

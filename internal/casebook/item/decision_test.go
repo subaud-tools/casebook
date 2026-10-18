@@ -222,3 +222,58 @@ func TestChoiceMany(t *testing.T) {
 		t.Errorf("choices %v, the table has %d", seen, len(want))
 	}
 }
+
+// TestEveryChoiceSaysWhatHappensAndWhen: a choice's hover says what it
+// decides and when anything happens: an outward choice "…until you run it
+// in apply.", every other "Nothing to run.".
+func TestEveryChoiceSaysWhatHappensAndWhen(t *testing.T) {
+	for _, k := range []Kind{KindRepo, KindPR, KindIssue, KindBranch, KindWorktree} {
+		for _, c := range Choices(k) {
+			if c.Outward && !strings.HasSuffix(c.Says, " until you run it in apply.") {
+				t.Errorf("%s %q: outward says %q", k, c.Label, c.Says)
+			}
+			if !c.Outward && !strings.HasSuffix(c.Says, " Nothing to run.") {
+				t.Errorf("%s %q: says %q", k, c.Label, c.Says)
+			}
+		}
+	}
+	says := func(k Kind, d Disposition) string {
+		for _, c := range Choices(k) {
+			if c.Disposition == d {
+				return c.Says
+			}
+		}
+		return ""
+	}
+	if got, want := says(KindIssue, Close), "Decides to close this issue. Nothing happens on GitHub until you run it in apply."; got != want {
+		t.Errorf("issue close says %q, want %q", got, want)
+	}
+	if got, want := says(KindBranch, Keep), "Decides to keep it as it is. Nothing to run."; got != want {
+		t.Errorf("branch keep says %q, want %q", got, want)
+	}
+}
+
+// TestChoicesSayWhatTheyDid: every choice says what it did, for one item
+// and for several ({n}: the count word).
+func TestChoicesSayWhatTheyDid(t *testing.T) {
+	want := map[string][2]string{
+		"Leave it open":            {"Left it open", "Left {n} open"},
+		"Keep it":                  {"Kept it", "Kept {n}"},
+		"Merge it":                 {"Merged it", "Merged {n}"},
+		"Close it without merging": {"Closed it", "Closed {n}"},
+		"Close it":                 {"Closed it", "Closed {n}"},
+		"Delete it":                {"Deleted it", "Deleted {n}"},
+		"Remove it":                {"Removed it", "Removed {n}"},
+		"Archive it on GitHub":     {"Archived it", "Archived {n}"},
+		"Not now":                  {"Put it off", "Put off {n}"},
+		"Stop tracking it":         {"Stopped tracking it", "Stopped tracking {n}"},
+	}
+	for _, k := range []Kind{KindRepo, KindPR, KindIssue, KindBranch, KindWorktree} {
+		for _, c := range Choices(k) {
+			w := want[c.Label]
+			if c.Done != w[0] || c.DoneMany != w[1] {
+				t.Errorf("%s %q: done %q / %q, want %q / %q", k, c.Label, c.Done, c.DoneMany, w[0], w[1])
+			}
+		}
+	}
+}

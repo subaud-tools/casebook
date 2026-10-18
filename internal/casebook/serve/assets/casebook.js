@@ -674,19 +674,6 @@ function choicesForKeys(vocab2, keys) {
   }
   return out;
 }
-var KIND_NOUN = {
-  pr: ["pull request", "pull requests"],
-  issue: ["issue", "issues"],
-  branch: ["branch", "branches"],
-  worktree: ["worktree", "worktrees"],
-  repo: ["repository", "repositories"]
-};
-function fillLabel(label, keys) {
-  const kinds = [...new Set(keys.map(kindFromKey))];
-  const noun = kinds.length === 1 ? KIND_NOUN[kinds[0]] : void 0;
-  const count = noun ? pluralize(keys.length, noun[0], noun[1]) : pluralize(keys.length, "item");
-  return `${label} · ${count}`;
-}
 function choiceLabel(vocab2, key, disposition) {
   const d = disposition === "watch" ? "wait" : disposition;
   if (!vocab2) return disposition;
@@ -847,6 +834,35 @@ function shortKey(key) {
   const i = k.indexOf("/");
   return i >= 0 ? k.slice(i + 1) : k;
 }
+function decideRoute(pending, d, until) {
+  if (!pending) return { path: "decide" };
+  const same = pending.disposition === d && (until ?? "") === (pending.until ?? "");
+  return { path: same ? "accept" : "change", id: pending.id };
+}
+function doneWords(vocab2, d, of) {
+  if ("key" in of) {
+    const kind = kindFromKey(of.key);
+    const c = (vocab2.kinds ?? []).find((k) => k.kind === kind)?.choices?.find((c2) => c2.disposition === d);
+    return c?.done ?? "";
+  }
+  for (const k of vocab2.kinds ?? [])
+    for (const c of k.choices ?? [])
+      if (c.disposition === d && c.label === of.label)
+        return c.done_many.replaceAll(
+          "{n}",
+          countWord(of.total, of.ticked, vocab2.count_words)
+        );
+  return "";
+}
+function waitingStrip(w, done) {
+  const parts = [];
+  for (const piece of w.text.split(/(\{apply\}|\{undo\})/)) {
+    if (piece === "{apply}") parts.push({ link: w.apply });
+    else if (piece === "{undo}") parts.push({ button: w.undo });
+    else if (piece) parts.push(piece.replaceAll("{done}", done));
+  }
+  return parts;
+}
 
 // decide.ts
 import { sheet, h as h3, noteField as noteField2 } from "/_kit/kit.js";
@@ -857,14 +873,6 @@ var CLOSE = "close";
 var COMMENT_PLACEHOLDER = "closing comment, posted when you approve the plan";
 var CLOSE_WITH = "close with this comment";
 var CLOSE_WITHOUT = "close without comment";
-var commentFields = /* @__PURE__ */ new WeakMap();
-function askClosingComment(root, onNote) {
-  const wrap = root.querySelector(".cb-choices-wrap");
-  const field = wrap ? commentFields.get(wrap) : void 0;
-  if (!field) return false;
-  field.open(onNote);
-  return true;
-}
 function asNotNow(d) {
   return d === "watch" ? "wait" : d;
 }
@@ -892,7 +900,6 @@ function renderChoices(ctx, kind, opts) {
     comment?.el ?? null,
     err
   );
-  if (comment) commentFields.set(root, comment);
   void getVocab(ctx).then((vocab2) => {
     const choices2 = opts.keys ? choicesForKeys(vocab2, opts.keys) : (vocab2.kinds ?? []).find((k) => k.kind === kind)?.choices ?? [];
     const rec = asNotNow(opts.recommended);
@@ -906,27 +913,27 @@ function renderChoices(ctx, kind, opts) {
     notNow.append(...notNowPicker(vocab2.not_now ?? []));
   });
   function mark(d) {
-    for (const card6 of grid.querySelectorAll(
+    for (const card5 of grid.querySelectorAll(
       ".cb-choice[data-d]"
     )) {
-      const on = card6.dataset.d === d;
-      card6.classList.toggle("on", on);
-      const k = card6.querySelector(".cb-choice-k");
-      if (k) k.textContent = kickText(card6);
+      card5.classList.toggle("on", card5.dataset.d === d);
+      const k = card5.querySelector(".cb-choice-mark");
+      if (k) k.textContent = markText(card5);
     }
   }
-  function kickText(card6) {
-    const parts = [card6.dataset.n ?? ""];
-    if (card6.classList.contains("rec")) parts.push("recommended");
-    if (card6.classList.contains("on")) parts.push("chosen");
+  function markText(card5) {
+    const parts = [];
+    if (card5.classList.contains("rec")) parts.push("recommended");
+    if (card5.classList.contains("on")) parts.push("chosen");
     return parts.join(" · ");
   }
   function choiceCard(c, n, rec) {
-    const card6 = h2(
+    const card5 = h2(
       "button",
       {
         type: "button",
-        class: "kit-card cb-choice" + (rec ? " rec" : "") + (c.disposition === "delete" ? " danger" : ""),
+        class: "kit-btn cb-choice" + (rec ? " rec" : "") + (c.disposition === "delete" ? " danger" : ""),
+        title: c.says,
         dataset: { d: c.disposition, n: String(n) },
         onclick() {
           showChoiceError(root, "");
@@ -938,23 +945,21 @@ function renderChoices(ctx, kind, opts) {
           }
           notNow.hidden = true;
           if (comment && c.disposition === CLOSE) {
-            comment.open(void 0, false);
+            comment.open();
             return;
           }
           comment?.close();
           opts.onPick(c.disposition);
         }
       },
-      h2("span", { class: "cb-choice-k" }),
-      h2("span", { class: "cb-choice-label" }, c.label),
-      h2("span", { class: "cb-choice-says" }, c.says)
+      h2("span", { class: "cb-choice-mark" }),
+      h2("span", { class: "cb-choice-label" }, c.label)
     );
-    const k = card6.querySelector(".cb-choice-k");
-    if (k) k.textContent = kickText(card6);
-    return card6;
+    const k = card5.querySelector(".cb-choice-mark");
+    if (k) k.textContent = markText(card5);
+    return card5;
   }
   function closeComment() {
-    let answer = null;
     const field = noteField({
       value: "",
       placeholder: COMMENT_PLACEHOLDER,
@@ -963,10 +968,7 @@ function renderChoices(ctx, kind, opts) {
       }
     });
     field.setAttribute("aria-label", "closing comment");
-    const decide = (note) => {
-      if (answer) answer(note.trim());
-      else opts.onPick(CLOSE, void 0, note.trim());
-    };
+    const decide = (note) => opts.onPick(CLOSE, void 0, note.trim());
     field.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) decide(field.value);
     });
@@ -998,13 +1000,11 @@ function renderChoices(ctx, kind, opts) {
       el.hidden = true;
       document.removeEventListener("keydown", onEsc, true);
     }
-    function open(onNote, scroll = true) {
-      answer = onNote ?? null;
-      field.value = !onNote && opts.chosen === CLOSE ? opts.note ?? "" : "";
-      if (onNote) mark(CLOSE);
+    function open() {
+      field.value = opts.chosen === CLOSE ? opts.note ?? "" : "";
       el.hidden = false;
       document.addEventListener("keydown", onEsc, true);
-      field.focus({ preventScroll: !scroll });
+      field.focus({ preventScroll: true });
     }
     return { el, open, close };
   }
@@ -1168,123 +1168,6 @@ async function getVocab(ctx) {
   return _vocab;
 }
 var DANGER_DISPS = /* @__PURE__ */ new Set(["close", "delete", "archive"]);
-function openDecideSheet(ctx, keys, onDone, seed, customPost) {
-  void getVocab(ctx).then((vocab2) => {
-    openDecideSheetWithVocab(ctx, keys, vocab2, onDone, seed, customPost);
-  });
-}
-function openDecideSheetWithVocab(ctx, keys, vocab2, onDone, seed, customPost) {
-  const n = keys.length;
-  const choices2 = choicesForKeys(vocab2, keys);
-  const kinds = [...new Set(keys.map(kindFromKey))];
-  const question = kinds.length === 1 ? (vocab2.kinds ?? []).find((k) => k.kind === kinds[0])?.question ?? "" : "";
-  let disposition = asNotNow(seed?.disposition) ?? "";
-  let until = seed?.until ?? "";
-  let note = seed?.note ?? "";
-  let submitting = false;
-  let sh = null;
-  const labelOf = (d) => choices2.find((c) => c.disposition === d)?.label ?? d;
-  const needsUntil = (d) => choices2.find((c) => c.disposition === d)?.needs_until ?? false;
-  const untilEl = h3("p", { class: "cb-sheet-preview" });
-  function updateFill() {
-    const fill = sh?.el.querySelector(".kit-btn.fill");
-    if (fill)
-      fill.textContent = fillLabel(labelOf(disposition) || "Decide", keys);
-    untilEl.textContent = until ? `until ${until}` : "";
-    untilEl.hidden = !until || !needsUntil(disposition);
-  }
-  const cards = renderChoices(ctx, kinds[0] ?? "", {
-    keys,
-    chosen: disposition || void 0,
-    onPick(d, u) {
-      disposition = d;
-      until = u ?? "";
-      updateFill();
-    }
-  });
-  const noteInputEl = noteField2({
-    placeholder: "optional note",
-    value: note,
-    onCommit(v) {
-      note = v;
-    }
-  });
-  const noteRow = h3(
-    "div",
-    { class: "cb-sheet-row" },
-    h3("label", { class: "cb-sheet-label" }, "note"),
-    noteInputEl
-  );
-  const body = h3(
-    "div",
-    { class: "cb-sheet-body cb-decide-sheet" },
-    question ? h3("p", { class: "cb-question" }, question) : null,
-    cards,
-    untilEl,
-    noteRow
-  );
-  async function doDecide() {
-    if (submitting) return;
-    note = noteInputEl.value;
-    if (!disposition) {
-      showChoiceError(cards, "Pick a choice first.");
-      return;
-    }
-    if (needsUntil(disposition) && !until) {
-      showChoiceError(cards, "Pick when to bring it back.");
-      return;
-    }
-    const u = needsUntil(disposition) ? until : "";
-    submitting = true;
-    showChoiceError(cards, "");
-    try {
-      let decidedKeys;
-      let errors2 = [];
-      if (customPost) {
-        decidedKeys = await customPost(disposition, u, note);
-      } else {
-        const payload = { keys, disposition };
-        if (u) payload["until"] = u;
-        if (note) payload["note"] = note;
-        const result = await ctx.api.post("/decide", payload);
-        decidedKeys = result.decided_keys ?? [];
-        errors2 = result.errors ?? [];
-      }
-      if (decidedKeys.length > 0) {
-        onDone(decidedKeys);
-      }
-      if (errors2.length > 0) {
-        showChoiceError(cards, errors2.join("; "));
-        submitting = false;
-      } else {
-        sh?.close();
-      }
-    } catch (err) {
-      showChoiceError(
-        cards,
-        err instanceof Error ? err.message : "decide failed, try again"
-      );
-      submitting = false;
-    }
-  }
-  sh = sheet({
-    title: `decide ${pluralize(n, "item")}`,
-    body,
-    actions: [
-      {
-        label: fillLabel(labelOf(disposition) || "Decide", keys),
-        fill: true,
-        run() {
-          void doDecide();
-        }
-      }
-    ],
-    onClose() {
-      sh = null;
-    }
-  });
-  updateFill();
-}
 
 // apply-text.ts
 function viewOf(job) {
@@ -2472,10 +2355,10 @@ function makeApply(ctx) {
       drawOpen();
     },
     note: () => note,
-    answer(card6, action, text, ok) {
+    answer(card5, action, text, ok) {
       void act(
         "/jobs/answer",
-        { needs_you: card6.id, action, text },
+        { needs_you: card5.id, action, text },
         ok
       );
     },
@@ -2869,70 +2752,210 @@ import {
 } from "/_kit/kit.js";
 
 // item.ts
-import { h as h6, facts as facts2, fold } from "/_kit/kit.js";
-
-// proposals.ts
-import { card as card2, sheet as sheet2, noteField as noteField3, h as h5 } from "/_kit/kit.js";
-function openRejectSheet(ctx, ids, onDone) {
-  let reason = "";
-  let submitting = false;
-  let sh = null;
-  const reasonInput = noteField3({
-    placeholder: "reason (optional)",
-    onCommit(v) {
-      reason = v;
-    }
-  });
-  const errEl = h5("p", { class: "cb-sheet-err" });
-  errEl.hidden = true;
-  const body = h5(
-    "div",
-    { class: "cb-sheet-body" },
-    h5(
-      "div",
-      { class: "cb-sheet-row" },
-      h5("label", { class: "cb-sheet-label" }, "reason"),
-      reasonInput
-    ),
-    errEl
-  );
-  async function doReject() {
-    if (submitting) return;
-    submitting = true;
-    errEl.hidden = true;
-    try {
-      const payload = { ids };
-      if (reason.trim()) payload["reason"] = reason.trim();
-      await ctx.api.post("/proposals/reject", payload);
-      onDone();
-      sh?.close();
-    } catch (err) {
-      errEl.textContent = err instanceof Error ? err.message : "reject failed — try again";
-      errEl.hidden = false;
-      submitting = false;
-    }
-  }
-  sh = sheet2({
-    title: `reject ${pluralize(ids.length, "proposal")}`,
-    body,
-    actions: [
-      {
-        label: `Reject ${ids.length}`,
-        fill: true,
-        run() {
-          void doReject();
-        }
-      }
-    ],
-    onClose() {
-      sh = null;
-    }
+import { h as h5, facts as facts2, fold } from "/_kit/kit.js";
+var BODY_CAP = 600;
+function fmtDate(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
   });
 }
+function fmtShortDate(s) {
+  if (!s)
+    return "def";
+  const d = new Date(s);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}-${dd}`;
+}
+function renderEvidence(evs) {
+  const section = h5("section", { class: "cb-evidence" });
+  section.append(h5("h3", { class: "kit-label" }, "evidence"));
+  if (evs.length === 0) {
+    section.append(h5("p", { class: "cb-empty" }, "no evidence"));
+    return section;
+  }
+  for (const ev of evs) {
+    const authorEl = ev.author ? h5("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
+    const time = h5(
+      "span",
+      { class: "cb-muted" },
+      ` · ${fmtShortDate(ev.created_at)}`
+    );
+    const item = h5(
+      "div",
+      { class: "cb-evidence-item" },
+      h5(
+        "p",
+        { class: "cb-evidence-meta" },
+        ...authorEl ? [authorEl] : [],
+        ev.text,
+        time
+      )
+    );
+    section.append(item);
+  }
+  return section;
+}
+function renderHistory(events, decisions, ownKey) {
+  const section = h5("section", { class: "cb-history" });
+  section.append(h5("h3", { class: "kit-label" }, "history"));
+  if (events.length === 0 && decisions.length === 0) {
+    section.append(h5("p", { class: "cb-empty" }, "no history"));
+    return section;
+  }
+  for (const entry of decisions) {
+    const display = stripOwnKey(entry.Subject, ownKey);
+    section.append(
+      h5(
+        "div",
+        { class: "cb-history-item cb-history-decision" },
+        h5("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
+        h5("span", { class: "cb-history-msg" }, display)
+      )
+    );
+  }
+  for (const ev of events) {
+    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
+    section.append(
+      h5(
+        "div",
+        { class: "cb-history-item" },
+        h5("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
+        h5("span", { class: "cb-history-msg" }, label)
+      )
+    );
+  }
+  return section;
+}
+function renderDecideRow(ctx, detail, hooks) {
+  const it = detail.item;
+  const section = h5("section", { class: "cb-decide", role: "group" });
+  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  const cards = renderChoices(ctx, it.kind, {
+    recommended: pending?.disposition,
+    chosen: it.decision?.disposition,
+    note: it.decision?.note,
+    onPick(d, until, note) {
+      hooks.decide?.(d, until, note);
+    },
+    onCards() {
+      hooks.cardsReady?.();
+    }
+  });
+  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
+  section.append(cards);
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    section.setAttribute("aria-label", kv?.question ?? "");
+  });
+  return section;
+}
+function renderRec(ctx, detail, hooks) {
+  const it = detail.item;
+  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  if (!p) return null;
+  const who = h5("p", { class: "cb-rec-who" });
+  const label = h5("p", { class: "cb-rec-label" }, p.disposition);
+  const el = h5(
+    "section",
+    { class: "cb-rec" },
+    who,
+    label,
+    p.note ? h5("p", { class: "cb-rec-note" }, p.note) : null,
+    p.until ? h5("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
+  );
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    const rec = asNotNow(p.disposition);
+    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
+    const name = hooks.sourceName?.(p.source) || sessionName(it.recommended_by, p.source);
+    who.textContent = vocab2.recommends.replaceAll("{session}", name);
+  });
+  return el;
+}
+function cameBack(vocab2, it) {
+  const status = vocab2.came_back?.[it.status ?? ""];
+  if (status) return it.due_reason || status;
+  return it.new_activity ? it.due_reason ?? "" : "";
+}
+function renderItem(ctx, detail, hooks = {}) {
+  const it = detail.item;
+  const el = h5("article", { class: "cb-item", dataset: { key: it.key } });
+  const displayKey = keyWithoutKind(it.key);
+  const keyEl = it.url ? h5("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
+  const kicker = h5("p", { class: "cb-kicker kit-kick" });
+  const parts = [it.kind, keyEl, it.relation].filter(
+    (part) => !!part
+  );
+  parts.forEach((part, i) => {
+    if (i > 0) kicker.append(" · ");
+    kicker.append(part);
+  });
+  el.append(kicker);
+  const title = it.title ?? keyWithoutKind(it.key);
+  el.append(h5("h1", { class: "cb-title kit-h1", title }, title));
+  const factPairs = [];
+  if (it.repo) factPairs.push(["repo", it.repo]);
+  if (it.status) factPairs.push(["status", it.status]);
+  if (it.author)
+    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
+  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
+  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
+  if (it.labels && it.labels.length > 0)
+    factPairs.push(["labels", it.labels.join(", ")]);
+  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
+  const factsEl = facts2(factPairs);
+  factsEl.title = factsEl.textContent ?? "";
+  el.append(factsEl);
+  void getVocab(ctx).then((vocab2) => {
+    const why = cameBack(vocab2, it);
+    if (!why) return;
+    const line = vocab2.came_back_fact.replaceAll("{reason}", why);
+    factsEl.prepend(h5("span", { class: "cb-came-back", title: line }, line));
+    factsEl.title = factsEl.textContent ?? "";
+  });
+  el.append(renderDecideRow(ctx, detail, hooks));
+  const looking = lookingLine(it.looking);
+  const reading = h5(
+    "div",
+    { class: "cb-reading" },
+    h5("p", { class: "cb-looking", hidden: !looking }, looking),
+    renderRec(ctx, detail, hooks)
+  );
+  if (it.body) {
+    const excerpt = it.body.slice(0, BODY_CAP);
+    const rest = it.body.slice(BODY_CAP);
+    reading.append(
+      h5(
+        "section",
+        { class: "cb-body" },
+        h5("p", null, excerpt),
+        rest ? fold("read more", h5("p", null, rest)) : null
+      )
+    );
+  }
+  reading.append(
+    h5(
+      "div",
+      { class: "cb-trail" },
+      renderEvidence(detail.evidence ?? []),
+      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
+    )
+  );
+  el.append(reading);
+  return h5("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el);
+}
+
+// proposals.ts
+import { sheet as sheet2, h as h6 } from "/_kit/kit.js";
 function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
   let submitting = false;
   let sh = null;
-  const errEl = h5("p", { class: "cb-sheet-err" });
+  const errEl = h6("p", { class: "cb-sheet-err" });
   errEl.hidden = true;
   async function doDiscard() {
     if (submitting) return;
@@ -2950,10 +2973,10 @@ function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
   }
   sh = sheet2({
     title: vocab2.discard_title,
-    body: h5(
+    body: h6(
       "div",
       { class: "cb-sheet-body cb-discard-confirm" },
-      h5("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
+      h6("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
       errEl
     ),
     actions: [
@@ -2975,269 +2998,6 @@ function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
       sh = null;
     }
   });
-}
-function proposalCard(ctx, detail, onDone, opts = {}) {
-  const proposal = detail.item.proposal;
-  if (!proposal || proposal.state !== "pending") return null;
-  const p = proposal;
-  const head = opts.who ?? "";
-  const lines = [
-    h5("p", { class: "cb-proposal-label" }, opts.label ?? p.disposition)
-  ];
-  if (p.note) {
-    const noteEl = h5("p", { class: "cb-proposal-note" });
-    noteEl.textContent = p.note;
-    lines.push(noteEl);
-  }
-  if (p.until) {
-    lines.push(h5("p", { class: "cb-proposal-until" }, `until ${p.until}`));
-  }
-  const keyHint = h5(
-    "p",
-    { class: "cb-keyhint" },
-    h5("kbd", null, "a"),
-    " accept · ",
-    h5("kbd", null, "r"),
-    " reject"
-  );
-  const bodyEl = h5("div", { class: "cb-proposal-body" }, ...lines);
-  function doAccept() {
-    if (opts.accept) {
-      opts.accept();
-      return;
-    }
-    void ctx.api.post("/proposals/accept", { ids: [p.id] }).then(() => {
-      onDone?.();
-    }).catch(() => {
-    });
-  }
-  function doReject() {
-    openRejectSheet(ctx, [p.id], () => {
-      onDone?.();
-    });
-  }
-  const actions = [
-    { label: "accept", fill: true, run: doAccept },
-    {
-      label: "change…",
-      run() {
-        openDecideSheet(
-          ctx,
-          [p.key],
-          () => {
-            onDone?.();
-          },
-          {
-            disposition: p.disposition,
-            until: p.until ?? "",
-            note: p.note ?? ""
-          },
-          async (disp, until, note) => {
-            const result = await ctx.api.post(
-              "/proposals/change",
-              { id: p.id, disposition: disp, until, note }
-            );
-            return result.decided_keys ?? [];
-          }
-        );
-      }
-    },
-    { label: "reject", run: doReject }
-  ];
-  const el = card2({ edge: "agent", head, body: bodyEl, actions });
-  el.classList.add("cb-proposal-card");
-  const headEl = el.querySelector(".kit-card-head");
-  if (headEl) headEl.title = head;
-  el.querySelector(".kit-btns")?.append(keyHint);
-  return el;
-}
-
-// item.ts
-var BODY_CAP = 600;
-function fmtDate(s) {
-  if (!s) return "—";
-  const d = new Date(s);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  });
-}
-function fmtShortDate(s) {
-  if (!s)
-    return "def";
-  const d = new Date(s);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${mm}-${dd}`;
-}
-function renderEvidence(evs) {
-  const section = h6("section", { class: "cb-evidence" });
-  section.append(h6("h3", { class: "kit-label" }, "evidence"));
-  if (evs.length === 0) {
-    section.append(h6("p", { class: "cb-empty" }, "no evidence"));
-    return section;
-  }
-  for (const ev of evs) {
-    const authorEl = ev.author ? h6("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
-    const time = h6(
-      "span",
-      { class: "cb-muted" },
-      ` · ${fmtShortDate(ev.created_at)}`
-    );
-    const item = h6(
-      "div",
-      { class: "cb-evidence-item" },
-      h6(
-        "p",
-        { class: "cb-evidence-meta" },
-        ...authorEl ? [authorEl] : [],
-        ev.text,
-        time
-      )
-    );
-    section.append(item);
-  }
-  return section;
-}
-function renderHistory(events, decisions, ownKey) {
-  const section = h6("section", { class: "cb-history" });
-  section.append(h6("h3", { class: "kit-label" }, "history"));
-  if (events.length === 0 && decisions.length === 0) {
-    section.append(h6("p", { class: "cb-empty" }, "no history"));
-    return section;
-  }
-  for (const entry of decisions) {
-    const display = stripOwnKey(entry.Subject, ownKey);
-    section.append(
-      h6(
-        "div",
-        { class: "cb-history-item cb-history-decision" },
-        h6("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
-        h6("span", { class: "cb-history-msg" }, display)
-      )
-    );
-  }
-  for (const ev of events) {
-    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
-    section.append(
-      h6(
-        "div",
-        { class: "cb-history-item" },
-        h6("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
-        h6("span", { class: "cb-history-msg" }, label)
-      )
-    );
-  }
-  return section;
-}
-function renderRecBox(ctx, detail, hooks) {
-  const it = detail.item;
-  const slot = h6(
-    "div",
-    { class: "cb-rec-empty" },
-    h6("p", { class: "cb-rec-empty-says" }, "No recommendation yet.")
-  );
-  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  if (!pending) return slot;
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    const rec = asNotNow(pending.disposition);
-    const label = kv?.choices?.find((c) => c.disposition === rec)?.label;
-    const card6 = proposalCard(ctx, detail, hooks.onRefresh, {
-      label,
-      who: vocab2.recommends.replaceAll(
-        "{session}",
-        sessionName(it.recommended_by, pending.source)
-      ),
-      accept: hooks.accept
-    });
-    if (card6) slot.replaceWith(card6);
-  });
-  return slot;
-}
-function renderDecideSection(ctx, detail, hooks) {
-  const it = detail.item;
-  const section = h6("section", { class: "cb-decide" });
-  const question = h6("h2", { class: "cb-question" });
-  const looking = lookingLine(it.looking);
-  const lookingEl = h6("p", { class: "cb-looking", hidden: !looking }, looking);
-  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  const cards = renderChoices(ctx, it.kind, {
-    recommended: pending?.disposition,
-    chosen: it.decision?.disposition,
-    note: it.decision?.note,
-    onPick(d, until, note) {
-      hooks.decide?.(d, until, note);
-    },
-    onCards() {
-      hooks.cardsReady?.();
-    }
-  });
-  section.append(question, lookingEl, cards);
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    question.textContent = kv?.question ?? "";
-  });
-  return section;
-}
-function renderItem(ctx, detail, hooks = {}) {
-  const it = detail.item;
-  const el = h6("article", { class: "cb-item", dataset: { key: it.key } });
-  const displayKey = keyWithoutKind(it.key);
-  const keyEl = it.url ? h6("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
-  const kicker = h6("p", { class: "cb-kicker kit-kick" });
-  const parts = [it.kind, keyEl, it.relation].filter(
-    (part) => !!part
-  );
-  parts.forEach((part, i) => {
-    if (i > 0) kicker.append(" · ");
-    kicker.append(part);
-  });
-  el.append(kicker);
-  const title = it.title ?? keyWithoutKind(it.key);
-  el.append(h6("h1", { class: "cb-title kit-h1", title }, title));
-  const factPairs = [];
-  if (it.repo) factPairs.push(["repo", it.repo]);
-  if (it.status) factPairs.push(["status", it.status]);
-  if (it.author)
-    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
-  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
-  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
-  if (it.labels && it.labels.length > 0)
-    factPairs.push(["labels", it.labels.join(", ")]);
-  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
-  el.append(facts2(factPairs));
-  const bodyWrap = h6("div", { class: "cb-body" });
-  if (it.due_reason)
-    bodyWrap.append(h6("p", { class: "cb-due-reason" }, it.due_reason));
-  if (it.body) {
-    const excerpt = it.body.slice(0, BODY_CAP);
-    const rest = it.body.slice(BODY_CAP);
-    bodyWrap.append(h6("p", null, excerpt));
-    if (rest) {
-      bodyWrap.append(fold("read more", h6("p", null, rest)));
-    }
-  }
-  const hasBody = it.kind === "pr" || it.kind === "issue" || !!it.due_reason || !!it.body;
-  el.append(
-    h6(
-      "div",
-      { class: "cb-lead" },
-      renderRecBox(ctx, detail, hooks),
-      hasBody ? bodyWrap : null
-    )
-  );
-  el.append(renderDecideSection(ctx, detail, hooks));
-  el.append(
-    h6(
-      "div",
-      { class: "cb-trail" },
-      renderEvidence(detail.evidence ?? []),
-      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
-    )
-  );
-  return h6("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el);
 }
 
 // filters.ts
@@ -4679,7 +4439,7 @@ function ruleEditor(ctx, row, seed, hooks) {
 }
 
 // rules.ts
-import { h as h10, facts as facts3, buttons as buttons3, card as card3, sheet as sheet3 } from "/_kit/kit.js";
+import { h as h10, facts as facts3, buttons as buttons3, card as card2, sheet as sheet3 } from "/_kit/kit.js";
 var PREVIEW_DEBOUNCE_MS = 300;
 var PAGE2 = 200;
 function message4(err) {
@@ -4727,7 +4487,7 @@ function renderRule(ctx, detail, hooks) {
     factsEl.replaceWith(next);
     factsEl = next;
   }
-  const invalidEl = detail.invalid ? card3({
+  const invalidEl = detail.invalid ? card2({
     edge: "signal",
     head: "not valid",
     body: h10(
@@ -5112,6 +4872,7 @@ function renderRuleList(ctx, rows, hooks) {
 }
 
 // decide-list.ts
+var STRIP_MS = 6e3;
 var RECOMMEND_THE_REST = "Please recommend the items casebook still needs a recommendation for: call casebook_next until it says done.";
 var PAGE_SIZE = 200;
 var selection = createSelection();
@@ -5184,7 +4945,7 @@ function makeDecide(ctx) {
   let shownDetail = null;
   let lastOrder = [];
   let deciding = null;
-  let lastUndo = null;
+  let lastUndo = [];
   let vocab2 = null;
   let syncingOpen = false;
   const discardAllBtn = h11("button", {
@@ -6047,6 +5808,19 @@ function makeDecide(ctx) {
     );
     return { el, acts };
   }
+  function groupSays(g) {
+    for (const k of vocab2?.kinds ?? []) {
+      const c = (k.choices ?? []).find(
+        (x) => x.disposition === g.disposition && x.label === g.label
+      );
+      if (c) return c.says;
+    }
+    return "";
+  }
+  function withSays(el, says) {
+    if (says) el.title = says;
+    return el;
+  }
   function groupButton(id, cls, label, run, off = false) {
     return h11(
       "button",
@@ -6137,7 +5911,10 @@ function makeDecide(ctx) {
       const looked = scoped ? ticked.every((k) => rows.some((it) => it.key === k && it.looking)) : rows.length >= g.total && rows.every((it) => !!it.looking);
       acts.replaceChildren(
         ...[
-          button("fill cb-group-act", w.act, () => actGroup(g)),
+          withSays(
+            button("fill cb-group-act", w.act, () => actGroup(g)),
+            groupSays(g)
+          ),
           t ? button("cb-group-look", w.look, () => lookGroup(g), looked) : null,
           g.source.startsWith("rule:") ? null : button("cb-group-discard", w.discard, () => discardGroup(g)),
           n > 0 ? h11(
@@ -6259,6 +6036,7 @@ function makeDecide(ctx) {
     const open = currentOpenKey;
     deciding = open ?? "\0group";
     try {
+      const ticked = tickedIn(g).length;
       const { keys, ids } = await target(g);
       if (!ids.length) return;
       const order = await orderFor(open);
@@ -6270,7 +6048,20 @@ function makeDecide(ctx) {
         return;
       }
       selection.deselect(keys);
-      lastUndo = null;
+      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
+        key,
+        prev: r.previous?.[key] ?? null,
+        expect
+      }));
+      if (g.outward && vocab2)
+        waited(
+          doneWords(vocab2, g.disposition, {
+            label: g.label,
+            total: g.total,
+            ticked
+          })
+        );
+      else hideStrip();
       if (!open || keys.includes(open)) {
         await moveOn(open ?? "", order);
       } else {
@@ -6405,12 +6196,14 @@ function makeDecide(ctx) {
   function paintDetail(key, detail) {
     shownDetail = detail;
     const el = renderItem(ctx, detail, {
-      // Re-render after a reject or a change from the recommendation card.
-      onRefresh: () => void openDetail(key),
       decide: (d, until, note) => void decideOpen(key, d, until, note),
-      accept: () => void acceptOpen(),
       cardsReady: () => renderAsk(),
-      nav: renderNav(key)
+      nav: renderNav(key),
+      sourceName: (source) => {
+        if (!source.startsWith("rule:")) return "";
+        const id = source.slice(5);
+        return ruleRows.find((r) => r.rule.id === id)?.rule.name || id;
+      }
     });
     readEl.replaceChildren(el);
     renderAsk();
@@ -6429,19 +6222,20 @@ function makeDecide(ctx) {
     const w = lookIntoCard(words, t.name, key);
     const looking = lookingLine(shownDetail.item.looking);
     const n = Number(grid.dataset.cards) + 1;
-    const card6 = h11(
+    const card5 = h11(
       "button",
       {
         type: "button",
-        class: "kit-card edge-agent cb-choice cb-look-card" + (looking ? " looking" : ""),
+        class: "kit-btn cb-choice cb-look-card" + (looking ? " looking" : ""),
+        title: looking || w.says,
         dataset: { n: String(n) },
         disabled: !!looking || askingKey === key,
         async onclick() {
-          if (card6.disabled) return;
+          if (card5.disabled) return;
           const wrap = grid.closest(".cb-choices-wrap");
           if (wrap) showChoiceError(wrap, "");
           askingKey = key;
-          card6.disabled = true;
+          card5.disabled = true;
           const why = await ctx.askSession(
             w.message,
             { keys: [key] },
@@ -6449,17 +6243,16 @@ function makeDecide(ctx) {
           );
           askingKey = "";
           if (why) {
-            card6.disabled = false;
+            card5.disabled = false;
             if (wrap) showChoiceError(wrap, why);
           } else void refreshLooking(key);
         }
       },
-      h11("span", { class: "cb-choice-k" }, String(n)),
-      h11("span", { class: "cb-choice-label" }, w.label),
-      h11("span", { class: "cb-choice-says" }, looking || w.says)
+      h11("span", { class: "cb-choice-mark" }),
+      h11("span", { class: "cb-choice-label" }, w.label)
     );
-    if (old) old.replaceWith(card6);
-    else grid.append(card6);
+    if (old) old.replaceWith(card5);
+    else grid.append(card5);
   }
   ctx.onDockTarget(() => renderAsk());
   let lookingSeq = 0;
@@ -6539,7 +6332,7 @@ function makeDecide(ctx) {
     );
     const old = readEl.querySelector(".cb-rec-fresh");
     if (old) old.replaceWith(line);
-    else readEl.querySelector(".cb-question")?.after(line);
+    else readEl.querySelector(".cb-reading")?.prepend(line);
   }
   function viewLabel() {
     if (filters.rule) {
@@ -6585,9 +6378,52 @@ function makeDecide(ctx) {
       void reload();
     }
   }
-  function remember(key, prev, made) {
+  function remember(key, made, previous) {
     const expect = made?.[key];
-    lastUndo = expect ? { key, prev, expect } : null;
+    lastUndo = expect ? [{ key, prev: previous?.[key] ?? null, expect }] : [];
+  }
+  const strip = h11("div", {
+    class: "cb-strip",
+    role: "status",
+    hidden: true
+  });
+  let stripTimer = null;
+  function hideStrip() {
+    if (stripTimer) clearTimeout(stripTimer);
+    stripTimer = null;
+    strip.hidden = true;
+  }
+  function showStrip(text, groupLink, undo2) {
+    if (!vocab2) return;
+    strip.replaceChildren(
+      ...waitingStrip(vocab2.waiting, text).map(
+        (part) => typeof part === "string" ? part : "link" in part ? h11("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h11(
+          "button",
+          {
+            type: "button",
+            class: "cb-link cb-strip-undo",
+            onclick() {
+              hideStrip();
+              undo2();
+            }
+          },
+          part.button
+        )
+      )
+    );
+    if (!strip.isConnected) document.body.append(strip);
+    const r = readEl.getBoundingClientRect();
+    strip.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    strip.hidden = false;
+    if (stripTimer) clearTimeout(stripTimer);
+    stripTimer = setTimeout(hideStrip, STRIP_MS);
+  }
+  function waited(done) {
+    if (done) showStrip(done, "#/apply", () => void undo());
+  }
+  function outwardChoice(key, d) {
+    const kind = key.slice(0, key.indexOf(":"));
+    return !!vocab2?.kinds?.find((k) => k.kind === kind)?.choices?.find((c) => c.disposition === d)?.outward;
   }
   async function orderFor(key) {
     if (!key || lastOrder.includes(key)) return [...lastOrder];
@@ -6638,44 +6474,51 @@ function makeDecide(ctx) {
     if (deciding) return;
     deciding = key;
     const order = await orderFor(key);
-    const prev = shownDetail?.item.key === key ? shownDetail.item.decision ?? null : null;
+    let p = shownProposal();
     try {
-      const payload = { keys: [key], disposition };
-      if (until) payload["until"] = until;
-      if (note) payload["note"] = note;
-      const r = await ctx.api.post("/decide", payload);
-      if (!(r.decided_keys ?? []).length) {
-        showReadError((r.errors ?? []).join("; ") || "nothing was decided");
-        return;
-      }
-      selection.deselect([key]);
-      remember(key, prev, r.decisions);
-      await moveOn(key, order);
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
+      const now = await ctx.api.get("/item", { key });
+      const fresh = now.item.proposal;
+      p = fresh && fresh.state === "pending" ? fresh : null;
+    } catch {
     }
-  }
-  async function acceptOpen(note) {
-    const p = shownProposal();
-    const key = currentOpenKey;
-    if (!p || !key || deciding) return;
-    if (note === void 0 && p.disposition === "close" && askClosingComment(readEl, (n) => void acceptOpen(n)))
-      return;
-    deciding = key;
-    const order = await orderFor(key);
-    const prev = shownDetail?.item.decision ?? null;
+    const route = decideRoute(
+      p && p.key === key ? p : null,
+      disposition,
+      until
+    );
     try {
-      const body = { ids: [p.id] };
-      if (note) body["note"] = note;
-      const r = await ctx.api.post("/proposals/accept", body);
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join("; ") || "nothing was accepted");
-        return;
+      let made = null;
+      let previous = null;
+      if (route.path === "accept") {
+        const body = { ids: [route.id] };
+        if (note) body["note"] = note;
+        const r = await ctx.api.post("/proposals/accept", body);
+        if (!r.accepted) {
+          showReadError((r.errors ?? []).join("; ") || "nothing was decided");
+          return;
+        }
+        made = r.decisions;
+        previous = r.previous;
+      } else {
+        const payload = route.path === "change" ? { id: route.id, disposition } : { keys: [key], disposition };
+        if (until) payload["until"] = until;
+        if (note) payload["note"] = note;
+        const r = await ctx.api.post(
+          route.path === "change" ? "/proposals/change" : "/decide",
+          payload
+        );
+        if (!(r.decided_keys ?? []).length) {
+          showReadError((r.errors ?? []).join("; ") || "nothing was decided");
+          return;
+        }
+        made = r.decisions;
+        previous = r.previous;
       }
       selection.deselect([key]);
-      remember(key, prev, r.decisions);
+      remember(key, made, previous);
+      if (outwardChoice(key, disposition) && vocab2)
+        waited(doneWords(vocab2, disposition, { key }));
+      else hideStrip();
       await moveOn(key, order);
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
@@ -6685,22 +6528,27 @@ function makeDecide(ctx) {
   }
   async function undo() {
     const u = lastUndo;
-    if (!u || deciding) return;
-    deciding = u.key;
+    if (!u.length || deciding) return;
+    deciding = u[0].key;
+    lastUndo = [];
+    hideStrip();
     try {
-      await ctx.api.post("/decisions/undo", {
-        key: u.key,
-        expect: u.expect,
-        restore: u.prev ? {
-          disposition: u.prev.disposition,
-          until: u.prev.until ?? "",
-          note: u.prev.note ?? ""
-        } : null
+      const r = await ctx.api.post("/decisions/undo", {
+        items: u.map((x) => ({
+          key: x.key,
+          expect: x.expect,
+          restore: x.prev ? {
+            disposition: x.prev.disposition,
+            until: x.prev.until ?? "",
+            note: x.prev.note ?? ""
+          } : null
+        }))
       });
-      lastUndo = null;
-      openKey(u.key);
+      if (u.length === 1) openKey(u[0].key);
+      else void reload();
+      const errs = r.errors ?? [];
+      if (errs.length) showReadError(errs.join("; "));
     } catch (err) {
-      lastUndo = null;
       showReadError(err instanceof Error ? err.message : String(err));
     } finally {
       deciding = null;
@@ -6724,34 +6572,12 @@ function makeDecide(ctx) {
     const p = d.item.proposal;
     return p && p.state === "pending" ? p : null;
   }
-  const acceptKey = {
-    keys: "a",
-    label: "accept proposal",
-    group: "page",
-    run() {
-      void acceptOpen();
-    }
-  };
-  const rejectKey = {
-    keys: "r",
-    label: "reject proposal",
-    group: "page",
-    run() {
-      const p = shownProposal();
-      if (!p || !currentOpenKey) return;
-      openRejectSheet(ctx, [p.id], () => {
-        selection.deselect([currentOpenKey]);
-        void openDetail(currentOpenKey);
-        void reload();
-      });
-    }
-  };
   const undoKey = {
     keys: "u",
     label: "undo the last decision",
     group: "page",
     run() {
-      if (!lastUndo) return false;
+      if (!lastUndo.length) return false;
       void undo();
     }
   };
@@ -6761,24 +6587,18 @@ function makeDecide(ctx) {
     group: "page",
     run() {
       if (!currentOpenKey) return false;
-      const card6 = readEl.querySelectorAll(
+      const card5 = readEl.querySelectorAll(
         ".cb-choices .cb-choice"
       )[n - 1];
-      if (!card6) return false;
-      card6.click();
+      if (!card5) return false;
+      card5.click();
     }
   }));
   const jumpKeys = groupKeys((d) => {
     if (!currentOpenKey) return;
     void navGo(d < 0 ? "prevGroup" : "nextGroup");
   });
-  const listKeys = [
-    acceptKey,
-    rejectKey,
-    undoKey,
-    ...choiceKeys,
-    ...jumpKeys
-  ];
+  const listKeys = [undoKey, ...choiceKeys, ...jumpKeys];
   void getVocab(ctx).then((v) => {
     vocab2 = v;
     setRows();
@@ -6912,7 +6732,7 @@ function makeDecide(ctx) {
 }
 
 // dock.ts
-import { h as h14, card as card5 } from "/_kit/kit.js";
+import { h as h14, card as card4 } from "/_kit/kit.js";
 
 // thread.ts
 function at(m) {
@@ -7206,7 +7026,7 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h13, card as card4, fold as fold2, noteField as noteField4 } from "/_kit/kit.js";
+import { h as h13, card as card3, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
@@ -7221,7 +7041,7 @@ function makeBatchTray(ctx, dock) {
     }
   });
   const list3 = h13("div", { class: "cb-batch-drafts" });
-  const el = card4({
+  const el = card3({
     body: h13(
       "div",
       {},
@@ -7302,7 +7122,7 @@ function makeBatchTray(ctx, dock) {
       if (editing === field) editing = null;
       render();
     };
-    const field = noteField4({
+    const field = noteField3({
       value: d.body,
       onCommit(v) {
         const body = v.trim();
@@ -7717,7 +7537,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     moveBtn.textContent = "move to another session";
     fullBody.append(h14("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
   }
-  const el = card5({
+  const el = card4({
     edge: isAgent ? "agent" : "signal",
     body: fullBody
   });

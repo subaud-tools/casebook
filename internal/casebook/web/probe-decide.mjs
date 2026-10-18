@@ -8,8 +8,8 @@
 // items are decided first, so "new" holds this repo's items only.
 //
 //   the question, from serve, per kind
-//   the recommendation card above the choice cards; a accepts it
-//   one click decides, with no sheet; a number key picks a card
+//   the decide row above the recommendation; the recommended button marked
+//   one click decides, with no sheet; a number key picks a button
 //   Not now: a condition picked from chips; "when a PR merges…" searches
 //     the tracked items (a title finds the PR) or takes a pasted URL (an
 //     untracked PR is offered as not tracked); junk offers and decides nothing;
@@ -78,6 +78,22 @@
 //     stored choice; the switch groups it again; #/attention/waiting lands
 //     on #/decide
 //
+// And the item page and its buttons (casebook 0.10), on a serve and repos of
+// their own:
+//
+//   what it is, then decide, then reading: kicker < title < facts < decide
+//     row < reason < description < history; the row keeps its place and
+//     height across items; nothing in the page scrolls on its own; no
+//     accept, reject or change… anywhere; each button's hover is serve's
+//     says, the recommended one marked
+//   the recommended button accepts (POST /proposals/accept); another
+//     decides differently (POST /proposals/change) and the rule's record
+//     says decided differently 1
+//   an outward decision moves on and the strip says "Closed it · waiting in
+//     apply · undo" for 6 s; its undo restores the item; a group's "Delete
+//     all 3" says "Deleted all 3 · waiting in apply · undo", and its undo
+//     returns all 3 to the group
+//
 // And a new recommendation on the open item (casebook 0.4.5), on a serve
 // and repo of their own:
 //
@@ -140,10 +156,10 @@
 //     the first item; each tooltip names its target; ] into a collapsed
 //     group expands it and opens its first item; [, › and ‹; the row stays
 //     at the top while the item scrolls
-//   the recommendation box above the description ("‹session› recommends",
-//     the choice, two lines of the reason, the buttons and the key hint on
-//     one row), an empty one where there is none; the cards
-//     in one row, one height; nothing above the cards moves between items
+//   the recommendation under the decide row ("‹session› recommends", the
+//     choice, the reason), none where there is none; the buttons in the
+//     row, one height, inside the column (wrapping inside the row's fixed
+//     height when narrow); the row doesn't move between items
 //   the list collapses to a 34px rail, kept across a reload; the item page
 //     is then 1060px wide
 //
@@ -155,6 +171,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { startServe } from './serve.mjs';
 import { createAgent } from './agent.mjs';
 
@@ -272,16 +289,18 @@ function cssColor(pg, expr) {
 }
 
 // readCol reads what the reading column shows: the open item's key (or ''),
-// its question, the recommendation card's text, the cards (disposition,
-// label, kicker, says, recommended, chosen) and the summary line.
+// its question (the decide row's label), the recommendation's text, the
+// buttons (disposition, label, kicker: its number key then its mark, says:
+// its hover, recommended, chosen) and the summary line.
 function readCol(pg) {
   return pg.evaluate(() => {
     const read = document.querySelector('.kit-app > .kit-read:not([hidden])');
     const item = read?.querySelector('.cb-item');
-    const rec = read?.querySelector('.cb-proposal-card');
+    const rec = read?.querySelector('.cb-rec');
     return {
       key: item?.getAttribute('data-key') ?? '',
-      question: read?.querySelector('.cb-question')?.textContent ?? '',
+      question:
+        read?.querySelector('.cb-decide')?.getAttribute('aria-label') ?? '',
       rec: rec?.textContent ?? '',
       cards: [
         ...(read?.querySelectorAll(
@@ -290,8 +309,13 @@ function readCol(pg) {
       ].map((c) => ({
         d: c.getAttribute('data-d') ?? '',
         label: c.querySelector('.cb-choice-label')?.textContent ?? '',
-        kick: c.querySelector('.cb-choice-k')?.textContent ?? '',
-        says: c.querySelector('.cb-choice-says')?.textContent ?? '',
+        kick: [
+          c.getAttribute('data-n') ?? '',
+          c.querySelector('.cb-choice-mark')?.textContent ?? '',
+        ]
+          .filter(Boolean)
+          .join(' \u00b7 '),
+        says: c.getAttribute('title') ?? '',
         rec: c.classList.contains('rec'),
         on: c.classList.contains('on'),
       })),
@@ -392,6 +416,11 @@ export async function decideScenarios(shared, t) {
       newestInKeyOrder(leftOpenSeed()),
     ],
     [
+      'the item page and its buttons',
+      itemPageScenario,
+      newestInKeyOrder(itemPageSeed()),
+    ],
+    [
       'a new recommendation on the open item',
       openRecScenario,
       newestInKeyOrder(openRecSeed()),
@@ -427,6 +456,13 @@ export async function decideScenarios(shared, t) {
     ],
     ['group by recommendation, or one list', flatScenario, flatSeed()],
   ]) {
+    // PROBE_SCENARIO (with PROBE_ONLY=decide) runs only the scenarios whose
+    // name holds it, while working on one.
+    if (
+      process.env.PROBE_SCENARIO &&
+      !name.includes(process.env.PROBE_SCENARIO)
+    )
+      continue;
     const context = await shared.browser().newContext({
       viewport: { width: 1600, height: 900 },
     });
@@ -541,8 +577,7 @@ async function decideScenario(context, t, s) {
       col.cards.filter((c) => c.rec).length === 1,
   );
   {
-    // Geometry: the recommendation above the description, both above the
-    // question; then the cards, one row of equal widths.
+    // Geometry: the buttons in one row, the recommendation under them.
     const g = await pg.evaluate(() => {
       const r = (sel) =>
         document
@@ -556,32 +591,29 @@ async function decideScenario(context, t, s) {
         const b = c.getBoundingClientRect();
         return { top: b.top, left: b.left, bottom: b.bottom, w: b.width };
       });
-      const q = r('.cb-question');
-      const rec = r('.cb-proposal-card');
-      const body = r('.cb-lead .cb-body');
-      return { q, rec, body, cards, vh: innerHeight };
+      return {
+        rec: r('.cb-rec'),
+        row: r('.cb-decide-row'),
+        cards,
+        vh: innerHeight,
+      };
     });
     const [c1] = g.cards;
     check(
-      'the recommendation card is above the description, which is above the question, which is above the cards',
-      g.rec.bottom <= g.body.top &&
-        Math.abs(g.rec.left - g.body.left) < 1 &&
-        Math.abs(g.rec.width - g.body.width) < 1 &&
-        g.body.bottom <= g.q.top &&
-        g.q.bottom <= c1.top,
+      'the decide row is above the recommendation',
+      !!g.rec && !!g.row && g.row.bottom <= g.rec.top,
     );
     check(
-      `the cards are one row of equal widths (tops ${[...new Set(g.cards.map((c) => Math.round(c.top)))].join(', ')}; widths ${[...new Set(g.cards.map((c) => Math.round(c.w)))].join(', ')})`,
+      `the buttons are one row, left to right (tops ${[...new Set(g.cards.map((c) => Math.round(c.top)))].join(', ')})`,
       g.cards.length > 1 &&
         g.cards.every(
           (c, i) =>
             Math.abs(c.top - c1.top) < 1 &&
-            Math.abs(c.w - c1.w) < 1 &&
-            (i === 0 || c.left > g.cards[i - 1].left + c1.w - 1),
+            (i === 0 || c.left > g.cards[i - 1].left),
         ),
     );
     check(
-      `the cards are on screen at 1600×900 (last card bottom ${Math.round(g.cards.at(-1).bottom)})`,
+      `the buttons are on screen at 1600×900 (last button bottom ${Math.round(g.cards.at(-1).bottom)})`,
       g.cards.at(-1).bottom <= g.vh,
     );
   }
@@ -594,12 +626,12 @@ async function decideScenario(context, t, s) {
         '.kit-app > .kit-read:not([hidden]) .cb-choice[data-d="close"]',
       );
       return {
-        kick: getComputedStyle(card.querySelector('.cb-choice-k')).color,
+        kick: getComputedStyle(card.querySelector('.cb-choice-mark')).color,
         label: getComputedStyle(card.querySelector('.cb-choice-label')).color,
       };
     });
     check(
-      `the recommended card's kicker is the agent's colour (${got.kick})`,
+      `the recommended button's mark is the agent's colour (${got.kick})`,
       got.kick === agent,
     );
     check(
@@ -610,10 +642,10 @@ async function decideScenario(context, t, s) {
   await inThemes(t, pg, 'decide', ['light', 'dark']);
   await setTheme(pg, 'light');
 
-  // ---- a on a close recommendation asks for the closing comment ----------
+  // ---- the recommended close asks for the closing comment ----------------
   // The recommendation's reason is written to Court: it is never the
   // comment. The field opens empty; nothing is decided until a button.
-  await press(pg, 'a');
+  await press(pg, '2');
   {
     const FIELD = '.kit-app > .kit-read:not([hidden]) .cb-close-comment';
     const shown = await until(
@@ -635,9 +667,9 @@ async function decideScenario(context, t, s) {
       }),
       FIELD,
     );
-    await pg.waitForTimeout(400); // kept: "a" must accept nothing yet; a window for it
+    await pg.waitForTimeout(400); // kept: "2" must accept nothing yet; a window for it
     check(
-      `a on a close recommendation opens the closing-comment field, empty ("${f.value}"), focused, on "Close it"`,
+      `2, the recommended Close it, opens the closing-comment field, empty ("${f.value}"), focused, on "Close it"`,
       shown && f.value === '' && f.focused && f.closeOn,
     );
     check(
@@ -1083,10 +1115,13 @@ async function decideScenario(context, t, s) {
     const shown = await pg.evaluate(
       () =>
         document.querySelector(
-          '.kit-app > .kit-read:not([hidden]) .cb-due-reason',
+          '.kit-app > .kit-read:not([hidden]) .cb-came-back',
         )?.textContent ?? '',
     );
-    check(`the page shows why issue #4 came back ("${shown}")`, shown === WHY);
+    check(
+      `the facts line starts with why issue #4 came back ("${shown}")`,
+      shown === `came back \u00b7 ${WHY}`,
+    );
 
     // ---- u after a re-decide puts the previous decision back --------------
     const WAS = `merged(${GONE})`;
@@ -2826,7 +2861,7 @@ async function closeCommentScenario(context, t, s) {
     );
   }
 
-  // ---- the card's accept on a close recommendation asks too ---------------
+  // ---- the recommended close asks too ----------------------------------------
   {
     const sid = 'probe-lc-close';
     const REASON = 'Superseded by the new uploader; the author agreed.';
@@ -2835,11 +2870,10 @@ async function closeCommentScenario(context, t, s) {
     check('pr #4 opens, recommended', await openByHash(CPR(4)));
     await until(
       pg,
-      (read) =>
-        !!document.querySelector(`${read} .cb-proposal-card .kit-btn.fill`),
+      (read) => !!document.querySelector(`${read} .cb-choice.rec`),
       READ,
     );
-    await pg.click(`${READ} .cb-proposal-card .kit-btn.fill`);
+    await pg.click(`${READ} .cb-choice.rec`);
     await until(
       pg,
       (sel) => !!document.querySelector(sel)?.checkVisibility(),
@@ -2848,7 +2882,7 @@ async function closeCommentScenario(context, t, s) {
     const f = await fieldState();
     await pg.waitForTimeout(400); // kept: nothing may be accepted yet; a window for it
     check(
-      `the card's accept opens the closing-comment field, empty ("${f.value}"), not the reason, and accepts nothing yet`,
+      `the recommended Close it opens the closing-comment field, empty ("${f.value}"), not the reason, and accepts nothing yet`,
       f.shown && f.value === '' && (await decisionOf(CPR(4))) === null,
     );
     await pg.locator(`${FIELD} input`).fill(SAID);
@@ -3114,8 +3148,7 @@ async function leftOpenScenario(context, t, s) {
     );
     check(
       `the card says what Leave it open does now ("${col.cards[0]?.says}")`,
-      col.cards[0]?.says ===
-        'It stays open and stays in your list, at the bottom. It moves back up when someone replies or it changes.',
+      col.cards[0]?.says === 'Decides to keep it as it is. Nothing to run.',
     );
   }
   await lightLO(t, pg, 'list');
@@ -3214,9 +3247,9 @@ async function leftOpenScenario(context, t, s) {
   await row(pg, LISSUE(1)).click();
   check('the brought-back issue #1 opens', await opened(t, pg, LISSUE(1)));
   check(
-    'its reading column says why it is back',
-    (await pg.locator(`${READ} .cb-due-reason`).textContent()) ===
-      'new activity since you left it open',
+    'its facts line says why it is back',
+    (await pg.locator(`${READ} .cb-came-back`).textContent()) ===
+      'came back \u00b7 new activity since you left it open',
   );
   await lightLO(t, pg, 'back');
   await pg.close();
@@ -3312,7 +3345,7 @@ async function openRecScenario(context, t, s) {
   {
     const ok = await until(
       pg,
-      (r) => !!document.querySelector(`${r} .cb-proposal-card`),
+      (r) => !!document.querySelector(`${r} .cb-rec`),
       READ,
       8000,
     );
@@ -3382,7 +3415,8 @@ async function openRecScenario(context, t, s) {
   }
   await until(
     pg,
-    (r) => !!document.querySelector(`${r} .cb-question`)?.textContent,
+    (r) =>
+      !!document.querySelector(`${r} .cb-decide`)?.getAttribute('aria-label'),
     READ,
   );
   await tagItem();
@@ -3465,7 +3499,7 @@ async function openRecScenario(context, t, s) {
   {
     const ok = await until(
       pg,
-      (r) => !!document.querySelector(`${r} .cb-proposal-card`),
+      (r) => !!document.querySelector(`${r} .cb-rec`),
       READ,
       8000,
     );
@@ -3518,19 +3552,456 @@ async function openRecScenario(context, t, s) {
     await row(pg, OPR(4)).click();
     await opened(t, pg, OPR(4));
     const head = await pg
-      .locator(`${READ} .cb-proposal-card .kit-card-head`)
+      .locator(`${READ} .cb-rec .cb-rec-who`)
       .textContent({ timeout: 8000 })
       .catch(() => '');
     const label = await pg
-      .locator(`${READ} .cb-proposal-card .cb-proposal-label`)
+      .locator(`${READ} .cb-rec .cb-rec-label`)
       .textContent({ timeout: 8000 })
       .catch(() => '');
     check(
-      `the recommendation card's head names the session, "openrec recommends" ("${head}"), then "Close it without merging" ("${label}")`,
+      `the recommendation names the session, "openrec recommends" ("${head}"), then "Close it without merging" ("${label}")`,
       head === 'openrec recommends' && label === 'Close it without merging',
     );
   }
   await pg.close();
+}
+
+// ---- the item page and its buttons (casebook 0.10) ------------------------
+
+const IP = 'rd-item';
+const IPISSUE = (n) => `issue:schuettc/${IP}#${n}`;
+const IPPR = (n) => `pr:schuettc/${IP}#${n}`;
+const IPOLD = (n) => `repo:schuettc/rd-old-${n}`;
+const IP_BODY = 'The uploader retries forever when the region is wrong. '
+  .repeat(10)
+  .trim();
+const IP_RULE = {
+  id: 'item-issues',
+  name: 'Stale questions',
+  match: [
+    { field: 'kind', op: 'is', value: 'issue' },
+    { field: 'repo', op: 'is', value: `schuettc/${IP}` },
+  ],
+  propose: { disposition: 'close', note: 'a stale question' },
+};
+const IP_OLD = {
+  id: 'item-old',
+  name: 'Old repos',
+  match: [
+    { field: 'kind', op: 'is', value: 'repo' },
+    {
+      field: 'repo',
+      op: 'in',
+      value: [1, 2, 3].map((n) => `schuettc/rd-old-${n}`).join(','),
+    },
+  ],
+  propose: { disposition: 'delete', note: 'not pushed in years' },
+};
+
+function itemPageSeed() {
+  const item = ([number, title, author, body], i) => ({
+    repo: `schuettc/${IP}`,
+    number,
+    title,
+    author,
+    ...(body ? { body } : {}),
+    state: 'OPEN',
+    created_at: `2026-09-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+    updated_at: `2026-09-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+  });
+  return {
+    seedRepos: [
+      {
+        repo: `schuettc/${IP}`,
+        pushed_at: '2026-09-20T00:00:00Z',
+        default_branch: 'main',
+        prs: [[5, 'Bump the uploader', 'renovate']].map(item),
+        issues: [
+          [
+            1,
+            'The uploader retries forever when the region is wrong, and the error it finally prints names neither the region nor the bucket',
+            'alice',
+            IP_BODY,
+          ],
+          [2, 'README typo', 'carol'],
+          [3, 'Tags question', 'dave'],
+          [4, 'Flag docs', 'erin'],
+        ].map(item),
+      },
+      ...[1, 2, 3].map((n) => ({
+        repo: `schuettc/rd-old-${n}`,
+        pushed_at: '2019-01-01T00:00:00Z',
+        default_branch: 'main',
+        prs: [],
+        issues: [],
+      })),
+    ],
+  };
+}
+
+async function itemPageScenario(context, t, s) {
+  const { check, until, eventually } = t;
+  console.log('\nscenario: the item page and its buttons');
+  const agent = createAgent(s.base, s.token);
+  const api = (m, p, b) => agent.api(m, p, b);
+  const READ = '.kit-app > .kit-read:not([hidden])';
+  const STRIP = '.cb-strip';
+  const vocab = await api('GET', '/api/decisions/vocabulary');
+
+  // Only this scenario's items wait on Court.
+  const new0 = await api('GET', '/api/items?view=new&limit=500');
+  const mine = (k) => k.includes(`/${IP}#`) || k.includes('/rd-old-');
+  const others = (new0.items ?? []).map((it) => it.key).filter((k) => !mine(k));
+  if (others.length)
+    await api('POST', '/api/decide', { keys: others, disposition: 'ignore' });
+  await api('POST', '/api/rules/save?create=1', IP_RULE);
+  await api('POST', '/api/rules/save?create=1', IP_OLD);
+  const recOf = async (key) =>
+    (await api('GET', `/api/item?key=${encodeURIComponent(key)}`)).item
+      .proposal ?? null;
+  check(
+    'the rules recommend: Close it on the issues, Delete it on the old repos',
+    await eventually(
+      async () =>
+        (await recOf(IPISSUE(1)))?.state === 'pending' &&
+        (await recOf(IPOLD(1)))?.state === 'pending',
+      8000,
+    ),
+  );
+  const ruleRecord = async (id) =>
+    ((await api('GET', '/api/rules')).rules ?? []).find((r) => r.rule.id === id)
+      ?.record ?? null;
+
+  const pg = await context.newPage();
+  const errors = [];
+  pg.on('pageerror', (e) => errors.push(String(e)));
+  pg.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  const posts = [];
+  pg.on('request', (r) => {
+    if (r.method() === 'POST') posts.push(new URL(r.url()).pathname);
+  });
+  await pg.goto(`${s.url}#/decide`, { waitUntil: 'domcontentloaded' });
+  await pg.waitForSelector('.kit-row', { timeout: 8000 });
+
+  // geo reads the open item's parts, top to bottom, and whether anything
+  // in it scrolls on its own.
+  const geo = () =>
+    pg.evaluate((read) => {
+      const doc = document.querySelector(`${read} .cb-item-doc`);
+      const box = (sel) => {
+        const e = doc?.querySelector(sel);
+        if (!e || !e.checkVisibility()) return null;
+        const r = e.getBoundingClientRect();
+        return { top: Math.round(r.top), h: Math.round(r.height) };
+      };
+      const scrollers = [...(doc?.querySelectorAll('*') ?? [])]
+        .filter((e) => {
+          const o = getComputedStyle(e);
+          return (
+            /(auto|scroll)/.test(o.overflowY + o.overflowX) &&
+            (e.scrollHeight > e.clientHeight + 1 ||
+              e.scrollWidth > e.clientWidth + 1)
+          );
+        })
+        .map((e) => e.className);
+      const buttons = [
+        ...(doc?.querySelectorAll('.cb-decide-row .cb-choice[data-d]') ?? []),
+      ].map((b) => ({
+        d: b.dataset.d,
+        label: b.querySelector('.cb-choice-label')?.textContent ?? '',
+        title: b.title,
+        rec: b.classList.contains('rec'),
+        mark: b.querySelector('.cb-choice-mark')?.textContent ?? '',
+      }));
+      return {
+        key: doc?.querySelector('.cb-item')?.getAttribute('data-key') ?? '',
+        kicker: box('.cb-kicker'),
+        title: box('.cb-title'),
+        facts: box('.kit-facts'),
+        factsText: doc?.querySelector('.kit-facts')?.textContent ?? '',
+        row: box('.cb-decide-row'),
+        reason: box('.cb-rec'),
+        reasonText: doc?.querySelector('.cb-rec')?.textContent ?? '',
+        body: box('.cb-body'),
+        history: box('.cb-history'),
+        scrollers,
+        buttons,
+        text: document.body.innerText,
+      };
+    }, READ);
+
+  const kindChoices = (kind) =>
+    vocab.kinds.find((k) => k.kind === kind)?.choices ?? [];
+
+  // ---- what it is, then decide, then reading ------------------------------
+  await row(pg, IPISSUE(1)).click();
+  check('issue #1 opens', await opened(t, pg, IPISSUE(1)));
+  await until(pg, (r) => !!document.querySelector(`${r} .cb-rec`), READ, 8000);
+  const a = await geo();
+  {
+    const order = [
+      a.kicker,
+      a.title,
+      a.facts,
+      a.row,
+      a.reason,
+      a.body,
+      a.history,
+    ];
+    const tops = order.map((b) => b?.top ?? NaN);
+    check(
+      `it reads top to bottom: kicker < title < facts < decide row < reason < description < history (${tops.join(' < ')})`,
+      tops.every((v, i) => i === 0 || (v > tops[i - 1] && !Number.isNaN(v))),
+    );
+    check(
+      `the reason says who recommends what and why ("${a.reasonText}")`,
+      a.reasonText.includes('Stale questions') &&
+        a.reasonText.includes('Close it') &&
+        a.reasonText.includes('a stale question'),
+    );
+    check(
+      `nothing in the item page scrolls on its own (${a.scrollers.join(', ') || 'none'})`,
+      a.scrollers.length === 0,
+    );
+    check(
+      'no accept, reject or change… anywhere on the page',
+      !/\baccept\b|\breject\b|change\u2026/i.test(a.text),
+    );
+    const want = kindChoices('issue');
+    check(
+      `the decide row: serve's labels, each hover its says (${a.buttons.map((b) => b.label).join(', ')})`,
+      a.buttons.length === want.length &&
+        a.buttons.every(
+          (b, i) =>
+            b.d === want[i].disposition &&
+            b.label === want[i].label &&
+            b.title === want[i].says,
+        ),
+    );
+    const rec = a.buttons.filter((b) => b.rec);
+    check(
+      `the recommended button is marked "recommended" (${rec.map((b) => `${b.d}:${b.mark}`).join(',')})`,
+      rec.length === 1 && rec[0].d === 'close' && rec[0].mark === 'recommended',
+    );
+  }
+  // The row stays put: a short issue, then a pull request with no
+  // recommendation.
+  await row(pg, IPISSUE(2)).click();
+  await opened(t, pg, IPISSUE(2));
+  const b = await geo();
+  await row(pg, IPPR(5)).click();
+  await opened(t, pg, IPPR(5));
+  const c = await geo();
+  check(
+    `the decide row keeps its place and height across items (${[a, b, c].map((g) => `${g.row?.top}+${g.row?.h}`).join(', ')})`,
+    [b, c].every(
+      (g) =>
+        !!g.row &&
+        !!a.row &&
+        Math.abs(g.row.top - a.row.top) <= 1 &&
+        Math.abs(g.row.h - a.row.h) <= 1,
+    ) && !c.reason,
+  );
+  await pg.screenshot({ path: shotPath('part2-item-0') });
+
+  // ---- the recommended choice accepts; the strip ---------------------------
+  await row(pg, IPISSUE(1)).click();
+  await opened(t, pg, IPISSUE(1));
+  posts.length = 0;
+  await pg.click(`${READ} .cb-choice[data-d="close"]`);
+  await pg.click(
+    `${READ} .cb-close-comment button:has-text("close without comment")`,
+  );
+  const stripShown = await until(
+    pg,
+    (sel) => !!document.querySelector(sel)?.checkVisibility(),
+    STRIP,
+    8000,
+  );
+  const stripText = stripShown
+    ? ((await pg.locator(STRIP).innerText()) ?? '').replace(/\s+/g, ' ').trim()
+    : '';
+  check(
+    `the recommended Close it accepts (${posts.join(', ')}); the strip reads "${stripText}"`,
+    posts.includes('/api/proposals/accept') &&
+      !posts.includes('/api/decide') &&
+      stripText === 'Closed it \u00b7 waiting in apply \u00b7 undo',
+  );
+  check(
+    'the next item opens',
+    await until(
+      pg,
+      ({ r, k }) =>
+        document.querySelector(`${r} .cb-item`)?.getAttribute('data-key') !== k,
+      { r: READ, k: IPISSUE(1) },
+      8000,
+    ),
+  );
+  check(
+    'the strip\'s "apply" links to apply',
+    ((await pg.locator(`${STRIP} a`).getAttribute('href')) ?? '').startsWith(
+      '#/apply',
+    ),
+  );
+  await pg.screenshot({ path: shotPath('part2-strip') });
+  await pg.click(`${STRIP} button`);
+  check(
+    'its undo restores the item: undecided, open again',
+    (await eventually(
+      async () =>
+        !(await api('GET', `/api/item?key=${encodeURIComponent(IPISSUE(1))}`))
+          .item.decision,
+      8000,
+    )) && (await opened(t, pg, IPISSUE(1))),
+  );
+  // Wait for the rule to recommend it again, then decide it again and let
+  // the strip run out.
+  await eventually(
+    async () => (await recOf(IPISSUE(1)))?.state === 'pending',
+    8000,
+  );
+  await pg.reload({ waitUntil: 'domcontentloaded' });
+  await pg.waitForSelector('.kit-row', { timeout: 8000 });
+  await row(pg, IPISSUE(1)).click();
+  await opened(t, pg, IPISSUE(1));
+  await until(
+    pg,
+    (r) => !!document.querySelector(`${r} .cb-choice.rec`),
+    READ,
+    8000,
+  );
+  await pg.click(`${READ} .cb-choice[data-d="close"]`);
+  await pg.click(
+    `${READ} .cb-close-comment button:has-text("close without comment")`,
+  );
+  await until(
+    pg,
+    (sel) => !!document.querySelector(sel)?.checkVisibility(),
+    STRIP,
+    8000,
+  );
+  await pg.waitForTimeout(5500);
+  const still = await pg.evaluate(
+    (sel) => !!document.querySelector(sel)?.checkVisibility(),
+    STRIP,
+  );
+  await pg.waitForTimeout(1000);
+  const gone = await pg.evaluate(
+    (sel) => !document.querySelector(sel)?.checkVisibility(),
+    STRIP,
+  );
+  check(
+    `the strip shows for 6 s (at 5.5 s: ${still}), then goes (${gone})`,
+    still && gone,
+  );
+
+  // ---- another choice decides differently ---------------------------------
+  await row(pg, IPISSUE(4)).click();
+  await opened(t, pg, IPISSUE(4));
+  await until(
+    pg,
+    (r) => !!document.querySelector(`${r} .cb-choice.rec`),
+    READ,
+    8000,
+  );
+  posts.length = 0;
+  await pg.click(`${READ} .cb-choice[data-d="keep"]`);
+  check(
+    'pressing Leave it open against Close it posts change, not decide',
+    (await eventually(
+      async () => posts.includes('/api/proposals/change'),
+      8000,
+    )) && !posts.includes('/api/decide'),
+  );
+  check(
+    'and GET /api/rules shows the rule decided differently 1',
+    await eventually(
+      async () => (await ruleRecord(IP_RULE.id))?.decided_differently === 1,
+      8000,
+    ),
+  );
+  check(
+    'Leave it open needs no action: no strip',
+    !(await pg.evaluate(
+      (sel) => !!document.querySelector(sel)?.checkVisibility(),
+      STRIP,
+    )),
+  );
+
+  // ---- a recommendation that comes while Court is picking a Not now ------
+  // (review 2026-10-17): the decision still counts against it, not over it.
+  {
+    const S = 'probe-item-late';
+    await agent.presence(S, 'pi \u00b7 late', '/home/court/late', 'pi');
+    await row(pg, IPPR(5)).click();
+    await opened(t, pg, IPPR(5));
+    await pg.click(`${READ} .cb-choice[data-d="wait"]`);
+    await pg.waitForSelector(`${READ} .cb-notnow:not([hidden]) .kit-chip`, {
+      timeout: 8000,
+    });
+    await agent.propose(S, [IPPR(5)], 'close', 'superseded upstream');
+    await pg.waitForTimeout(800);
+    posts.length = 0;
+    await pg.click(
+      `${READ} .cb-notnow:not([hidden]) .kit-chip[data-id="in-1w"]`,
+    );
+    check(
+      'a recommendation that came while picking a Not now counts as decided differently (posts change)',
+      (await eventually(
+        async () => posts.includes('/api/proposals/change'),
+        8000,
+      )) && !posts.includes('/api/decide'),
+    );
+  }
+
+  // ---- a group act and its undo -------------------------------------------
+  const OLD = `.kit-app > .kit-list:not([hidden]) .cb-group[data-rule="${IP_OLD.id}"]`;
+  await pg.waitForSelector(`${OLD} .cb-group-act`, { timeout: 8000 });
+  {
+    const says = await pg.$eval(`${OLD} .cb-group-act`, (e) => e.title);
+    check(
+      `the group's button says what it does on hover ("${says}")`,
+      /until you run it in apply\.$/.test(says),
+    );
+  }
+  await pg.click(`${OLD} .cb-group-act`);
+  await until(
+    pg,
+    (sel) => !!document.querySelector(sel)?.checkVisibility(),
+    STRIP,
+    8000,
+  );
+  const groupStrip = ((await pg.locator(STRIP).innerText()) ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  check(
+    `the group's Delete all 3 says "${groupStrip}"`,
+    groupStrip === 'Deleted all 3 \u00b7 waiting in apply \u00b7 undo',
+  );
+  await pg.screenshot({ path: shotPath('part2-group-strip') });
+  await pg.click(`${STRIP} button`);
+  check(
+    'its undo returns all 3 to the group',
+    await until(
+      pg,
+      (sel) =>
+        document.querySelector(`${sel} .cb-group-n`)?.textContent === '3',
+      OLD,
+      10000,
+    ),
+  );
+  check(
+    `no console errors (${errors.join(' | ') || 'none'})`,
+    errors.length === 0,
+  );
+  await pg.close();
+}
+
+// shotPath is where a scenario's screenshot goes: PROBE_SHOTS_DIR, or the
+// system's temp dir.
+function shotPath(name) {
+  return join(process.env.PROBE_SHOTS_DIR ?? tmpdir(), `${name}.png`);
 }
 
 // ---- ask the session to look into it (casebook 0.4.5) ---------------------
@@ -3660,7 +4131,7 @@ async function lookIntoScenario(context, t, s) {
       ];
       const look = document.querySelector(`${read} .cb-choices .cb-look-card`);
       const cs = look ? getComputedStyle(look) : null;
-      const k = look?.querySelector('.cb-choice-k');
+      const k = look?.querySelector('.cb-choice-label');
       return {
         boxes: cards.map((c) => {
           const b = c.getBoundingClientRect();
@@ -3671,12 +4142,12 @@ async function lookIntoScenario(context, t, s) {
           };
         }),
         lastIsLook: !!look && cards.at(-1) === look,
-        kick: k?.textContent ?? '',
+        kick: look?.getAttribute('data-n') ?? '',
         label: look?.querySelector('.cb-choice-label')?.textContent ?? '',
-        says: look?.querySelector('.cb-choice-says')?.textContent ?? '',
+        says: look?.getAttribute('title') ?? '',
         disabled: !!look?.disabled,
         edge: cs ? cs.borderLeftColor : '',
-        edgeW: cs ? cs.borderLeftWidth : '',
+        edgeW: cs ? cs.borderLeftStyle : '',
         top: cs ? cs.borderTopColor : '',
         bg: cs ? cs.backgroundColor : '',
         otherBg: cards[0] ? getComputedStyle(cards[0]).backgroundColor : '',
@@ -3699,19 +4170,14 @@ async function lookIntoScenario(context, t, s) {
       ok && g.lastIsLook && g.boxes.length === 6 && g.kick === '6',
     );
     check(
-      `it is the same size as its neighbours: ${six?.w}x${six?.h} beside card 5's ${five?.w}x${five?.h}, in its row (top ${six?.top} vs ${five?.top}); every card ${g.boxes[0]?.w}px wide`,
-      !!five &&
-        !!six &&
-        six.top === five.top &&
-        six.h === five.h &&
-        g.boxes.every((b) => b.w === six.w),
+      `it is a button like its neighbours: ${six?.h}px high beside button 5's ${five?.h}px`,
+      !!five && !!six && six.h === five.h,
     );
     check(
-      `it has the agent's amber edge (border-left ${g.edgeW} ${g.edge}, agent ${agentC}) and number line (${g.kickColor}), not signal or danger, and isn't filled (background ${g.bg}, a decision's ${g.otherBg})`,
+      `it is the agent's: a ${g.edgeW} ${g.edge} border (agent ${agentC}) and label (${g.kickColor}), not signal or danger, and isn't filled (background ${g.bg}, a decision's ${g.otherBg})`,
       g.edge === agentC &&
-        g.edgeW === '3px' &&
+        g.edgeW === 'dashed' &&
         g.kickColor === agentC &&
-        g.top !== agentC &&
         g.edge !== signalC &&
         g.edge !== dangerC &&
         g.bg === g.otherBg,
@@ -3817,7 +4283,7 @@ async function lookIntoScenario(context, t, s) {
             );
             return c
               ? {
-                  says: c.querySelector('.cb-choice-says')?.textContent ?? '',
+                  says: c.getAttribute('title') ?? '',
                   disabled: c.disabled,
                 }
               : null;
@@ -3892,7 +4358,7 @@ async function lookIntoScenario(context, t, s) {
     ).messages?.find((m) => m.id === asked?.id)?.state;
     const got = await marks();
     check(
-      `while the message is ${st}, the item says "${got.item}" under its question, and its row "${got.row}"`,
+      `while the message is ${st}, the item says "${got.item}" under its decide row, and its row "${got.row}"`,
       ok && st === 'queued' && got.item === LOOKING && got.row === LOOKING,
     );
     const agentC = await cssColor(pg, 'var(--kit-agent)');
@@ -3916,7 +4382,7 @@ async function lookIntoScenario(context, t, s) {
       geo.ws === 'nowrap' && geo.overflow === 'hidden' && geo.to === 'ellipsis',
     );
     check(
-      `and while it looks, the card says "${got.card?.says}" in place of its sentence, and can't be clicked (disabled ${got.card?.disabled})`,
+      `and while it looks, the button's hover says "${got.card?.says}" in place of its sentence, and it can't be clicked (disabled ${got.card?.disabled})`,
       got.card?.says === LOOKING && got.card?.disabled === true,
     );
     // Neither its number key nor a click asks again.
@@ -3930,14 +4396,14 @@ async function lookIntoScenario(context, t, s) {
     );
     const under = await pg.evaluate((mark) => {
       const m = document.querySelector(mark);
-      const q = m?.closest('.cb-decide')?.querySelector('.cb-question');
+      const q = m?.closest('.cb-item')?.querySelector('.cb-decide-row');
       return (
         !!m &&
         !!q &&
         m.getBoundingClientRect().top >= q.getBoundingClientRect().bottom
       );
     }, MARK);
-    check('the marker sits under the question', under);
+    check('the marker sits under the decide row', under);
     await inThemes(t, pg, 'looking', ['light']);
   }
 
@@ -3966,7 +4432,7 @@ async function lookIntoScenario(context, t, s) {
     const ok = await until(
       pg,
       ([r, ev]) =>
-        !!document.querySelector(`${r} .cb-proposal-card`) &&
+        !!document.querySelector(`${r} .cb-rec`) &&
         (document.querySelector(`${r} .cb-item`)?.textContent ?? '').includes(
           ev,
         ),
@@ -4056,17 +4522,13 @@ async function lookIntoScenario(context, t, s) {
       pg,
       ([sel, says]) => {
         const c = document.querySelector(sel);
-        return (
-          !!c &&
-          !c.disabled &&
-          c.querySelector('.cb-choice-says')?.textContent === says
-        );
+        return !!c && !c.disabled && c.getAttribute('title') === says;
       },
       [CARD, LOOK_SAYS(aName)],
       8000,
     );
     check(
-      `the agent's reply clears the marker on the item and its row (item "${got.item}", row "${got.row}"), and the card is back to its sentence, clickable`,
+      `the agent's reply clears the marker on the item and its row (item "${got.item}", row "${got.row}"), and the button's hover is back to its sentence, clickable`,
       ok && got.item === '' && got.row === '' && back,
     );
     check(
@@ -5044,113 +5506,95 @@ async function navScenario(context, t, s) {
     );
   }
 
-  // ---- the recommendation box and the steady page ----------------------------
-  // The recommendation box above the description, and the description: each
-  // one fixed height.
-  const REC_H = 150;
-  const BODY_H = 140;
+  // ---- the steady page: the decide row stays put ------------------------------
+  // What it is (kicker, title, one line of facts), then the decide row, then
+  // the reading: nothing above the row changes size between items, so the
+  // row keeps its place and height; nothing scrolls on its own.
   const pageGeo = () =>
     pg.evaluate((read) => {
       const q = (s) => document.querySelector(`${read} ${s}`);
-      const top = (s) => Math.round(q(s)?.getBoundingClientRect().top ?? -1);
       const box = (s) => {
         const r = q(s)?.getBoundingClientRect();
         return r
           ? {
               top: Math.round(r.top),
               left: Math.round(r.left),
+              right: Math.round(r.right),
               h: Math.round(r.height),
               w: Math.round(r.width),
             }
           : null;
       };
-      const cards = [
-        ...document.querySelectorAll(`${read} .cb-choices .cb-choice`),
-      ];
+      const doc = q('.cb-item-doc');
+      const buttons = [
+        ...document.querySelectorAll(`${read} .cb-decide-row .cb-choice`),
+      ].map((c) => {
+        const r = c.getBoundingClientRect();
+        return {
+          top: Math.round(r.top),
+          h: Math.round(r.height),
+          right: Math.round(r.right),
+          shown: c.checkVisibility(),
+        };
+      });
       return {
         key: q('.cb-item')?.getAttribute('data-key') ?? '',
-        cards: top('.cb-choices'),
-        cardTops: [
-          ...new Set(
-            cards.map((c) => Math.round(c.getBoundingClientRect().top)),
-          ),
-        ],
-        cardHs: [
-          ...new Set(
-            cards.map((c) => Math.round(c.getBoundingClientRect().height)),
-          ),
-        ],
-        n: cards.length,
-        // Each row of cards (by top) and how many heights it has.
-        rowHs: Object.values(
-          Object.groupBy(cards, (c) =>
-            Math.round(c.getBoundingClientRect().top),
-          ),
-        ).map(
-          (row) =>
-            new Set(
-              row.map((c) => Math.round(c.getBoundingClientRect().height)),
-            ).size,
+        row: box('.cb-decide-row'),
+        rec: box('.cb-rec'),
+        who: q('.cb-rec .cb-rec-who')?.textContent ?? '',
+        label: q('.cb-rec .cb-rec-label')?.textContent ?? '',
+        note: q('.cb-rec .cb-rec-note')?.textContent ?? '',
+        whoColor: q('.cb-rec .cb-rec-who')
+          ? getComputedStyle(q('.cb-rec .cb-rec-who')).color
+          : '',
+        readRight: Math.round(
+          document.querySelector(read).getBoundingClientRect().right,
         ),
-        cardMinW: Math.min(
-          ...cards.map((c) => Math.round(c.getBoundingClientRect().width)),
-        ),
-        choicesW: Math.round(q('.cb-choices')?.clientWidth ?? 0),
-        evidence: top('.cb-evidence .kit-label'),
-        history: top('.cb-history .kit-label'),
+        buttons,
+        evidence: box('.cb-evidence .kit-label'),
+        history: box('.cb-history .kit-label'),
         evidenceLeft: Math.round(
           q('.cb-evidence')?.getBoundingClientRect().left ?? -1,
         ),
         historyLeft: Math.round(
           q('.cb-history')?.getBoundingClientRect().left ?? -1,
         ),
-        body: box('.cb-body'),
-        rec: box('.cb-proposal-card') ?? box('.cb-rec-empty'),
-        recEmpty: !!q('.cb-rec-empty'),
-        head: q('.cb-proposal-card .kit-card-head')?.textContent ?? '',
-        label: q('.cb-proposal-label')?.textContent ?? '',
-        note: q('.cb-proposal-note')?.textContent ?? '',
-        title: box('.cb-title'),
         doc: box('.kit-doc'),
-        item: box('.cb-item'),
+        n: buttons.length,
+        cardTops: [...new Set(buttons.map((b) => b.top))],
+        cardHs: [...new Set(buttons.map((b) => b.h))],
+        scrollers: [...(doc?.querySelectorAll('*') ?? [])]
+          .filter(
+            (e) =>
+              /(auto|scroll)/.test(
+                getComputedStyle(e).overflowY + getComputedStyle(e).overflowX,
+              ) && e.scrollHeight > e.clientHeight + 1,
+          )
+          .map((e) => e.className),
+        title: box('.cb-title'),
       };
     }, READ);
   const a = await pageGeo();
   {
-    const headColor = await pg.evaluate(
-      (read) =>
-        getComputedStyle(
-          document.querySelector(`${read} .cb-proposal-card .kit-card-head`),
-        ).color,
-      READ,
-    );
     const agentColor = await cssColor(pg, 'var(--kit-agent)');
     check(
-      `the recommendation box: "${a.head}" in agent colour (${headColor}), then "${a.label}", then "${a.note}"; above the description (box ${a.rec?.top}+${a.rec?.h}, description ${a.body?.top}), both the reading column's width (${a.rec?.w}, ${a.body?.w}, item ${a.item?.w}) from its left edge (${a.rec?.left}, ${a.body?.left}, ${a.item?.left}), the box ${REC_H}px (${a.rec?.h}), the description ${BODY_H}px (${a.body?.h})`,
-      a.head === 'nav-a recommends' &&
-        headColor === agentColor &&
+      `the recommendation under the decide row: "${a.who}" in agent colour (${a.whoColor}), then "${a.label}", then "${a.note}" (row ${a.row?.top}+${a.row?.h}, recommendation ${a.rec?.top})`,
+      a.who === 'nav-a recommends' &&
+        a.whoColor === agentColor &&
         a.label === 'Stop tracking it' &&
         a.note === 'spam' &&
+        !!a.row &&
         !!a.rec &&
-        !!a.body &&
-        !!a.item &&
-        a.rec.top + a.rec.h <= a.body.top &&
-        a.rec.left === a.item.left &&
-        a.body.left === a.item.left &&
-        a.rec.w === a.item.w &&
-        a.body.w === a.item.w &&
-        a.rec.h === REC_H &&
-        a.body.h === BODY_H,
+        a.row.top + a.row.h <= a.rec.top,
     );
     check(
-      `the choice cards: ${a.n} cards at least 150px wide (${a.cardMinW}) in ${a.choicesW}px, one row only when they fit (tops ${a.cardTops.join(',')}), each row one height (${a.rowHs.join(',')}); evidence beside history (${a.evidence}/${a.history}, ${a.evidenceLeft} < ${a.historyLeft})`,
-      a.n >= 5 &&
-        a.cardMinW >= 150 &&
-        (a.cardTops.length === 1) ===
-          a.n * 150 + (a.n - 1) * 10 <= a.choicesW &&
-        a.rowHs.every((n) => n === 1) &&
-        a.evidence === a.history &&
-        a.evidenceLeft < a.historyLeft,
+      `the buttons: ${a.buttons.length} in the row, all shown inside the reading column (right edges ${a.buttons.map((b) => b.right).join(',')} <= ${a.readRight}), one height (${[...new Set(a.buttons.map((b) => b.h))].join(',')}); evidence beside history (${a.evidence?.top}/${a.history?.top}, ${a.evidenceLeft} < ${a.historyLeft}); nothing scrolls on its own (${a.scrollers.join(', ') || 'none'})`,
+      a.buttons.length >= 4 &&
+        a.buttons.every((b) => b.shown && b.right <= a.readRight) &&
+        new Set(a.buttons.map((b) => b.h)).size === 1 &&
+        a.evidence?.top === a.history?.top &&
+        a.evidenceLeft < a.historyLeft &&
+        a.scrollers.length === 0,
     );
   }
   await press(pg, 'j', 'o');
@@ -5158,26 +5602,23 @@ async function navScenario(context, t, s) {
   {
     const b = await pageGeo();
     check(
-      `item steady: from ${a.key} (long title and description) to ${b.key} (short) with j, the choice cards stay at ${a.cards}px (${b.cards}px) and the evidence heading at ${a.evidence}px (${b.evidence}px)`,
+      `item steady: from ${a.key} (long title and description) to ${b.key} (short) with j, the decide row stays at ${a.row?.top}+${a.row?.h}px (${b.row?.top}+${b.row?.h}px)`,
       b.key === S2 &&
-        a.cards > 0 &&
-        b.cards === a.cards &&
-        b.evidence === a.evidence &&
+        !!a.row &&
+        b.row?.top === a.row.top &&
+        b.row?.h === a.row.h &&
         b.title?.h === a.title?.h,
     );
   }
-  // An item with no recommendation keeps an empty box of the same size.
+  // An item with no recommendation: the row where it was, nothing in its
+  // place below.
   await row(pg, NONE[0]).click();
   await opened(t, pg, NONE[0]);
   {
     const c = await pageGeo();
     check(
-      `an item with no recommendation keeps the box empty, in place (${c.recEmpty}, ${c.rec?.top}/${a.rec?.top}, ${c.rec?.h}px), its cards where they were (${c.cards}/${a.cards})`,
-      c.recEmpty &&
-        c.rec?.top === a.rec?.top &&
-        c.rec?.h === a.rec?.h &&
-        c.rec?.w === a.rec?.w &&
-        c.cards === a.cards,
+      `an item with no recommendation keeps the decide row in place (${c.row?.top}+${c.row?.h} vs ${a.row?.top}+${a.row?.h}) and shows no recommendation (${!c.rec})`,
+      !c.rec && c.row?.top === a.row?.top && c.row?.h === a.row?.h,
     );
   }
 
@@ -5186,165 +5627,26 @@ async function navScenario(context, t, s) {
   await row(pg, LPR(42)).click();
   await opened(t, pg, LPR(42));
   {
-    // narrow reads the recommendation box and the cards: whether the
-    // body shows, where the first word of the label and of the note sit
-    // against the box and the body (a Range over the text, so a clipped
-    // line counts as hidden), the head's lines and the buttons' tops.
-    const g = await pg.evaluate((read) => {
-      const q = (s) => document.querySelector(`${read} ${s}`);
-      const rect = (el) => {
-        const r = el?.getBoundingClientRect();
-        return r
-          ? { t: r.top, b: r.bottom, l: r.left, r: r.right, h: r.height }
-          : null;
-      };
-      const firstWord = (el) => {
-        const n = el?.firstChild;
-        if (!n || n.nodeType !== Node.TEXT_NODE) return null;
-        const end = n.textContent.search(/\s|$/);
-        const range = document.createRange();
-        range.setStart(n, 0);
-        range.setEnd(n, end);
-        return { w: n.textContent.slice(0, end), ...rect(range) };
-      };
-      const card = q('.cb-proposal-card');
-      const head = card?.querySelector('.kit-card-head');
-      const cards = [
-        ...document.querySelectorAll(`${read} .cb-choices .cb-choice`),
-      ].map((c) => rect(c));
-      return {
-        readW: Math.round(document.querySelector(read).clientWidth),
-        box: rect(card),
-        body: rect(card?.querySelector('.kit-card-body')),
-        label: firstWord(card?.querySelector('.cb-proposal-label')),
-        note: firstWord(card?.querySelector('.cb-proposal-note')),
-        headH: Math.round(rect(head)?.h ?? 0),
-        headLine: parseFloat(getComputedStyle(head).lineHeight) || 0,
-        headFont: parseFloat(getComputedStyle(head).fontSize) || 0,
-        headTip: head?.title ?? '',
-        headText: head?.textContent ?? '',
-        labelWhole: (() => {
-          const l = card?.querySelector('.cb-proposal-label');
-          return !!l && l.checkVisibility() && l.scrollWidth <= l.clientWidth;
-        })(),
-        noteLines: (() => {
-          const n = card?.querySelector('.cb-proposal-note');
-          if (!n) return 0;
-          const lh = parseFloat(getComputedStyle(n).lineHeight) || 0;
-          return lh ? Math.round(n.getBoundingClientRect().height / lh) : 0;
-        })(),
-        btnTops: [
-          ...new Set(
-            [...(card?.querySelectorAll('.kit-btns .kit-btn') ?? [])].map((b) =>
-              Math.round(b.getBoundingClientRect().top),
-            ),
-          ),
-        ],
-        btns: card?.querySelectorAll('.kit-btns .kit-btn').length ?? 0,
-        btnsIn: [...(card?.querySelectorAll('.kit-btns .kit-btn') ?? [])].every(
-          (b) => {
-            const r = b.getBoundingClientRect();
-            const c = card.getBoundingClientRect();
-            return r.right <= c.right + 0.5 && r.bottom <= c.bottom + 0.5;
-          },
-        ),
-        // Whole: nothing cut, no ellipsis; the kit's own size.
-        btnsWhole: [
-          ...(card?.querySelectorAll('.kit-btns .kit-btn') ?? []),
-        ].every(
+    const g = await pageGeo();
+    check(
+      `in a narrow reading column the pull request's buttons wrap inside the row's fixed height: all ${g.buttons.length} shown, inside the column (${g.buttons.map((b) => b.right).join(',')} <= ${g.readRight}) and inside the row (${g.row?.top}+${g.row?.h}, buttons ${g.buttons.map((b) => b.top + b.h).join(',')}); the reason whole under it ("${g.note.slice(0, 20)}…")`,
+      g.buttons.length >= 5 &&
+        g.buttons.every(
           (b) =>
-            b.checkVisibility() &&
-            b.scrollWidth <= b.clientWidth &&
-            getComputedStyle(b).textOverflow !== 'ellipsis',
-        ),
-        btnFonts: [
-          ...new Set(
-            [...(card?.querySelectorAll('.kit-btns .kit-btn') ?? [])].map(
-              (b) => getComputedStyle(b).fontSize,
-            ),
-          ),
-        ],
-        // The key hint on the button row: shown, whole, past the buttons,
-        // inside the box, in the buttons' band.
-        hint: (() => {
-          const k = card?.querySelector('.cb-keyhint');
-          if (!k || !k.checkVisibility()) return null;
-          const r = k.getBoundingClientRect();
-          const c = card.getBoundingClientRect();
-          const bs = [...card.querySelectorAll('.kit-btns .kit-btn')].map((b) =>
-            b.getBoundingClientRect(),
-          );
-          return {
-            text: k.textContent ?? '',
-            whole: k.scrollWidth <= k.clientWidth,
-            inside: r.right <= c.right + 0.5 && r.bottom <= c.bottom + 0.5,
-            past: bs.every((b) => b.right <= r.left + 0.5),
-            band: bs.every((b) => b.top < r.bottom && r.top < b.bottom),
-          };
-        })(),
-        cards: cards.map((c) => ({
-          w: Math.round(c.r - c.l),
-          t: Math.round(c.t),
-          h: Math.round(c.h),
-        })),
-      };
-    }, READ);
-    const within = (w, outer) =>
-      !!w &&
-      !!outer &&
-      w.h > 0 &&
-      w.t >= outer.t - 0.5 &&
-      w.b <= outer.b + 0.5 &&
-      w.l >= outer.l - 0.5 &&
-      w.r <= outer.r + 0.5;
-    const oneLine = g.headH <= Math.ceil(g.headLine || g.headFont * 1.6);
-    check(
-      `rec box shows its reason: in a ${g.readW}px reading column, the box above the description, its label whole (${g.labelWhole}), "${g.label?.w}" and "${g.note?.w}" inside the box and its body, the reason ${g.noteLines} lines, the head one line (${g.headH}px) whole in its title ("${g.headTip}"), the ${g.btns} buttons on one row (tops ${g.btnTops.join(',')}) inside the box (${g.btnsIn}), whole (${g.btnsWhole}) at the kit's size (${g.btnFonts.join(',')})`,
-      g.readW <= 600 &&
-        (g.body?.h ?? 0) > 0 &&
-        g.labelWhole &&
-        g.label?.w === 'Close' &&
-        g.note?.w === LONG_REASON.split(/\s/)[0] &&
-        within(g.label, g.box) &&
-        within(g.label, g.body) &&
-        within(g.note, g.box) &&
-        within(g.note, g.body) &&
-        g.noteLines === 2 &&
-        oneLine &&
-        g.headTip === 'nav-a recommends' &&
-        g.headText === 'nav-a recommends' &&
-        g.btns === 3 &&
-        g.btnTops.length === 1 &&
-        g.btnsIn &&
-        g.btnsWhole &&
-        g.btnFonts.join(',') === '13px',
-    );
-    check(
-      `the key hint on the button row: "${g.hint?.text}" whole (${g.hint?.whole}), after the buttons (${g.hint?.past}), in their band (${g.hint?.band}), inside the box (${g.hint?.inside})`,
-      g.hint?.text === 'a accept \u00b7 r reject' &&
-        g.hint.whole &&
-        g.hint.past &&
-        g.hint.band &&
-        g.hint.inside,
-    );
-    // Cards in one row share one height.
-    const rows = new Map();
-    for (const c of g.cards) rows.set(c.t, [...(rows.get(c.t) ?? []), c.h]);
-    const evenRows = [...rows.values()].every((hs) => new Set(hs).size === 1);
-    check(
-      `cards readable: in a ${g.readW}px reading column every one of ${g.cards.length} cards is 150px or wider (${g.cards.map((c) => c.w).join(',')}), each row one height (${[...rows.entries()].map(([t, hs]) => `${t}: ${hs.join('/')}`).join('; ')})`,
-      g.readW <= 600 &&
-        g.cards.length >= 5 &&
-        g.cards.every((c) => c.w >= 150) &&
-        evenRows,
+            b.shown &&
+            b.right <= g.readRight &&
+            !!g.row &&
+            b.top + b.h <= g.row.top + g.row.h,
+        ) &&
+        g.note === LONG_REASON,
     );
   }
   // ---- choosing moves nothing: the same column, LPR(42) recommends Close ----
   {
-    // still reads every card's top and height and the question's top.
+    // still reads every button's top and height and the decide row's top.
     const still = () =>
       pg.evaluate((read) => {
-        const q = document.querySelector(`${read} .cb-question`);
+        const q = document.querySelector(`${read} .cb-decide-row`);
         return {
           q: Math.round(q?.getBoundingClientRect().top ?? -1),
           cards: [
@@ -5409,7 +5711,7 @@ async function navScenario(context, t, s) {
       await pg.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
       g = await still();
       check(
-        `choosing moves nothing: ${name} on ${LPR(42)} at 1440x900 (${g.on.join() || 'none'} chosen, comment ${g.comment}, not now ${g.notNow}): the question at ${g.q}px (${base.q}), every card top/height ${g.cards.join(' ')} (${base.cards.join(' ')})`,
+        `choosing moves nothing: ${name} on ${LPR(42)} at 1440x900 (${g.on.join() || 'none'} chosen, comment ${g.comment}, not now ${g.notNow}): the decide row at ${g.q}px (${base.q}), every card top/height ${g.cards.join(' ')} (${base.cards.join(' ')})`,
         base.cards.length >= 5 && shows(g) && same(g),
       );
     }
@@ -5528,7 +5830,7 @@ async function navScenario(context, t, s) {
   {
     const g = await pageGeo();
     check(
-      `item wide: at 1600px with the list collapsed the item page is ${g.doc?.w}px wide, its ${g.n} cards on one row (tops ${g.cardTops.join(',')})`,
+      `item wide: at 1600px with the list collapsed the item page is ${g.doc?.w}px wide, its ${g.n} buttons on one row (tops ${g.cardTops.join(',')})`,
       (g.doc?.w ?? 0) > 1000 &&
         (g.n === 5 || g.n === 6) &&
         g.cardTops.length === 1,
@@ -5544,7 +5846,7 @@ async function navScenario(context, t, s) {
   {
     const g = await pageGeo();
     check(
-      `cards readable: at 1600x1000 with the list collapsed ${g.key}'s ${g.n} cards share one row (tops ${g.cardTops.join(',')}) and one height (${g.cardHs.join(',')})`,
+      `buttons readable: at 1600x1000 with the list collapsed ${g.key}'s ${g.n} buttons share one row (tops ${g.cardTops.join(',')}) and one height (${g.cardHs.join(',')})`,
       g.key === S1 &&
         g.n === 5 &&
         g.cardTops.length === 1 &&

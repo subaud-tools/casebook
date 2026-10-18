@@ -1956,7 +1956,7 @@ async function keyScopeScenariosOn(context, serveHandle) {
   const agent = createAgent(serveHandle.base, serveHandle.token);
   await agent.presence('probe-keys-sess', 'pi · keys', '/tmp', 'pi');
   const made = await agent.propose('probe-keys-sess', [key], 'keep', 'keys');
-  check('a pending proposal to press "a" on', (made?.proposed ?? 0) === 1);
+  check('a pending proposal to press "1" on', (made?.proposed ?? 0) === 1);
   const proposalState = async () => {
     const r = await fetch(
       `${serveHandle.base}/api/item?key=${encodeURIComponent(key)}`,
@@ -1974,7 +1974,6 @@ async function keyScopeScenariosOn(context, serveHandle) {
     });
     await pg.keyboard.press(k);
   };
-  const sheetOpen = (pg) => pg.$('.kit-sheet').then((el) => Boolean(el));
 
   const pg = await context.newPage();
   try {
@@ -1985,7 +1984,7 @@ async function keyScopeScenariosOn(context, serveHandle) {
     });
     const opened = await until(
       pg,
-      () => !!document.querySelector('.kit-read .cb-proposal-card'),
+      () => !!document.querySelector('.kit-read .cb-choice.rec'),
       undefined,
       8000,
     );
@@ -2003,49 +2002,34 @@ async function keyScopeScenariosOn(context, serveHandle) {
           ?.classList.contains('on') ?? false,
     );
 
-    // r first: it only opens a sheet, while a failing a settles the
-    // proposal r would act on.
-    await pressWithFocus(pg, 'r');
-    // Kept (this one and a's): each check is that the key does nothing
-    // on #/apply; a window long enough for a sheet or a POST to land.
-    await pg.waitForTimeout(500);
-    const rSheet = await sheetOpen(pg);
-    check(
-      'on #/apply, "r" does not open the reject sheet for the hidden item',
-      !rSheet,
-    );
-    if (rSheet) {
-      await pg.keyboard.press('Escape');
-      await pg.waitForTimeout(300); // only after a failed check
-    }
-
-    // A wrong accept is a POST after ordering, not synchronous: give it the
-    // full window.
-    await pressWithFocus(pg, 'a');
+    // A wrong decide is a POST after ordering, not synchronous: give it the
+    // full window (kept: the check is that the key does nothing on #/apply).
+    await pressWithFocus(pg, '1');
     await pg.waitForTimeout(1500);
     check(
-      'on #/apply, "a" does not accept decide\'s hidden open proposal',
+      'on #/apply, "1" does not decide decide\'s hidden open item',
       (await proposalState()) === 'pending',
     );
 
-    // Back on decide the same keys work again.
+    // Back on decide the same key works again: 1 is Leave it open, the
+    // recommended choice, so it accepts the recommendation.
     await pg.evaluate((k) => {
       location.hash = '#/item/' + encodeURIComponent(k);
     }, key);
     await until(
       pg,
-      () => !!document.querySelector('.kit-read .cb-proposal-card'),
+      () => !!document.querySelector('.kit-read .cb-choice.rec'),
       undefined,
       8000,
     );
-    await pressWithFocus(pg, 'a');
+    await pressWithFocus(pg, '1');
     check(
-      'back on decide, "a" accepts the open item\'s proposal',
+      'back on decide, "1" presses the recommended Leave it open: accepted',
       await eventually(async () => (await proposalState()) === 'accepted'),
     );
 
     // The ? overlay lists what is bound: each place's own keys only while
-    // it is shown ("/" is decide's search; "a" is decide's accept).
+    // it is shown ("/" is decide's search; "1" picks decide's first button).
     const overlay = async () => {
       await pressWithFocus(pg, '?');
       await until(pg, () => !!document.querySelector('.kit-keys'));
@@ -2059,9 +2043,10 @@ async function keyScopeScenariosOn(context, serveHandle) {
     };
     const onDecide = await overlay();
     check(
-      `on decide the overlay lists its keys ("search", "accept proposal"), not d's "decide selection" (${onDecide.join(', ')})`,
+      `on decide the overlay lists its keys ("search", "pick choice 1"), no accept or reject, not d's "decide selection" (${onDecide.join(', ')})`,
       onDecide.includes('search') &&
-        onDecide.includes('accept proposal') &&
+        onDecide.includes('pick choice 1') &&
+        !onDecide.some((l) => /accept|reject/.test(l)) &&
         !onDecide.includes('decide selection'),
     );
     await pg.evaluate(() => {
@@ -2076,8 +2061,8 @@ async function keyScopeScenariosOn(context, serveHandle) {
     );
     const onApply = await overlay();
     check(
-      `on apply the overlay lists neither decide's "search" nor "accept proposal" (${onApply.join(', ')})`,
-      !onApply.includes('search') && !onApply.includes('accept proposal'),
+      `on apply the overlay lists neither decide's "search" nor "pick choice 1" (${onApply.join(', ')})`,
+      !onApply.includes('search') && !onApply.includes('pick choice 1'),
     );
     await pressWithFocus(pg, '/');
     check(
@@ -2594,7 +2579,7 @@ const applyHelpers = { check, checkList, until, eventually };
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 859;
+const MIN_CHECKS = 870;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -3448,11 +3433,11 @@ async function run() {
       }
     }
 
-    // ---- scenario: accepting and rejecting proposals (Task 5) ---------------
+    // ---- scenario: the recommendation and the decision buttons --------------
     // The chip-count scenario already posted a proposal on pr:schuettc/hail#3
     // from a 'pi' session.  These scenarios build on that state and also create
     // fresh proposals to test accept/reject/change/keys.
-    console.log('\nscenario: accepting and rejecting proposals');
+    console.log('\nscenario: the recommendation and the decision buttons');
 
     // Helper: register an agent session and propose a disposition via the API.
     async function agentPropose(
@@ -3519,110 +3504,54 @@ async function run() {
           .catch(() => {});
         await until(
           propGeoPage,
-          () => !!document.querySelector('.kit-read .cb-proposal-card'),
+          () => !!document.querySelector('.kit-read .cb-rec'),
         );
 
-        // The proposal card must be present.
-        const hasCard = await propGeoPage
-          .$('.cb-proposal-card')
-          .then((el) => Boolean(el))
-          .catch(() => false);
+        // The recommendation is first in the reading, under the decide row.
+        const rec = await propGeoPage.evaluate(() => {
+          const r = document.querySelector('.kit-read .kit-doc .cb-rec');
+          const row = document.querySelector('.kit-read .cb-decide-row');
+          return {
+            shown: !!r,
+            who: r?.querySelector('.cb-rec-who')?.textContent ?? '',
+            label: r?.querySelector('.cb-rec-label')?.textContent ?? '',
+            top: r?.getBoundingClientRect().top ?? -1,
+            rowBottom: row?.getBoundingClientRect().bottom ?? -1,
+          };
+        });
         check(
-          'proposal card appears in item detail when a pending proposal exists',
-          hasCard,
+          'the recommendation shows in item detail when a pending proposal exists',
+          rec.shown,
         );
-
-        if (hasCard) {
-          // Card head: "‹session› recommends" (serve's words), then the
-          // choice's label, not "pending proposal".
-          const cardHead = await propGeoPage
-            .$eval(
-              '.cb-proposal-card .kit-card-head',
-              (el) => el.textContent ?? '',
+        check(
+          `it reads "‹session› recommends" ("${rec.who}"), the choice's label under it ("${rec.label}")`,
+          rec.who.endsWith(' recommends') &&
+            !rec.who.includes('proposes') &&
+            rec.label !== '',
+        );
+        // The session serve names as the recommender: its name, else its
+        // folder, else its harness, else its id (sessions.ts).
+        const by =
+          (
+            await createAgent(serveHandle.base, serveHandle.token).api(
+              'GET',
+              '/api/item?key=' + encodeURIComponent('pr:schuettc/hail#3'),
             )
-            .catch(() => '');
-          const cardLabel = await propGeoPage
-            .$eval('.cb-proposal-card .cb-proposal-label', (el) =>
-              el.checkVisibility() ? (el.textContent ?? '') : '',
-            )
-            .catch(() => '');
-          check(
-            `proposal card head reads "‹session› recommends" ("${cardHead}"), the choice's label under it ("${cardLabel}")`,
-            cardHead.endsWith(' recommends') &&
-              !cardHead.includes('proposes') &&
-              cardLabel !== '',
-          );
-          // The session serve names as the recommender: its name, else its
-          // folder, else its harness, else its id (sessions.ts).
-          const by =
-            (
-              await createAgent(serveHandle.base, serveHandle.token).api(
-                'GET',
-                '/api/item?key=' + encodeURIComponent('pr:schuettc/hail#3'),
-              )
-            ).item?.recommended_by ?? null;
-          const who = by
-            ? by.name ||
-              (by.cwd ?? '').split('/').filter(Boolean).pop() ||
-              by.harness ||
-              by.id
-            : '';
-          check(
-            `proposal card head names the recommending session serve names ("${who}"), not a hardcoded string`,
-            who !== '' && cardHead === `${who} recommends`,
-          );
-
-          // Geometry: the recommendation sits above the description, and
-          // both above the decide step's question and its cards.
-          const bodyTop = await propGeoPage
-            .$eval('.cb-lead .cb-body', (el) => el.getBoundingClientRect().top)
-            .catch(() => -2);
-          const cardBottom = await propGeoPage
-            .$eval(
-              '.cb-proposal-card',
-              (el) => el.getBoundingClientRect().bottom,
-            )
-            .catch(() => -1);
-          const cardTop = await propGeoPage
-            .$eval('.cb-proposal-card', (el) => el.getBoundingClientRect().top)
-            .catch(() => -1);
-          const questionTop = await propGeoPage
-            .$eval(
-              '.cb-decide .cb-question',
-              (el) => el.getBoundingClientRect().top,
-            )
-            .catch(() => -1);
-          check(
-            `proposal card is above the description (${cardTop}..${cardBottom} <= ${bodyTop}), which is above the question (${questionTop})`,
-            cardTop > 0 &&
-              cardBottom > cardTop &&
-              cardBottom <= bodyTop &&
-              bodyTop < questionTop,
-          );
-
-          // Proposal card is inside the reading document (.kit-doc).
-          const cardInDoc = await propGeoPage
-            .$eval('.kit-doc .cb-proposal-card', (el) => el !== null)
-            .catch(() => false);
-          check(
-            'proposal card is inside the .kit-doc reading document',
-            cardInDoc,
-          );
-        } else {
-          check(
-            'proposal card head reads "‹session› recommends", the choice\'s label under it',
-            false,
-          );
-          check(
-            'proposal card head names the recommending session serve names, not a hardcoded string',
-            false,
-          );
-          check(
-            'proposal card is above the description, which is above the question',
-            false,
-          );
-          check('proposal card is inside the .kit-doc reading document', false);
-        }
+          ).item?.recommended_by ?? null;
+        const who = by
+          ? by.name ||
+            (by.cwd ?? '').split('/').filter(Boolean).pop() ||
+            by.harness ||
+            by.id
+          : '';
+        check(
+          `it names the recommending session serve names ("${who}"), not a hardcoded string`,
+          who !== '' && rec.who === `${who} recommends`,
+        );
+        check(
+          `it sits under the decide row, in the reading document (${rec.rowBottom} <= ${rec.top})`,
+          rec.rowBottom > 0 && rec.rowBottom <= rec.top,
+        );
 
         // Recommended rows sit under their recommendation's header.
         await propGeoPage.evaluate(() => {
@@ -3688,22 +3617,31 @@ async function run() {
           await acceptPage
             .waitForSelector('.kit-read .cb-item', { timeout: 8000 })
             .catch(() => {});
-          // Wait for the proposal card to appear (might need a re-render).
+          // Wait for the recommended button (might need a re-render).
           await until(
             acceptPage,
-            () => !!document.querySelector('.kit-read .cb-proposal-card'),
+            () => !!document.querySelector('.kit-read .cb-choice.rec'),
           );
 
           const cardBeforeAccept = await acceptPage
-            .$('.cb-proposal-card')
+            .$('.kit-read .cb-choice.rec')
             .then((el) => Boolean(el))
             .catch(() => false);
 
           if (cardBeforeAccept) {
-            // Click the 'accept' button: the item is decided and the
-            // reading column moves on (to the next undecided item, or the
-            // view's summary), so its card goes with it.
-            await acceptPage.click('.cb-proposal-card .kit-btn.fill');
+            // Press the recommended button (Leave it open): it accepts the
+            // recommendation, the item is decided and the reading column
+            // moves on (to the next undecided item, or the summary).
+            const accepted = acceptPage
+              .waitForRequest(
+                (r) =>
+                  r.method() === 'POST' &&
+                  r.url().endsWith('/proposals/accept'),
+                { timeout: 5000 },
+              )
+              .then(() => true)
+              .catch(() => false);
+            await acceptPage.click('.kit-read .cb-choice.rec');
             const movedOn = await acceptPage
               .waitForFunction(
                 () =>
@@ -3723,8 +3661,8 @@ async function run() {
               .then((d) => d.item?.decision?.disposition ?? '')
               .catch(() => '');
             check(
-              `accept decides the item (${decision}) and the reading column moves off it with its card`,
-              movedOn && decision === 'keep',
+              `the recommended button accepts (POST /proposals/accept: ${await accepted}), decides the item (${decision}) and the reading column moves off it`,
+              (await accepted) && movedOn && decision === 'keep',
             );
 
             // Navigate to proposed view: the item should no longer be there.
@@ -3745,7 +3683,7 @@ async function run() {
             );
           } else {
             check(
-              'accept decides the item and the reading column moves off it with its card',
+              'the recommended button accepts, decides the item and the reading column moves off it',
               false,
             );
             check('accepted item leaves the proposed view', false);
@@ -3762,296 +3700,64 @@ async function run() {
       }
     }
 
-    // ---- C: reject records a reason ----------------------------------------
-    {
-      const rejectPage = await context.newPage();
-      try {
-        await rejectPage.goto(serveHandle.url, {
-          waitUntil: 'domcontentloaded',
-          timeout: 15000,
-        });
-        await rejectPage.waitForSelector('.kit-bar', { timeout: 8000 });
-
-        // Create a fresh proposal on repo:schuettc/hail.
-        const propResult = await agentPropose(
-          rejectPage,
-          'probe-reject-sess',
-          'pi',
-          'repo:schuettc/hail',
-          'archive',
-          'reject probe',
-        );
-        const proposed = propResult?.propose?.proposed ?? 0;
-        if (proposed > 0) {
-          // Navigate to the item.
-          await rejectPage.evaluate(() => {
-            location.hash = '#/item/repo:schuettc%2Fhail';
-          });
-          await rejectPage
-            .waitForSelector('.kit-read .cb-item', { timeout: 8000 })
-            .catch(() => {});
-          await until(
-            rejectPage,
-            () => !!document.querySelector('.kit-read .cb-proposal-card'),
-          );
-
-          const cardBeforeReject = await rejectPage
-            .$('.cb-proposal-card')
-            .then((el) => Boolean(el))
-            .catch(() => false);
-
-          if (cardBeforeReject) {
-            // Click the 'reject' button (the last button in the card's
-            // actions; the key hint follows it on the row).
-            const rejectBtn = await rejectPage.$(
-              '.cb-proposal-card .kit-btns .kit-btn:last-of-type',
-            );
-            if (rejectBtn) {
-              // By selector: the item may paint again (the proposal's live
-              // event) between finding the button and clicking it.
-              await rejectPage.click(
-                '.cb-proposal-card .kit-btns .kit-btn:last-of-type',
-              );
-              await rejectPage
-                .waitForSelector('.kit-sheet', { timeout: 4000 })
-                .catch(() => {});
-
-              const sheetVisible = await rejectPage
-                .$('.kit-sheet')
-                .then((el) => Boolean(el))
-                .catch(() => false);
-              check('reject opens the reason sheet', sheetVisible);
-
-              if (sheetVisible) {
-                // Type a reason (noteField renders as input.kit-note).
-                await rejectPage.fill(
-                  '.kit-sheet input.kit-note',
-                  'not needed right now',
-                );
-
-                // Click the 'Reject N' fill button.
-                await rejectPage.click('.kit-sheet .kit-btn.fill');
-                await rejectPage
-                  .waitForFunction(
-                    () => !document.querySelector('.kit-sheet'),
-                    { timeout: 5000 },
-                  )
-                  .catch(() => {});
-                await until(
-                  rejectPage,
-                  () => !document.querySelector('.cb-proposal-card'),
-                );
-
-                // Proposal card must be gone.
-                const cardAfterReject = await rejectPage
-                  .$('.cb-proposal-card')
-                  .then((el) => Boolean(el))
-                  .catch(() => false);
-                check(
-                  'reject removes the proposal card from item detail',
-                  !cardAfterReject,
-                );
-
-                // Verify via GET /api/item that the proposal is rejected and
-                // the reason text is recorded.
-                const itemState = await rejectPage
-                  .evaluate(
-                    async ({ base }) => {
-                      const r = await fetch(
-                        base + '/api/item?key=repo:schuettc/hail',
-                      );
-                      return r.ok ? r.json() : null;
-                    },
-                    { base: serveHandle.base.replace(/\/$/, '') },
-                  )
-                  .catch(() => null);
-                const proposals = itemState?.proposals ?? [];
-                const rejected = proposals.find((p) => p.state === 'rejected');
-                check(
-                  'reject records state=rejected in GET /api/item',
-                  Boolean(rejected),
-                );
-                check(
-                  'reject records the reason text in GET /api/item',
-                  Boolean(rejected?.reason?.includes('not needed right now')),
-                );
-              } else {
-                check(
-                  'reject removes the proposal card from item detail',
-                  false,
-                );
-                check('reject records state=rejected in GET /api/item', false);
-                check('reject records the reason text in GET /api/item', false);
-              }
-            } else {
-              check('reject opens the reason sheet', false);
-              check('reject removes the proposal card from item detail', false);
-              check('reject records state=rejected in GET /api/item', false);
-              check('reject records the reason text in GET /api/item', false);
-            }
-          } else {
-            check('reject opens the reason sheet', false);
-            check('reject removes the proposal card from item detail', false);
-            check('reject records state=rejected in GET /api/item', false);
-            check('reject records the reason text in GET /api/item', false);
-          }
-        } else {
-          // proposal was not created — real failure in a fresh probe run
-          check(
-            'fresh proposal created for reject test (repo:schuettc/hail)',
-            false,
-          );
-        }
-      } finally {
-        await rejectPage.close();
-      }
-    }
-
-    // ---- D: change opens the seeded decide sheet ---------------------------
-    // pr:schuettc/hail#3 has a pending proposal from the chip-count scenario;
-    // D reads that proposal and tests the "change" flow. After change, pr#3 is
-    // decided. D's item is dedicated in the sense that A only reads it (no
-    // decision) and D is the only scenario that decides it via change.
+    // ---- C: another button decides differently -----------------------------
+    // pr:schuettc/hail#3 has a pending keep from the chip-count scenario (A
+    // only reads it). Pressing Close it without merging settles it as
+    // changed (POST /proposals/change), decides close, and the strip says
+    // where it went.
     {
       const changePage = await context.newPage();
       try {
-        await changePage.goto(serveHandle.url, {
-          waitUntil: 'domcontentloaded',
-          timeout: 15000,
-        });
-        await changePage.waitForSelector('.kit-bar', { timeout: 8000 });
-
-        // Navigate to the item detail for pr:schuettc/hail#3.
-        // This item has a pending proposal from the chip-count scenario.
-        await changePage.evaluate(() => {
-          location.hash = '#/item/pr:schuettc%2Fhail%233';
-        });
-        await changePage
-          .waitForSelector('.kit-read .cb-item', { timeout: 8000 })
-          .catch(() => {});
+        await changePage.goto(
+          serveHandle.url + '#/item/pr:schuettc%2Fhail%233',
+          { waitUntil: 'domcontentloaded', timeout: 15000 },
+        );
         await until(
           changePage,
-          () => !!document.querySelector('.kit-read .cb-proposal-card'),
+          () => !!document.querySelector('.kit-read .cb-choice.rec'),
+          undefined,
+          8000,
         );
-
-        const cardForChange = await changePage
-          .$('.cb-proposal-card')
-          .then((el) => Boolean(el))
-          .catch(() => false);
-
-        if (cardForChange) {
-          // Click 'change…' — the second button in the card's actions.
-          const btns = await changePage.$$(
-            '.cb-proposal-card .kit-btns .kit-btn',
-          );
-          // buttons order: accept (fill), change…, reject
-          const changeBtn = btns[1] ?? null;
-          if (changeBtn) {
-            const changeBtnText = (await changeBtn.textContent()) ?? '';
-            check(
-              'change… button is the second action in the proposal card',
-              changeBtnText.includes('change'),
-            );
-
-            await changeBtn.click();
-            await changePage
-              .waitForSelector('.kit-sheet', { timeout: 4000 })
-              .catch(() => {});
-
-            const sheetOpen = await changePage
-              .$('.kit-sheet')
-              .then((el) => Boolean(el))
-              .catch(() => false);
-            check('change… opens the decide sheet', sheetOpen);
-
-            if (sheetOpen) {
-              // The seeded disposition 'keep' must be pre-selected.
-              const keepIsSelected = await changePage
-                .$eval(
-                  '.kit-sheet .cb-choice.on',
-                  (el) => el.getAttribute('data-d') === 'keep',
-                )
-                .catch(() => false);
-              check(
-                "change sheet is seeded with the proposal's disposition",
-                keepIsSelected,
-              );
-
-              // Change to a different disposition (e.g. 'close').
-              const closeBtn = await changePage.$(
-                '.kit-sheet .cb-choice[data-d="close"]:not(.on)',
-              );
-              if (closeBtn) {
-                await closeBtn.click();
-
-                // Submit the decision.
-                await changePage.click('.kit-sheet .kit-btn.fill');
-                await changePage
-                  .waitForFunction(
-                    () => !document.querySelector('.kit-sheet'),
-                    { timeout: 6000 },
-                  )
-                  .catch(() => {});
-                await until(
-                  changePage,
-                  () => !document.querySelector('.cb-proposal-card'),
-                );
-
-                // Proposal card should be gone after change.
-                const cardAfterChange = await changePage
-                  .$('.cb-proposal-card')
-                  .then((el) => Boolean(el))
-                  .catch(() => false);
-                check(
-                  'change confirms and decides the item (proposal card removed)',
-                  !cardAfterChange,
-                );
-              } else {
-                // No alternate disposition button found — should not happen for PR.
-                check(
-                  'change confirms and decides the item (proposal card removed)',
-                  false,
-                );
-              }
-            } else {
-              check(
-                "change sheet is seeded with the proposal's disposition",
-                false,
-              );
-              check(
-                'change confirms and decides the item (proposal card removed)',
-                false,
-              );
-            }
-          } else {
-            check(
-              'change… button is the second action in the proposal card',
-              false,
-            );
-            check('change… opens the decide sheet', false);
-            check(
-              "change sheet is seeded with the proposal's disposition",
-              false,
-            );
-            check(
-              'change confirms and decides the item (proposal card removed)',
-              false,
-            );
-          }
-        } else {
-          // No card: the chip-count proposal for pr#3 was not found.
-          // This is a real failure — pr#3 should have a pending proposal.
-          check(
-            'proposal card present for change test (pr:schuettc/hail#3)',
-            false,
-          );
-        }
+        const posted = [];
+        changePage.on('request', (r) => {
+          if (r.method() === 'POST') posted.push(new URL(r.url()).pathname);
+        });
+        await changePage.click('.kit-read .cb-choice[data-d="close"]');
+        await changePage.click(
+          '.kit-read .cb-close-comment button:has-text("close without comment")',
+        );
+        const strip = await until(
+          changePage,
+          () => !!document.querySelector('.cb-strip')?.checkVisibility(),
+          undefined,
+          8000,
+        );
+        const stripText = strip
+          ? (await changePage.locator('.cb-strip').innerText())
+              .replace(/\s+/g, ' ')
+              .trim()
+          : '';
+        const item = await createAgent(serveHandle.base, serveHandle.token).api(
+          'GET',
+          '/api/item?key=' + encodeURIComponent('pr:schuettc/hail#3'),
+        );
+        check(
+          `another button decides differently: POST /proposals/change (${posted.join(', ')}), decided ${item.item?.decision?.disposition}, its proposal ${(item.proposals ?? []).map((p) => p.state).join(',')}`,
+          posted.includes('/api/proposals/change') &&
+            !posted.includes('/api/decide') &&
+            item.item?.decision?.disposition === 'close' &&
+            (item.proposals ?? []).some((p) => p.state === 'changed'),
+        );
+        check(
+          `and the strip says where it went ("${stripText}")`,
+          stripText === 'Closed it \u00b7 waiting in apply \u00b7 undo',
+        );
       } finally {
         await changePage.close();
       }
     }
 
-    // ---- E: a key and r key ------------------------------------------------
+    // ---- E: a number key presses its button ----------------------------------
     {
       const keyPage = await context.newPage();
       try {
@@ -4100,11 +3806,11 @@ async function run() {
           if ((await firstRow.count()) === 1) {
             await firstRow.click();
             await keyPage
-              .waitForSelector('.cb-proposal-card', { timeout: 5000 })
+              .waitForSelector('.kit-read .cb-choice.rec', { timeout: 5000 })
               .catch(() => {});
 
             const hasCardForKey = await keyPage
-              .$('.cb-proposal-card')
+              .$('.kit-read .cb-choice.rec')
               .then((el) => Boolean(el))
               .catch(() => false);
 
@@ -4116,15 +3822,15 @@ async function run() {
                 document.body.dispatchEvent(new FocusEvent('focus'));
               });
 
-              // Press 'a' to accept the proposal: serve decides the item,
-              // and the reading column moves on off it (the next undecided
-              // item in the view, which may hold a card of its own, or the
-              // view's summary).
+              // Press '1', the first button (Leave it open, the recommended
+              // one): it accepts the proposal, serve decides the item, and
+              // the reading column moves on off it (the next undecided item
+              // in the view, or the view's summary).
               const openKey = await keyPage.$eval(
                 '.kit-read .cb-item',
                 (el) => el.getAttribute('data-key') ?? '',
               );
-              await keyPage.keyboard.press('a');
+              await keyPage.keyboard.press('1');
               const movedOff = await keyPage
                 .waitForFunction(
                   (k) =>
@@ -4144,115 +3850,25 @@ async function run() {
                 .then((d) => d.item?.decision?.disposition ?? '')
                 .catch(() => '');
               check(
-                `"a" key accepts the open item's proposal (${openKey} decided ${decided}, its card gone with it)`,
-                openKey !== '' && decided !== '' && movedOff,
+                `"1" presses the open item's first button, the recommended one (${openKey} decided ${decided}), and moves off it`,
+                openKey !== '' && decided === 'keep' && movedOff,
               );
             } else {
               check(
-                '"a" key accepts the open item\'s proposal (card disappears)',
+                '"1" presses the open item\'s first button, the recommended one, and moves off it',
                 false,
               );
             }
           } else {
             check(
-              '"a" key accepts the open item\'s proposal (card disappears)',
+              '"1" presses the open item\'s first button, the recommended one, and moves off it',
               false,
             );
           }
         } else {
           // proposal was not created — real failure in a fresh probe run
           check(
-            'fresh proposal created for "a" key test (issue:schuettc/hail#7)',
-            false,
-          );
-        }
-
-        // Create a proposal for the 'r' key test on a fresh item.
-        // Use branch:schuettc/hail@feat/client (from the fixture's feature branch).
-        const propR = await agentPropose(
-          keyPage,
-          'probe-key-r-sess',
-          'pi',
-          'repo:schuettc/hail',
-          'keep',
-          'key test r',
-        );
-        const proposedR = propR?.propose?.proposed ?? 0;
-
-        if (proposedR > 0) {
-          await keyPage.evaluate(() => {
-            location.hash = '#/decide';
-          });
-          await keyPage.waitForFunction(() => location.hash === '#/decide');
-          await keyPage
-            .waitForSelector('.kit-row', { timeout: 6000 })
-            .catch(() => {});
-          // The recommended repo's row is in the session's group.
-          await until(
-            keyPage,
-            () =>
-              !!document.querySelector(
-                '.kit-app > .kit-list:not([hidden]) .cb-group[data-group^="pi:probe-key-r-sess|"]',
-              ),
-            undefined,
-            8000,
-          );
-
-          // Open its row.
-          const rowForR = keyPage.locator(
-            '.kit-app > .kit-list:not([hidden]) .kit-row',
-            { hasText: 'repo \u00b7 schuettc/hail' },
-          );
-          if ((await rowForR.count()) === 1) {
-            await rowForR.click();
-            await keyPage
-              .waitForSelector('.cb-proposal-card', { timeout: 5000 })
-              .catch(() => {});
-
-            const hasCardForR = await keyPage
-              .$('.cb-proposal-card')
-              .then((el) => Boolean(el))
-              .catch(() => false);
-
-            if (hasCardForR) {
-              await keyPage.evaluate(() => {
-                window.dispatchEvent(new Event('focus'));
-                document.body.dispatchEvent(new FocusEvent('focus'));
-              });
-
-              // Press 'r' to reject (opens the reason sheet).
-              await keyPage.keyboard.press('r');
-              await keyPage
-                .waitForSelector('.kit-sheet', { timeout: 4000 })
-                .catch(() => {});
-
-              const sheetFromKey = await keyPage
-                .$('.kit-sheet')
-                .then((el) => Boolean(el))
-                .catch(() => false);
-              check(
-                '"r" key opens the reject reason sheet for the open item',
-                sheetFromKey,
-              );
-
-              // Close the sheet.
-              await keyPage.keyboard.press('Escape');
-            } else {
-              check(
-                '"r" key opens the reject reason sheet for the open item',
-                false,
-              );
-            }
-          } else {
-            check(
-              '"r" key opens the reject reason sheet for the open item',
-              false,
-            );
-          }
-        } else {
-          // proposal was not created — real failure in a fresh probe run
-          check(
-            'fresh proposal created for "r" key test (repo:schuettc/hail)',
+            'fresh proposal created for the "1" key test (issue:schuettc/hail#7)',
             false,
           );
         }
@@ -4313,8 +3929,8 @@ async function run() {
 
         // Create a proposal from a 'claude' session so we can verify the
         // agent name is taken from the source, not hardcoded.
-        // repo:schuettc/hail is still undecided (its proposal was rejected in
-        // scenario C, not decided).  Create a fresh proposal from 'claude'.
+        // repo:schuettc/hail is still undecided and unrecommended. Create a
+        // proposal from 'claude'.
         const claudeResult = await agentPropose(
           claudePage,
           'probe-claude-sess',

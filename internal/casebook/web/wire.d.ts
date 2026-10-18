@@ -71,12 +71,14 @@ export interface DecideResult {
   decided_keys: string[] | null;
   errors: string[] | null;
   decisions: Record<string, Committed> | null;
+  previous: Record<string, Committed> | null;
 }
 
 export interface AcceptResult {
   accepted: number;
   errors: string[] | null;
   decisions: Record<string, Committed> | null;
+  previous: Record<string, Committed> | null;
 }
 
 export interface RejectResult {
@@ -240,6 +242,8 @@ export interface DecisionVocabView {
   untick: string;
   left_open: string;
   came_back: Record<string, string> | null;
+  came_back_fact: string;
+  waiting: WaitingVocab;
   recommends: string;
   nav: NavVocab;
   hide_list: string;
@@ -259,8 +263,8 @@ export interface ClearResult {
 }
 
 export interface DecisionUndoResult {
-  undone: boolean;
-  decision: Committed | null;
+  undone: number;
+  errors: string[] | null;
 }
 
 export interface JobStepResult {
@@ -494,6 +498,8 @@ export interface ChoiceVocab {
   outward: boolean;
   needs_until: boolean;
   many: string;
+  done: string;
+  done_many: string;
 }
 
 export interface NotNowForm {
@@ -583,6 +589,12 @@ export interface CountWords {
   two: string;
   all: string;
   some: string;
+}
+
+export interface WaitingVocab {
+  text: string;
+  apply: string;
+  undo: string;
 }
 
 export interface NavVocab {

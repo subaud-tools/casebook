@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,11 @@ func (r *rig) undo(t *testing.T, key string, expect committed, restore map[strin
 	var e struct {
 		Error string `json:"error"`
 	}
-	c := r.do(t, "POST", "/api/decisions/undo", map[string]any{"key": key, "expect": expect, "restore": restore}, &e)
+	items := []map[string]any{{"key": key, "expect": expect, "restore": restore}}
+	if restore == nil {
+		items[0]["restore"] = nil
+	}
+	c := r.do(t, "POST", "/api/decisions/undo", map[string]any{"items": items}, &e)
 	return c, e.Error
 }
 
@@ -183,5 +188,121 @@ func TestAcceptReportsTheDecisionItCommitted(t *testing.T) {
 	}
 	if c, msg := r.undo(t, acceptKey, got, nil); c != 200 {
 		t.Fatalf("undo of the accepted decision: %d %q", c, msg)
+	}
+}
+
+// undoKeys are three items the rig tracks.
+var undoKeys = []string{"pr:schuettc/hail#3", "issue:schuettc/hail#4", "repo:schuettc/hail"}
+
+// acceptThree has an agent recommend keep for undoKeys, accepts all three
+// and returns what accept committed per key.
+func (r *rig) acceptThree(t *testing.T) map[string]committed {
+	t.Helper()
+	var props struct {
+		Proposals []struct{ ID int64 } `json:"proposals"`
+	}
+	r.attach(t, "s1")
+	r.do(t, "POST", "/api/agent/propose", map[string]any{"session": "s1", "keys": undoKeys, "disposition": "keep", "note": "fine"}, &props)
+	if len(props.Proposals) != 3 {
+		t.Fatalf("propose %+v", props)
+	}
+	ids := []int64{}
+	for _, p := range props.Proposals {
+		ids = append(ids, p.ID)
+	}
+	var res struct {
+		Accepted  int                  `json:"accepted"`
+		Decisions map[string]committed `json:"decisions"`
+	}
+	if c := r.do(t, "POST", "/api/proposals/accept", map[string]any{"ids": ids}, &res); c != 200 || res.Accepted != 3 {
+		t.Fatalf("accept: %d %+v", c, res)
+	}
+	return res.Decisions
+}
+
+type undoReply struct {
+	Undone int      `json:"undone"`
+	Errors []string `json:"errors"`
+	Error  string   `json:"error"`
+}
+
+func undoItems(made map[string]committed) []map[string]any {
+	var items []map[string]any
+	for _, k := range undoKeys {
+		items = append(items, map[string]any{"key": k, "expect": made[k], "restore": nil})
+	}
+	return items
+}
+
+// TestUndoTakesSeveralDecisionsBack: one undo takes back three accepted
+// recommendations; after its one rebuild all three are undecided.
+func TestUndoTakesSeveralDecisionsBack(t *testing.T) {
+	r := newRig(t)
+	made := r.acceptThree(t)
+	var res undoReply
+	if c := r.do(t, "POST", "/api/decisions/undo", map[string]any{"items": undoItems(made)}, &res); c != 200 || res.Undone != 3 || len(res.Errors) != 0 {
+		t.Fatalf("undo: %d %+v", c, res)
+	}
+	for _, k := range undoKeys {
+		if d := r.decisionOf(t, k); d != nil {
+			t.Errorf("%s still decided: %+v", k, d)
+		}
+		if it, _ := r.s.Index.Item(k); it.Decision != nil {
+			t.Errorf("%s decided in the index: %+v", k, it.Decision)
+		}
+	}
+}
+
+// TestUndoRefusesOnlyTheOneThatChanged: of three, the one decided
+// elsewhere since keeps that decision and is named in errors; the other two
+// are undone.
+func TestUndoRefusesOnlyTheOneThatChanged(t *testing.T) {
+	r := newRig(t)
+	made := r.acceptThree(t)
+	r.Now = r.Now.Add(time.Minute)
+	r.elsewhere(t, undoKeys[1], "ignore", "")
+	var res undoReply
+	if c := r.do(t, "POST", "/api/decisions/undo", map[string]any{"items": undoItems(made)}, &res); c != 200 || res.Undone != 2 || len(res.Errors) != 1 {
+		t.Fatalf("undo: %d %+v", c, res)
+	}
+	if !strings.Contains(res.Errors[0], undoKeys[1]) {
+		t.Errorf("error %q doesn't name %s", res.Errors[0], undoKeys[1])
+	}
+	if d := r.decisionOf(t, undoKeys[1]); d == nil || d.Disposition != item.Ignore {
+		t.Errorf("%s: %+v, want its later ignore", undoKeys[1], d)
+	}
+	for _, k := range []string{undoKeys[0], undoKeys[2]} {
+		if d := r.decisionOf(t, k); d != nil {
+			t.Errorf("%s still decided: %+v", k, d)
+		}
+	}
+}
+
+// TestDecideAndAcceptSayWhatWasThere: decide and accept answer, per key,
+// the decision the item had before (null when none), so an undo can put it
+// back without the page knowing it (review 2026-10-17: a group's items
+// aren't all loaded, and a live reload can replace what was).
+func TestDecideAndAcceptSayWhatWasThere(t *testing.T) {
+	r := newRig(t)
+	const key = "issue:schuettc/hail#5"
+	first := r.pageDecide(t, key, "wait", "date(2030-01-01)", "later")
+	var res struct {
+		Previous map[string]*committed `json:"previous"`
+	}
+	body := map[string]any{"keys": []string{key}, "disposition": "close", "note": "done"}
+	if c := r.do(t, "POST", "/api/decide", body, &res); c != 200 {
+		t.Fatalf("decide %d", c)
+	}
+	prev := res.Previous[key]
+	if prev == nil || prev.Disposition != "wait" || prev.Until != "date(2030-01-01)" || prev.Note != "later" || !prev.DecidedAt.Equal(first.DecidedAt) {
+		t.Fatalf("previous %+v, want the Not now that was there (%+v)", prev, first)
+	}
+	res.Previous = nil
+	body = map[string]any{"keys": []string{"issue:schuettc/hail#6"}, "disposition": "keep"}
+	if c := r.do(t, "POST", "/api/decide", body, &res); c != 200 {
+		t.Fatalf("decide %d", c)
+	}
+	if p, ok := res.Previous["issue:schuettc/hail#6"]; !ok || p != nil {
+		t.Fatalf("an undecided item's previous: %+v %v, want present and null", p, ok)
 	}
 }

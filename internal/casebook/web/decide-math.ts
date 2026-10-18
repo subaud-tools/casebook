@@ -7,6 +7,7 @@
 //   allowedForKeys — intersect allowed sets for a mixed-kind selection
 
 import type {
+  WaitingVocab,
   ChoiceVocab,
   CountWords,
   DecisionVocabView,
@@ -600,4 +601,72 @@ export function shortKey(key: string): string {
   const k = keyWithoutKind(key);
   const i = k.indexOf('/');
   return i >= 0 ? k.slice(i + 1) : k;
+}
+
+/** The pending recommendation a decision button is pressed against. */
+export interface PendingRec {
+  id: number;
+  disposition: string;
+  until?: string;
+}
+
+/**
+ * decideRoute is where a decision button posts: the recommended choice
+ * (with the recommendation's until, for Not now) accepts the
+ * recommendation; any other settles it as decided differently (change);
+ * with no recommendation, a plain decide.
+ */
+export function decideRoute(
+  pending: PendingRec | null,
+  d: string,
+  until?: string,
+): { path: 'accept' | 'change'; id: number } | { path: 'decide' } {
+  if (!pending) return { path: 'decide' };
+  const same =
+    pending.disposition === d && (until ?? '') === (pending.until ?? '');
+  return { path: same ? 'accept' : 'change', id: pending.id };
+}
+
+/**
+ * doneWords is what a decision did, in serve's words: one item's choice
+ * (by its key's kind) says done ("Closed it"); a group's (by its label)
+ * says done_many with the count word ("Deleted all 3").
+ */
+export function doneWords(
+  vocab: Pick<DecisionVocabView, 'kinds' | 'count_words'>,
+  d: string,
+  of: { key: string } | { label: string; total: number; ticked: number },
+): string {
+  if ('key' in of) {
+    const kind = kindFromKey(of.key);
+    const c = (vocab.kinds ?? [])
+      .find((k) => k.kind === kind)
+      ?.choices?.find((c) => c.disposition === d);
+    return c?.done ?? '';
+  }
+  for (const k of vocab.kinds ?? [])
+    for (const c of k.choices ?? [])
+      if (c.disposition === d && c.label === of.label)
+        return c.done_many.replaceAll(
+          '{n}',
+          countWord(of.total, of.ticked, vocab.count_words),
+        );
+  return '';
+}
+
+/** A piece of the waiting strip: text, the link to apply, or undo. */
+export type StripPart = string | { link: string } | { button: string };
+
+/**
+ * waitingStrip splits serve's strip sentence ("{done} · waiting in {apply}
+ * · {undo}") into its text, the apply link and the undo button.
+ */
+export function waitingStrip(w: WaitingVocab, done: string): StripPart[] {
+  const parts: StripPart[] = [];
+  for (const piece of w.text.split(/(\{apply\}|\{undo\})/)) {
+    if (piece === '{apply}') parts.push({ link: w.apply });
+    else if (piece === '{undo}') parts.push({ button: w.undo });
+    else if (piece) parts.push(piece.replaceAll('{done}', done));
+  }
+  return parts;
 }

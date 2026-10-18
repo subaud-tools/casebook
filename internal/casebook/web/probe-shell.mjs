@@ -196,8 +196,6 @@ const EXPECT = {
     '/',
     ...FAMILY,
     ...PAGE_KEYS,
-    'a',
-    'r',
     'u',
     ...'123456789',
     // « and »: the group before or after the open item's.
@@ -438,11 +436,12 @@ async function keyboardScenario(shared, t) {
           ),
         );
 
-        // a accepts the open item's proposal; r rejects it (its sheet).
-        // An item opening (#/item/<key>) reloads the list too. Here that
-        // reload is held on its way (2.5 s), so a and r are pressed while it
-        // is: they act on the proposal the reading column shows, whatever
-        // the list is doing.
+        // A number key presses the open item's button: the recommended one
+        // accepts its proposal; another decides differently (changed). An
+        // item opening (#/item/<key>) reloads the list too. Here that reload
+        // is held on its way (2.5 s), so the keys are pressed while it is:
+        // they act on the proposal the reading column shows, whatever the
+        // list is doing.
         let held = 0;
         let hold = false;
         await pg.route(/\/api\/items\?/, async (r) => {
@@ -460,7 +459,7 @@ async function keyboardScenario(shared, t) {
           const shown = await until(
             pg,
             (k) =>
-              !!document.querySelector('.kit-read .cb-proposal-card') &&
+              !!document.querySelector('.kit-read .cb-choice.rec') &&
               (
                 document.querySelector('.kit-read .cb-kicker')?.textContent ??
                 ''
@@ -490,7 +489,7 @@ async function keyboardScenario(shared, t) {
           hash: location.hash,
           kicker: document.querySelector('.kit-read .cb-kicker')?.textContent,
         }));
-        await press(pg, 'a');
+        await press(pg, '1');
         hold = false;
         let seen41 = '';
         const accepted = await eventually(async () => {
@@ -503,33 +502,29 @@ async function keyboardScenario(shared, t) {
         });
         pg.off('response', onAccept);
         check(
-          `a accepts the open proposal: serve has it accepted, and the item decided keep (${seen41}; accept calls: ${accepts.join(' | ') || 'none'}; at the press: ${atPress.active}, sheet ${atPress.sheet}, ${atPress.hash}, "${atPress.kicker}")`,
+          `1 (Leave it open, recommended) accepts the open proposal: serve has it accepted, and the item decided keep (${seen41}; accept calls: ${accepts.join(' | ') || 'none'}; at the press: ${atPress.active}, sheet ${atPress.sheet}, ${atPress.hash}, "${atPress.kicker}")`,
           accepted,
         );
         check(
           'the next open item shows its pending proposal (close), its list reload still on its way',
           await openItem(KB_KEY(42)),
         );
-        await press(pg, 'r');
+        await press(pg, '1');
         hold = false;
-        const rejectSheet = (await until(
-          pg,
-          () => !!document.querySelector('.kit-sheet'),
-        ))
-          ? await pg.$eval('.kit-sheet .kit-sheet-head', (e) => e.textContent)
-          : '';
         check(
-          `r opens reject for the open proposal ("${rejectSheet}")`,
-          rejectSheet === 'reject 1 proposal',
-        );
-        await pg.click('.kit-sheet .kit-btn:has-text("Reject 1")');
-        check(
-          'and rejecting there rejects it on serve',
+          '1 (Leave it open) against its recommended close decides differently: serve has it changed',
           await eventually(
-            async () => (await proposalState(KB_KEY(42))) === 'rejected',
+            async () => (await proposalState(KB_KEY(42))) === 'changed',
           ),
         );
-        await until(pg, () => !document.querySelector('.kit-sheet'));
+        // u takes it back: undecided again, back in the list.
+        await press(pg, 'u');
+        check(
+          'u takes that decision back: undecided again',
+          await eventually(
+            async () => !(await item(KB_KEY(42)))?.item?.decision,
+          ),
+        );
 
         // . focuses the composer; typed there, keys are text (none fires);
         // ⌘↵ fires in the field (it is inField): the draft joins the batch.

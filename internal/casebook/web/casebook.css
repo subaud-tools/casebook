@@ -541,8 +541,8 @@
 
 /* ---- the decide step (item.ts, choices.ts) ------------------------------ */
 
-/* The question, then the cards: two to a row in a sheet, one row on the
- * item page (below). */
+/* The decide step: its buttons, wrapping in a sheet, one fixed-height row on
+ * the item page (below). */
 .cb-decide {
   margin: 22px 0 0;
 }
@@ -552,10 +552,10 @@
   margin: 0 0 12px;
 }
 
-/* "‹session› is looking into it": under the open item's question, and on
+/* "‹session› is looking into it": first in the open item's reading, and on
  * its list row (where the row's sub line goes, in its colour). */
 .cb-looking {
-  margin: -4px 0 12px;
+  margin: 0 0 12px;
   font: 12.5px var(--kit-mono);
   color: var(--kit-agent);
 }
@@ -576,103 +576,80 @@
 }
 
 /* A recommendation that came while Court was mid-input on the open item:
- * "pi recommends ‹label› · show" under the question (quiet: mono, agent
+ * "pi recommends ‹label› · show" first in the reading (quiet: mono, agent
  * colour), instead of re-rendering under him. */
 .cb-rec-fresh {
-  margin: -4px 0 12px;
+  margin: 0 0 12px;
   font: 12.5px var(--kit-mono);
   color: var(--kit-agent);
 }
 
+/* The decision buttons: short (serve's label; its sentence is the hover),
+   wrapping in a sheet. Room above each for its mark ("recommended" in the
+   agent's colour, "chosen"), so marking one never moves the others. Chosen:
+   the signal border. Only delete draws its label in danger. */
 .cb-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 8px;
+  padding-top: 16px;
 }
 
-/* A card is a kit card that is one button: the number, the label, what
-   happens. Chosen: the signal border. Recommended: the number line in the
-   agent's colour. The number line is one line that never wraps (an
-   ellipsis instead), so choosing a card never changes its height. Only delete draws its label in danger. */
-.cb-choice.kit-card {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.cb-choice.kit-btn {
+  position: relative;
   margin: 0;
-  padding: 12px 14px;
-  font: inherit;
-  color: var(--kit-fg);
-  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.cb-choice.kit-card:hover {
+.cb-choice.kit-btn:hover {
   border-color: var(--kit-signal);
 }
 
-.cb-choice.kit-card.on {
-  border: 2px solid var(--kit-signal);
-  padding: 11px 13px;
+.cb-choice.kit-btn.on {
+  border-color: var(--kit-signal);
+  box-shadow: inset 0 0 0 1px var(--kit-signal);
 }
 
-.cb-choice-k {
-  height: 18px;
-  overflow: hidden;
-  font: 12px/18px var(--kit-mono);
+.cb-choice.kit-btn.rec {
+  border-color: var(--kit-agent);
+}
+
+.cb-choice-mark {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 2px;
+  font: 11px/14px var(--kit-mono);
   color: var(--kit-muted);
   white-space: nowrap;
-  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
-.cb-choice.rec .cb-choice-k {
+.cb-choice.rec .cb-choice-mark {
   color: var(--kit-agent);
-}
-
-.cb-choice-label {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .cb-choice.danger .cb-choice-label {
   color: var(--kit-danger);
 }
 
-.cb-choice-says {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--kit-muted);
+/* "Look into it", the last button: the agent's, not a decision. The
+   agent's colour, never the signal border; while a session looks, it can't
+   be clicked (the reading says who is looking). */
+.cb-choice.kit-btn.cb-look-card {
+  color: var(--kit-agent);
+  border-color: var(--kit-agent);
+  border-style: dashed;
 }
 
-/* "Look into it", the last card: the agent's, not a decision. The kit's
-   amber left edge (edge-agent, as the recommendation card) and an amber
-   number line, never the signal border; the same size as its neighbours
-   (the 3px edge takes 2px of the padding). While a session looks, it says
-   so and can't be clicked. */
-.cb-choice.kit-card.cb-look-card {
-  padding-left: 12px;
-}
-
-.cb-choice.kit-card.cb-look-card:hover {
-  border-color: var(--kit-line);
-  border-left-color: var(--kit-agent);
-}
-
-.cb-choice.kit-card.cb-look-card:not(:disabled):hover {
+.cb-choice.kit-btn.cb-look-card:not(:disabled):hover {
   background: var(--kit-agent-soft);
 }
 
-.cb-look-card .cb-choice-k {
-  color: var(--kit-agent);
-}
-
-.cb-choice.kit-card.cb-look-card:disabled {
+.cb-choice.kit-btn.cb-look-card:disabled {
   cursor: default;
-}
-
-.cb-look-card.looking .cb-choice-says {
-  font: 12.5px var(--kit-mono);
-  line-height: 1.5;
-  color: var(--kit-agent);
+  opacity: 0.6;
 }
 
 /* Not now's conditions, under the cards. */
@@ -787,32 +764,10 @@
   display: none;
 }
 
-/* Why a Not now came back: serve's reason, under the facts. */
-.kit-doc .cb-due-reason {
-  font-size: 14px;
-  border-left: 2px solid var(--kit-signal);
-  padding-left: 8px;
-  margin: 10px 0 0;
-}
-
-/* The recommendation's keys. */
-.kit-doc .cb-keyhint,
-.cb-keyhint {
-  font: 12px var(--kit-mono);
-  color: var(--kit-muted);
-  margin: 8px 0 0;
-}
-
-.cb-keyhint kbd {
-  font: 11.5px var(--kit-mono);
-  border: 1px solid var(--kit-line);
-  border-radius: 4px;
-  padding: 0 5px;
-}
-
-.kit-doc .cb-proposal-until {
-  font: 12.5px var(--kit-mono);
-  margin: 6px 0 0;
+/* "came back · ‹reason›": first in the facts line, in the signal colour. */
+.cb-item .kit-facts .cb-came-back {
+  color: var(--kit-signal);
+  font-weight: 600;
 }
 
 /* The view's summary once nothing is left. */
@@ -2415,154 +2370,86 @@ textarea.cb-needs-edit:focus {
   overflow-wrap: anywhere;
 }
 
+/* The facts: one line (the rest in its tooltip). */
 .cb-item .kit-facts {
   line-height: 20px;
-  row-gap: 4px;
-  height: 44px;
+  height: 20px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
   overflow: hidden;
-  align-content: flex-start;
-  margin-bottom: 14px;
-}
-
-.cb-lead {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* The description: the column's width, one fixed height, scrolls inside. */
-.cb-lead > .cb-body {
-  height: 140px;
-  overflow: auto;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.5;
-  background: var(--kit-card);
-  border: 1px solid var(--kit-line);
-  border-radius: 8px;
-  overflow-wrap: anywhere;
-}
-
-.cb-lead > .cb-body p {
-  margin: 0 0 8px;
-}
-
-.cb-lead > .cb-body p:last-child {
   margin-bottom: 0;
 }
 
-.kit-doc .cb-lead .cb-due-reason {
-  margin: 0 0 8px;
+/* The decide row: one fixed height for the column's width, whatever the
+   item. The buttons sit on one line under the room their marks take; in a
+   column too narrow for the widest kind's buttons (a pull request's, with
+   Look into it) every item's row keeps room for two lines, so the row and
+   what is under it never move between items. */
+.cb-item {
+  container-type: inline-size;
 }
 
-/* The recommendation above it: one fixed height, room for the head, the
-   label, two lines of the reason and the button row. */
-.cb-lead > .cb-proposal-card,
-.cb-lead > .cb-rec-empty {
-  height: 150px;
-  margin: 0;
+.cb-item .cb-decide {
+  margin: 14px 0 0;
 }
 
-.cb-lead > .cb-proposal-card {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 14px;
+.cb-item .cb-choices.cb-decide-row {
+  align-content: flex-start;
+  height: 46px;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
-.cb-lead > .cb-proposal-card .kit-card-head {
-  flex: none;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.cb-item .cb-choice.kit-btn {
+  font: 13px/17px var(--kit-sans);
+  padding: 4px 11px;
 }
 
-.cb-lead > .cb-proposal-card .kit-card-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  margin: 0 0 8px;
-  font-size: 13.5px;
-  line-height: 1.45;
+@container (max-width: 760px) {
+  .cb-item .cb-choices.cb-decide-row {
+    height: 92px;
+  }
 }
 
-/* accept, change… and reject at the kit's size, then the key hint: one row. */
-.cb-lead > .cb-proposal-card .kit-btns {
-  flex: none;
-  flex-wrap: nowrap;
-  align-items: center;
+/* The reading: the parts that grow, in the page's own scroll. */
+.cb-reading {
+  margin-top: 22px;
 }
 
-.cb-lead > .cb-proposal-card .kit-btn {
-  white-space: nowrap;
-}
-
-.cb-proposal-label {
-  font-weight: 600;
-  margin: 0 0 2px;
-}
-
-.cb-lead .cb-proposal-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cb-lead .cb-proposal-note {
-  margin: 0;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-
-.cb-lead .cb-keyhint {
-  margin: 0 0 0 auto;
-  white-space: nowrap;
-}
-
-.cb-rec-empty {
-  border: 1px dashed var(--kit-line);
-  border-radius: 8px;
-}
-
-/* The looking line keeps its room when nobody is looking. */
-.cb-item .cb-looking {
-  height: 19px;
-  line-height: 19px;
-  margin: -4px 0 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cb-item .cb-looking[hidden] {
-  display: block;
-  visibility: hidden;
-}
-
-/* The cards wrap rather than thin out: one row only when each card can be
-   150px or wider. A row's cards share its height (grid stretch). */
-.cb-item .cb-choices {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
-
-.cb-item .cb-choice.kit-card {
-  padding: 10px 12px;
-}
-
-.cb-item .cb-choice.kit-card.on {
-  padding: 9px 11px;
-}
-
-.cb-item .cb-choice-label {
+.cb-rec {
+  border-left: 3px solid var(--kit-agent);
+  padding: 2px 0 2px 12px;
+  margin: 0 0 18px;
   font-size: 14px;
+  line-height: 1.5;
 }
 
-.cb-item .cb-choice-says {
-  font-size: 12.5px;
-  line-height: 1.4;
+.cb-rec p {
+  margin: 0;
+}
+
+.cb-rec .cb-rec-who {
+  font: 12px var(--kit-mono);
+  color: var(--kit-agent);
+}
+
+.cb-rec .cb-rec-label {
+  font-weight: 600;
+}
+
+.cb-rec .cb-rec-until {
+  font: 12.5px var(--kit-mono);
+}
+
+.cb-reading .cb-body {
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  margin: 0 0 8px;
+}
+
+.cb-reading .cb-body p {
+  margin: 0 0 8px;
 }
 
 .cb-trail {
@@ -2570,11 +2457,36 @@ textarea.cb-needs-edit:focus {
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 28px;
   align-items: start;
-  margin-top: 26px;
+  margin-top: 18px;
 }
 
-.cb-item .cb-choice.kit-card.cb-look-card {
-  padding-left: 10px;
+/* The strip after an outward decision: "Closed it · waiting in apply ·
+   undo", over the middle pane's foot for a few seconds. */
+.cb-strip {
+  position: fixed;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 8px 16px;
+  font: 13px var(--kit-sans);
+  color: var(--kit-fg);
+  background: var(--kit-card);
+  border: 1px solid var(--kit-line);
+  border-radius: 8px;
+  box-shadow: var(--kit-lift);
+  white-space: nowrap;
+}
+
+.cb-strip[hidden] {
+  display: none;
+}
+
+.cb-strip a {
+  color: var(--kit-signal);
+}
+
+.cb-strip .cb-strip-undo {
+  font: inherit;
 }
 
 /* The field chips, grouped by the types they apply to. */
@@ -2883,16 +2795,5 @@ button.cb-cond-menu-row[aria-disabled='true'] {
   font: 10.5px var(--kit-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--kit-muted);
-}
-/* An item with no recommendation says so in its box. */
-.cb-rec-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cb-rec-empty-says {
-  margin: 0;
-  font: 13px var(--kit-sans);
   color: var(--kit-muted);
 }

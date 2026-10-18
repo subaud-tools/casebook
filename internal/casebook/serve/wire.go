@@ -167,6 +167,9 @@ type DecideResult struct {
 	// Decisions is, per decided key, the decision this request committed:
 	// what an undo of it expects to find (POST /api/decisions/undo).
 	Decisions map[string]Committed `json:"decisions"`
+	// Previous is, per decided key, the decision it had before (null when
+	// none): what an undo puts back.
+	Previous map[string]*Committed `json:"previous"`
 }
 
 // AcceptResult is the response body of POST /api/proposals/accept. Like
@@ -176,6 +179,9 @@ type AcceptResult struct {
 	Errors   []string `json:"errors"`
 	// Decisions is, per decided key, the decision this request committed.
 	Decisions map[string]Committed `json:"decisions"`
+	// Previous is, per decided key, the decision it had before (null when
+	// none).
+	Previous map[string]*Committed `json:"previous"`
 }
 
 // Committed is a decision as a request committed it, decided_at to the
@@ -188,11 +194,12 @@ type Committed struct {
 }
 
 // DecisionUndoResult is the response body of POST /api/decisions/undo:
-// Decision is the decision the undo restored, null when it removed one.
-// Like DecideResult it doesn't wait for the push.
+// how many of the items were undone, and why each other one was not (one
+// decided since elsewhere is named and left as it is). Like DecideResult it
+// doesn't wait for the push.
 type DecisionUndoResult struct {
-	Undone   bool       `json:"undone"`
-	Decision *Committed `json:"decision"`
+	Undone int      `json:"undone"`
+	Errors []string `json:"errors"`
 }
 
 // Push states, as the "push" live event says them.
@@ -477,6 +484,11 @@ type DecisionVocabView struct {
 	// CameBack says why an item in the "Came back" group came back, by
 	// its status, when the item gives no reason of its own (due_reason).
 	CameBack map[string]string `json:"came_back"`
+	// CameBackFact leads the item page's facts line when the item came
+	// back ({reason}: its due reason, or CameBack's words for its status).
+	CameBackFact string `json:"came_back_fact"`
+	// Waiting is the strip after an outward decision.
+	Waiting WaitingVocab `json:"waiting"`
 	// Recommends is the open item's recommendation box's kicker
 	// ({session}: who recommends).
 	Recommends string `json:"recommends"`
@@ -514,6 +526,15 @@ type NavVocab struct {
 }
 
 // SummaryVocab is decide's summary, in the middle pane with nothing open:
+// WaitingVocab is the strip after an outward decision: Text with {done}
+// (the choice's done or done_many), {apply} (a link to the apply group it
+// joined, Apply its words) and {undo} (its undo button, Undo its words).
+type WaitingVocab struct {
+	Text  string `json:"text"`
+	Apply string `json:"apply"`
+	Undo  string `json:"undo"`
+}
+
 // ToDecide ({n}: everything to decide), CameBack ({n}: the items that came
 // back), Group, one line per rule's or agent's recommendations ({who}: the
 // rule's name or the session's, {decision}: the group's label, {n}: its
@@ -547,9 +568,10 @@ type KindVocab struct {
 	Choices    []ChoiceVocab `json:"choices"`
 }
 
-// ChoiceVocab is one answer card: its disposition, label and what choosing
-// it does (Says). Outward choices only go to To apply. NeedsUntil choices
-// (Not now) need a condition from DecisionVocabView.NotNow.
+// ChoiceVocab is one decision button: its disposition, label and what
+// choosing it does and when (Says, its hover). Outward choices only go to
+// apply. NeedsUntil choices (Not now) need a condition from
+// DecisionVocabView.NotNow.
 type ChoiceVocab struct {
 	Disposition string `json:"disposition"`
 	Label       string `json:"label"`
@@ -558,6 +580,11 @@ type ChoiceVocab struct {
 	NeedsUntil  bool   `json:"needs_until"`
 	// Many is the choice for several items ({n}: the count word).
 	Many string `json:"many"`
+	// Done is what the choice did ("Closed it"); DoneMany for several
+	// items ("Closed {n}", {n}: the count word). The strip after a
+	// decision shows it.
+	Done     string `json:"done"`
+	DoneMany string `json:"done_many"`
 }
 
 // NotNowForm is one Not now condition. Template is an until form with one

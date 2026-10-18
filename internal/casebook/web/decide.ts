@@ -27,7 +27,7 @@ import {
   fillLabel,
   pluralize,
 } from './decide-math.ts';
-import { renderChoices, showChoiceError, asNotNow } from './choices.ts';
+import { renderChoices, showChoiceError } from './choices.ts';
 
 // Re-export the pure functions so callers only need one import.
 export { kindFromKey, allowedForKind, allowedForKeys };
@@ -62,20 +62,14 @@ export const DANGER_DISPS = new Set(['close', 'delete', 'archive']);
  * Picking a card decides nothing: the fill does. Serve's errors show in the
  * sheet. On success, calls onDone(keys) with the keys that were decided.
  * Esc or a backdrop click closes the sheet without deciding.
- *
- * Optional `seed` pre-picks disposition/until/note (used by change…).
- * Optional `customPost` replaces the default /api/decide POST (also used by
- * change… to post to /api/proposals/change instead).
  */
 export function openDecideSheet(
   ctx: Ctx,
   keys: string[],
   onDone: (decided: string[]) => void,
-  seed?: { disposition?: string; until?: string; note?: string },
-  customPost?: (disp: string, until: string, note: string) => Promise<string[]>,
 ): void {
   void getVocab(ctx).then((vocab) => {
-    openDecideSheetWithVocab(ctx, keys, vocab, onDone, seed, customPost);
+    openDecideSheetWithVocab(ctx, keys, vocab, onDone);
   });
 }
 
@@ -84,8 +78,6 @@ function openDecideSheetWithVocab(
   keys: string[],
   vocab: DecisionVocabView,
   onDone: (decided: string[]) => void,
-  seed?: { disposition?: string; until?: string; note?: string },
-  customPost?: (disp: string, until: string, note: string) => Promise<string[]>,
 ): void {
   const n = keys.length;
   const choices = choicesForKeys(vocab, keys);
@@ -95,9 +87,9 @@ function openDecideSheetWithVocab(
       ? ((vocab.kinds ?? []).find((k) => k.kind === kinds[0])?.question ?? '')
       : '';
 
-  let disposition = asNotNow(seed?.disposition) ?? '';
-  let until = seed?.until ?? '';
-  let note = seed?.note ?? '';
+  let disposition = '';
+  let until = '';
+  let note = '';
   let submitting = false;
   let sh: SheetHandle | null = null;
 
@@ -106,7 +98,7 @@ function openDecideSheetWithVocab(
   const needsUntil = (d: string) =>
     choices.find((c) => c.disposition === d)?.needs_until ?? false;
 
-  // The until a Not now condition made (or the seed's), shown under the cards.
+  // The until a Not now condition made, shown under the cards.
   const untilEl = h('p', { class: 'cb-sheet-preview' });
   function updateFill(): void {
     const fill = sh?.el.querySelector<HTMLElement>('.kit-btn.fill');
@@ -165,19 +157,12 @@ function openDecideSheetWithVocab(
     submitting = true;
     showChoiceError(cards, '');
     try {
-      let decidedKeys: string[];
-      let errors: string[] = [];
-      if (customPost) {
-        // Custom post (e.g. /proposals/change): caller owns the endpoint.
-        decidedKeys = await customPost(disposition, u, note);
-      } else {
-        const payload: Record<string, unknown> = { keys, disposition };
-        if (u) payload['until'] = u;
-        if (note) payload['note'] = note;
-        const result = await ctx.api.post<DecideResult>('/decide', payload);
-        decidedKeys = result.decided_keys ?? [];
-        errors = result.errors ?? [];
-      }
+      const payload: Record<string, unknown> = { keys, disposition };
+      if (u) payload['until'] = u;
+      if (note) payload['note'] = note;
+      const result = await ctx.api.post<DecideResult>('/decide', payload);
+      const decidedKeys = result.decided_keys ?? [];
+      const errors = result.errors ?? [];
       if (decidedKeys.length > 0) {
         onDone(decidedKeys);
       }

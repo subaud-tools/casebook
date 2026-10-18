@@ -20,6 +20,9 @@ import {
   discardConfirm,
   pastedKeys,
   lookIntoCard,
+  decideRoute,
+  doneWords,
+  waitingStrip,
 } from './decide-math.ts';
 import { sessionName } from './sessions.ts';
 import type { DecisionVocabView, GroupView, NotNowForm } from './wire.d.ts';
@@ -325,6 +328,99 @@ describe('groupButtons', () => {
   test("a choice's own wording around the count", () => {
     const keep = { ...close, many: 'Leave {n} open', total: 2 };
     assert.equal(groupButtons(keep, 0, GROUP_VOCAB).act, 'Leave both open');
+  });
+});
+
+describe('decideRoute', () => {
+  const pending = { id: 7, disposition: 'close', until: '' };
+  test('the recommended choice accepts the recommendation', () => {
+    assert.deepEqual(decideRoute(pending, 'close'), { path: 'accept', id: 7 });
+  });
+  test('another choice decides differently', () => {
+    assert.deepEqual(decideRoute(pending, 'keep'), { path: 'change', id: 7 });
+  });
+  test('no recommendation: a plain decide', () => {
+    assert.deepEqual(decideRoute(null, 'close'), { path: 'decide' });
+  });
+  test('Not now on a recommended Not now: accepted only with its until', () => {
+    const wait = { id: 8, disposition: 'wait', until: 'date(2027-01-01)' };
+    assert.deepEqual(decideRoute(wait, 'wait', 'date(2027-01-01)'), {
+      path: 'accept',
+      id: 8,
+    });
+    assert.deepEqual(decideRoute(wait, 'wait', 'inactive(90d)'), {
+      path: 'change',
+      id: 8,
+    });
+  });
+  test('a recommended watch is pressed as Not now', () => {
+    const watch = { id: 9, disposition: 'watch', until: 'merged(a/b#1)' };
+    assert.deepEqual(decideRoute(watch, 'wait', 'merged(a/b#1)'), {
+      path: 'change',
+      id: 9,
+    });
+  });
+});
+
+describe('doneWords', () => {
+  const vocab = {
+    kinds: [
+      {
+        kind: 'issue',
+        choices: [
+          {
+            disposition: 'close',
+            label: 'Close it',
+            done: 'Closed it',
+            done_many: 'Closed {n}',
+          },
+        ],
+      },
+      {
+        kind: 'repo',
+        choices: [
+          {
+            disposition: 'delete',
+            label: 'Delete it',
+            done: 'Deleted it',
+            done_many: 'Deleted {n}',
+          },
+        ],
+      },
+    ],
+    count_words: WORDS,
+  } as unknown as DecisionVocabView;
+  test("one item: its kind's choice's done", () => {
+    assert.equal(
+      doneWords(vocab, 'close', { key: 'issue:a/b#1' }),
+      'Closed it',
+    );
+  });
+  test("a group: its choice's done_many with the count word", () => {
+    assert.equal(
+      doneWords(vocab, 'delete', { label: 'Delete it', total: 3, ticked: 0 }),
+      'Deleted all 3',
+    );
+    assert.equal(
+      doneWords(vocab, 'delete', { label: 'Delete it', total: 9, ticked: 2 }),
+      'Deleted 2',
+    );
+  });
+});
+
+describe('waitingStrip', () => {
+  test("serve's sentence split around the link and the button", () => {
+    const w = {
+      text: '{done} \u00b7 waiting in {apply} \u00b7 {undo}',
+      apply: 'apply',
+      undo: 'undo',
+    };
+    assert.deepEqual(waitingStrip(w, 'Closed it'), [
+      'Closed it \u00b7 waiting in ',
+      { link: 'apply' },
+      ' \u00b7 ',
+      { button: 'undo' },
+    ]);
   });
 });
 

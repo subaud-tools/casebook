@@ -1,17 +1,18 @@
 // item.ts — the reading-column document for a casebook item.
 //
-// renderItem(ctx, detail) produces the full item reading column:
-//   the « ‹ › » row (attention's, when the item is in its list) · kicker ·
-//   h1 title (two lines kept for it) · facts · the recommendation box (one
-//   fixed height; an empty box when there is no recommendation) above the
-//   description (one fixed height), both the column's width · the decide
-//   step (serve's question, the choice cards: choices.ts) · evidence
-//   beside history
+// renderItem(ctx, detail) produces the item page, top to bottom:
+//   what it is: the « ‹ › » row (decide's, when the item is in its list) ·
+//     kicker · h1 title (two lines kept for it) · one line of facts
+//     ("came back · ‹reason›" first when it came back)
+//   decide: one fixed-height row of short decision buttons (choices.ts),
+//     the recommended one marked, "Look into it" last
+//   the reading (.cb-reading): who is looking into it, the recommendation's
+//     reason and source, the description, evidence beside history
 //
-// The parts above the cards keep their sizes from item to item, so moving
-// between items doesn't move the cards.
-// The returned element replaces the .kit-read content; it is a plain
-// HTMLElement, not a kit component, so it can be replaced at will.
+// Everything above the row keeps its size from item to item, so moving
+// between items doesn't move the buttons. Nothing scrolls on its own: the
+// page does. The returned element replaces the .kit-read content; it is a
+// plain HTMLElement, not a kit component, so it can be replaced at will.
 
 import { h, facts, fold } from '/_kit/kit.js';
 import type { ItemDetailView, Evidence, Event, LogEntry } from './wire.d.ts';
@@ -20,7 +21,6 @@ import { getVocab } from './decide.ts';
 import { renderChoices, asNotNow } from './choices.ts';
 import { keyWithoutKind, stripOwnKey } from './decide-math.ts';
 import type { DecisionVocabView } from './wire.d.ts';
-import { proposalCard } from './proposals.ts';
 import { lookingLine, sessionName } from './sessions.ts';
 
 // Body is capped at 600 chars per the spec; anything longer is folded.
@@ -136,73 +136,32 @@ function renderHistory(
 
 // ---- the decide step ---------------------------------------------------------
 
-/** What the decide step does with a pick and an accept (decide-list.ts). */
+/** What the decide step does with a pick (decide-list.ts). */
 export interface ItemHooks {
-  /** Re-render after a reject or a change from the recommendation card. */
-  onRefresh?: () => void;
-  /** A card was picked: decide the item (Not now with its until, a close
+  /** A button was picked: decide the item (Not now with its until, a close
    * with its closing comment: note, '' for none). */
   decide?: (disposition: string, until?: string, note?: string) => void;
-  /** The recommendation's accept (the card's button, like the a key). */
-  accept?: () => void;
-  /** The decision cards are in place: attention adds "Look into it". */
+  /** The decision buttons are in place: decide adds "Look into it". */
   cardsReady?: () => void;
-  /** The « ‹ › » row, at the top (attention's; none when the item is not
-   * in its list). */
+  /** The « ‹ › » row, at the top (decide's; none when the item is not in
+   * its list). */
   nav?: HTMLElement | null;
+  /** A recommendation's source by name ("rule:‹id›": the rule's name), ''
+   * when the page has none for it. */
+  sourceName?: (source: string) => string;
 }
 
-// renderRecBox is the recommendation box above the description: the
-// recommendation card when a proposal is pending, else an empty box of the
-// same size (it says nothing, and keeps the page from moving).
-function renderRecBox(
+// renderDecideRow is the decide step: one fixed-height row of short
+// decision buttons (serve's labels; each hover is serve's says), the
+// recommended one marked, "Look into it" last (decide-list.ts). serve's
+// question for the kind names the row for a screen reader.
+function renderDecideRow(
   ctx: Ctx,
   detail: ItemDetailView,
   hooks: ItemHooks,
 ): HTMLElement {
   const it = detail.item;
-  const slot = h(
-    'div',
-    { class: 'cb-rec-empty' },
-    h('p', { class: 'cb-rec-empty-says' }, 'No recommendation yet.'),
-  );
-  const pending =
-    it.proposal && it.proposal.state === 'pending' ? it.proposal : null;
-  if (!pending) return slot;
-  // The vocabulary is fetched once and cached: this resolves at once after
-  // the first item.
-  void getVocab(ctx).then((vocab: DecisionVocabView) => {
-    const kv = (vocab.kinds ?? []).find((k) => k.kind === it.kind);
-    const rec = asNotNow(pending.disposition);
-    const label = kv?.choices?.find((c) => c.disposition === rec)?.label;
-    const card = proposalCard(ctx, detail, hooks.onRefresh, {
-      label,
-      who: vocab.recommends.replaceAll(
-        '{session}',
-        sessionName(it.recommended_by, pending.source),
-      ),
-      accept: hooks.accept,
-    });
-    if (card) slot.replaceWith(card);
-  });
-  return slot;
-}
-
-// renderDecideSection is the decide step: serve's question for the kind,
-// then the cards.
-function renderDecideSection(
-  ctx: Ctx,
-  detail: ItemDetailView,
-  hooks: ItemHooks,
-): HTMLElement {
-  const it = detail.item;
-  const section = h('section', { class: 'cb-decide' });
-  const question = h('h2', { class: 'cb-question' });
-  // "‹session› is looking into it": Court asked the session to (attention
-  // keeps it current, and offers the ask as the last card). Its line is
-  // kept when it is empty, so the cards stay put.
-  const looking = lookingLine(it.looking);
-  const lookingEl = h('p', { class: 'cb-looking', hidden: !looking }, looking);
+  const section = h('section', { class: 'cb-decide', role: 'group' });
   const pending =
     it.proposal && it.proposal.state === 'pending' ? it.proposal : null;
   const cards = renderChoices(ctx, it.kind, {
@@ -216,14 +175,59 @@ function renderDecideSection(
       hooks.cardsReady?.();
     },
   });
-  section.append(question, lookingEl, cards);
-
+  cards.querySelector('.cb-choices')?.classList.add('cb-decide-row');
+  section.append(cards);
   void getVocab(ctx).then((vocab: DecisionVocabView) => {
     const kv = (vocab.kinds ?? []).find((k) => k.kind === it.kind);
-    question.textContent = kv?.question ?? '';
+    section.setAttribute('aria-label', kv?.question ?? '');
   });
-
   return section;
+}
+
+// renderRec is the pending recommendation, first in the reading: who
+// recommends it ("‹session› recommends", a rule by its name), the choice,
+// its reason and its until. None when nothing is recommended.
+function renderRec(
+  ctx: Ctx,
+  detail: ItemDetailView,
+  hooks: ItemHooks,
+): HTMLElement | null {
+  const it = detail.item;
+  const p = it.proposal && it.proposal.state === 'pending' ? it.proposal : null;
+  if (!p) return null;
+  const who = h('p', { class: 'cb-rec-who' });
+  const label = h('p', { class: 'cb-rec-label' }, p.disposition);
+  const el = h(
+    'section',
+    { class: 'cb-rec' },
+    who,
+    label,
+    p.note ? h('p', { class: 'cb-rec-note' }, p.note) : null,
+    p.until ? h('p', { class: 'cb-rec-until' }, `until ${p.until}`) : null,
+  );
+  // The vocabulary is fetched once and cached: this resolves at once after
+  // the first item.
+  void getVocab(ctx).then((vocab: DecisionVocabView) => {
+    const kv = (vocab.kinds ?? []).find((k) => k.kind === it.kind);
+    const rec = asNotNow(p.disposition);
+    label.textContent =
+      kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
+    const name =
+      hooks.sourceName?.(p.source) || sessionName(it.recommended_by, p.source);
+    who.textContent = vocab.recommends.replaceAll('{session}', name);
+  });
+  return el;
+}
+
+// cameBack is why the item came back for a decision (its due reason, or
+// serve's words for its status), '' when it didn't.
+function cameBack(
+  vocab: DecisionVocabView,
+  it: ItemDetailView['item'],
+): string {
+  const status = vocab.came_back?.[it.status ?? ''];
+  if (status) return it.due_reason || status;
+  return it.new_activity ? (it.due_reason ?? '') : '';
 }
 
 // ---- public -----------------------------------------------------------------
@@ -264,7 +268,7 @@ export function renderItem(
   const title = it.title ?? keyWithoutKind(it.key);
   el.append(h('h1', { class: 'cb-title kit-h1', title }, title));
 
-  // ---- facts ----------------------------------------------------------------
+  // ---- facts: one line, "came back · ‹reason›" first when it came back -----
   const factPairs: Array<[string, string]> = [];
   if (it.repo) factPairs.push(['repo', it.repo]);
   if (it.status) factPairs.push(['status', it.status]);
@@ -275,42 +279,44 @@ export function renderItem(
   if (it.labels && it.labels.length > 0)
     factPairs.push(['labels', it.labels.join(', ')]);
   if (it.landed) factPairs.push(['landed', it.landed_how ?? it.landed]);
-  el.append(facts(factPairs));
+  const factsEl = facts(factPairs);
+  factsEl.title = factsEl.textContent ?? '';
+  el.append(factsEl);
+  void getVocab(ctx).then((vocab: DecisionVocabView) => {
+    const why = cameBack(vocab, it);
+    if (!why) return;
+    const line = vocab.came_back_fact.replaceAll('{reason}', why);
+    factsEl.prepend(h('span', { class: 'cb-came-back', title: line }, line));
+    factsEl.title = factsEl.textContent ?? '';
+  });
 
-  // ---- the recommendation above the description ------------------------------
-  // Each one fixed height: a long description scrolls in its box.
-  const bodyWrap = h('div', { class: 'cb-body' });
-  // Why a Not now or a Leave it open came back (serve's words: its
-  // condition was met, it names something GitHub can't find, or new
-  // activity since).
-  if (it.due_reason)
-    bodyWrap.append(h('p', { class: 'cb-due-reason' }, it.due_reason));
+  // ---- decide: one row of buttons -------------------------------------------
+  el.append(renderDecideRow(ctx, detail, hooks));
+
+  // ---- the reading: the recommendation, the description, evidence, history -
+  // The parts that grow, below the row; the page scrolls, nothing in it does.
+  // "‹session› is looking into it" leads it (decide-list.ts keeps it
+  // current), and a recommendation that came mid-input says so first.
+  const looking = lookingLine(it.looking);
+  const reading = h(
+    'div',
+    { class: 'cb-reading' },
+    h('p', { class: 'cb-looking', hidden: !looking }, looking),
+    renderRec(ctx, detail, hooks),
+  );
   if (it.body) {
     const excerpt = it.body.slice(0, BODY_CAP);
     const rest = it.body.slice(BODY_CAP);
-    bodyWrap.append(h('p', null, excerpt));
-    if (rest) {
-      bodyWrap.append(fold('read more', h('p', null, rest)));
-    }
+    reading.append(
+      h(
+        'section',
+        { class: 'cb-body' },
+        h('p', null, excerpt),
+        rest ? fold('read more', h('p', null, rest)) : null,
+      ),
+    );
   }
-  // Only a pull request or an issue has a description: other items show
-  // no empty box for one (a due reason still shows).
-  const hasBody =
-    it.kind === 'pr' || it.kind === 'issue' || !!it.due_reason || !!it.body;
-  el.append(
-    h(
-      'div',
-      { class: 'cb-lead' },
-      renderRecBox(ctx, detail, hooks),
-      hasBody ? bodyWrap : null,
-    ),
-  );
-
-  // ---- decide: the question, the cards --------------------------------------
-  el.append(renderDecideSection(ctx, detail, hooks));
-
-  // ---- evidence beside history (journal + decision commits) -----------------
-  el.append(
+  reading.append(
     h(
       'div',
       { class: 'cb-trail' },
@@ -318,6 +324,7 @@ export function renderItem(
       renderHistory(detail.history ?? [], detail.decisions ?? [], it.key),
     ),
   );
+  el.append(reading);
 
   // Wrap in .kit-doc for the centred reading column (wider for an item).
   return h('div', { class: 'kit-doc cb-item-doc' }, hooks.nav ?? null, el);

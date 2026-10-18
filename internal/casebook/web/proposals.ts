@@ -1,99 +1,17 @@
-// proposals.ts — accept, change and reject proposals.
+// proposals.ts — discarding recommendations. (A recommendation is accepted
+// or decided differently by the item's decision buttons: decide-list.ts.)
 //
 // Exported:
 //   agentFromSource(source)            — "pi:session-id" → "pi"
-//   proposalCard(ctx, detail, onDone)   — the recommendation card in the decide step
-//   openRejectSheet(ctx, ids, onDone)   — reason field + POST /proposals/reject
 //   openDiscardSheet(ctx, vocab, n, view, body, onDone) — confirm + POST /proposals/withdraw
 
-import { card, sheet, noteField, h, type Button } from '/_kit/kit.js';
-import type {
-  AcceptResult,
-  DecideResult,
-  DecisionVocabView,
-  ItemDetailView,
-  RejectResult,
-  WithdrawResult,
-} from './wire.d.ts';
+import { sheet, h } from '/_kit/kit.js';
+import type { DecisionVocabView, WithdrawResult } from './wire.d.ts';
 import type { Ctx } from './app.ts';
-import { openDecideSheet } from './decide.ts';
-import { agentFromSource, discardConfirm, pluralize } from './decide-math.ts';
+import { agentFromSource, discardConfirm } from './decide-math.ts';
 
 // agentFromSource ("pi:session-id" → "pi") lives with the pure helpers.
 export { agentFromSource };
-
-// ---- reject sheet -----------------------------------------------------------
-
-/**
- * openRejectSheet opens a reason-entry sheet and POSTs to /proposals/reject.
- * Calls onDone() on success.
- */
-export function openRejectSheet(
-  ctx: Ctx,
-  ids: number[],
-  onDone: () => void,
-): void {
-  let reason = '';
-  let submitting = false;
-  let sh: ReturnType<typeof sheet> | null = null;
-
-  const reasonInput = noteField({
-    placeholder: 'reason (optional)',
-    onCommit(v: string) {
-      reason = v;
-    },
-  });
-
-  const errEl = h('p', { class: 'cb-sheet-err' });
-  errEl.hidden = true;
-
-  const body = h(
-    'div',
-    { class: 'cb-sheet-body' },
-    h(
-      'div',
-      { class: 'cb-sheet-row' },
-      h('label', { class: 'cb-sheet-label' }, 'reason'),
-      reasonInput,
-    ),
-    errEl,
-  );
-
-  async function doReject(): Promise<void> {
-    if (submitting) return;
-    submitting = true;
-    errEl.hidden = true;
-    try {
-      const payload: Record<string, unknown> = { ids };
-      if (reason.trim()) payload['reason'] = reason.trim();
-      await ctx.api.post<RejectResult>('/proposals/reject', payload);
-      onDone();
-      sh?.close();
-    } catch (err) {
-      errEl.textContent =
-        err instanceof Error ? err.message : 'reject failed — try again';
-      errEl.hidden = false;
-      submitting = false;
-    }
-  }
-
-  sh = sheet({
-    title: `reject ${pluralize(ids.length, 'proposal')}`,
-    body,
-    actions: [
-      {
-        label: `Reject ${ids.length}`,
-        fill: true,
-        run() {
-          void doReject();
-        },
-      },
-    ],
-    onClose() {
-      sh = null;
-    },
-  });
-}
 
 // ---- discard recommendations ------------------------------------------------
 
@@ -160,124 +78,4 @@ export function openDiscardSheet(
       sh = null;
     },
   });
-}
-
-// ---- proposal card ----------------------------------------------------------
-
-/** What the decide step gives the recommendation card. */
-export interface ProposalCardOpts {
-  /** serve's label for the recommended choice ("Close it"). */
-  label?: string;
-  /** The head, in serve's words: "‹session› recommends". */
-  who?: string;
-  /** accept replaces the card's own accept (the decide step moves on after it). */
-  accept?: () => void;
-}
-
-/**
- * proposalCard renders the recommendation: the amber kit card above the
- * item's description. Returns null if the item has no pending proposal.
- *
- * The card head is "‹session› recommends" (opts.who, serve's words) in agent
- * colour (small uppercase mono via the kit's edge:'agent' styling); the body
- * is the choice's label and the proposal's note (its reason); the keys that
- * act on it (a, r) follow the buttons on their row.
- *
- * Buttons: accept (filled), change… (opens seeded decide sheet, posts to
- * /proposals/change), reject (opens openRejectSheet).
- *
- * The returned element carries the class cb-proposal-card for probe targeting.
- */
-export function proposalCard(
-  ctx: Ctx,
-  detail: ItemDetailView,
-  onDone?: () => void,
-  opts: ProposalCardOpts = {},
-): HTMLElement | null {
-  const proposal = detail.item.proposal;
-  if (!proposal || proposal.state !== 'pending') return null;
-  const p = proposal; // narrowed: non-null Proposal with state === 'pending'
-
-  const head = opts.who ?? '';
-
-  const lines: (Node | string)[] = [
-    h('p', { class: 'cb-proposal-label' }, opts.label ?? p.disposition),
-  ];
-  if (p.note) {
-    const noteEl = h('p', { class: 'cb-proposal-note' });
-    noteEl.textContent = p.note;
-    lines.push(noteEl);
-  }
-  if (p.until) {
-    lines.push(h('p', { class: 'cb-proposal-until' }, `until ${p.until}`));
-  }
-  const keyHint = h(
-    'p',
-    { class: 'cb-keyhint' },
-    h('kbd', null, 'a'),
-    ' accept \u00b7 ',
-    h('kbd', null, 'r'),
-    ' reject',
-  );
-
-  const bodyEl = h('div', { class: 'cb-proposal-body' }, ...lines);
-
-  function doAccept(): void {
-    if (opts.accept) {
-      opts.accept();
-      return;
-    }
-    void ctx.api
-      .post<AcceptResult>('/proposals/accept', { ids: [p.id] })
-      .then(() => {
-        onDone?.();
-      })
-      .catch(() => {});
-  }
-
-  function doReject(): void {
-    openRejectSheet(ctx, [p.id], () => {
-      onDone?.();
-    });
-  }
-
-  const actions: Button[] = [
-    { label: 'accept', fill: true, run: doAccept },
-    {
-      label: 'change\u2026',
-      run() {
-        // Open the decide sheet seeded with the proposal's disposition and until,
-        // posting to /proposals/change instead of /decide.
-        openDecideSheet(
-          ctx,
-          [p.key],
-          () => {
-            onDone?.();
-          },
-          {
-            disposition: p.disposition,
-            until: p.until ?? '',
-            note: p.note ?? '',
-          },
-          async (disp: string, until: string, note: string) => {
-            const result = await ctx.api.post<DecideResult>(
-              '/proposals/change',
-              { id: p.id, disposition: disp, until, note },
-            );
-            return result.decided_keys ?? [];
-          },
-        );
-      },
-    },
-    { label: 'reject', run: doReject },
-  ];
-
-  const el = card({ edge: 'agent', head, body: bodyEl, actions });
-  el.classList.add('cb-proposal-card');
-  // A narrow box cuts the head to one line; its title keeps it whole.
-  const headEl = el.querySelector<HTMLElement>('.kit-card-head');
-  if (headEl) headEl.title = head;
-  // The key hint follows the buttons, on their row.
-  el.querySelector('.kit-btns')?.append(keyHint);
-  return el;
 }

@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -10,6 +11,12 @@ type vocabChoice struct {
 	Says        string `json:"says"`
 	Outward     bool   `json:"outward"`
 	NeedsUntil  bool   `json:"needs_until"`
+}
+
+type vocabDone struct {
+	Label    string `json:"label"`
+	Done     string `json:"done"`
+	DoneMany string `json:"done_many"`
 }
 
 type vocabKind struct {
@@ -32,6 +39,36 @@ type vocabView struct {
 	NotNow []vocabNotNow `json:"not_now"`
 }
 
+// TestVocabularySaysWhatEachDid: each choice carries what it did, for one
+// item and for several, as the page's strip shows them.
+func TestVocabularySaysWhatEachDid(t *testing.T) {
+	r := newRig(t)
+	var v struct {
+		Kinds []struct {
+			Kind    string      `json:"kind"`
+			Choices []vocabDone `json:"choices"`
+		} `json:"kinds"`
+	}
+	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
+		t.Fatalf("vocabulary %d", c)
+	}
+	n := 0
+	for _, k := range v.Kinds {
+		for _, ch := range k.Choices {
+			n++
+			if ch.Done == "" || !strings.Contains(ch.DoneMany, "{n}") {
+				t.Errorf("%s %q: done %q, done_many %q", k.Kind, ch.Label, ch.Done, ch.DoneMany)
+			}
+			if k.Kind == "issue" && ch.Label == "Close it" && (ch.Done != "Closed it" || ch.DoneMany != "Closed {n}") {
+				t.Errorf("issue close: %+v", ch)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no choices")
+	}
+}
+
 func (r *rig) vocab(t *testing.T) vocabView {
 	t.Helper()
 	var v vocabView
@@ -42,11 +79,10 @@ func (r *rig) vocab(t *testing.T) vocabView {
 }
 
 const (
-	saysLeaveOpen = "It stays open and stays in your list, at the bottom. It moves back up when someone replies or it changes."
-	saysKeep      = "It stays as it is and stays in your list, at the bottom."
-	saysNotNow    = "Hidden until a date or an event you pick, or until someone replies or it changes. Then it asks again."
-	saysIgnore    = "casebook never asks about it again. Nothing is done on GitHub."
-	saysClose     = "Goes to To apply with your closing comment. Nothing changes until you approve the plan, and you see the comment again before it's posted."
+	saysKeep    = "Decides to keep it as it is. Nothing to run."
+	saysNotNow  = "Hides it until a date or an event you pick. Nothing to run."
+	saysIgnore  = "casebook stops asking about it. Nothing to run."
+	saysLeaveOp = saysKeep
 )
 
 // TestVocabularyWordingPerKind pins the question and every choice's label
@@ -60,34 +96,34 @@ func TestVocabularyWordingPerKind(t *testing.T) {
 		choices []c
 	}{
 		"pr": {"What should happen to this pull request?", []c{
-			{"keep", "Leave it open", saysLeaveOpen, false, false},
-			{"merge", "Merge it", "Goes to To apply. Nothing changes until you approve the plan, which shows the exact command.", true, false},
-			{"close", "Close it without merging", saysClose, true, false},
+			{"keep", "Leave it open", saysLeaveOp, false, false},
+			{"merge", "Merge it", "Decides to merge this pull request. Nothing happens on GitHub until you run it in apply.", true, false},
+			{"close", "Close it without merging", "Decides to close this pull request. Nothing happens on GitHub until you run it in apply.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"issue": {"What should happen to this issue?", []c{
-			{"keep", "Leave it open", saysLeaveOpen, false, false},
-			{"close", "Close it", saysClose, true, false},
+			{"keep", "Leave it open", saysLeaveOp, false, false},
+			{"close", "Close it", "Decides to close this issue. Nothing happens on GitHub until you run it in apply.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"branch": {"What should happen to this branch?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Delete it", "Goes to To apply. Nothing is deleted until you approve the plan, and a restore record is kept.", true, false},
+			{"delete", "Delete it", "Decides to delete this branch. Nothing is deleted until you run it in apply.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"worktree": {"What should happen to this worktree?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Remove it", "Goes to To apply. Nothing is removed until you approve the plan, and a restore record is kept.", true, false},
+			{"delete", "Remove it", "Decides to remove this worktree. Nothing is removed until you run it in apply.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"repo": {"What should happen to this repository?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"archive", "Archive it on GitHub", "Goes to To apply. Nothing changes until you approve the plan.", true, false},
-			{"delete", "Delete it", "Goes to To apply. Nothing is deleted until you approve the plan.", true, false},
+			{"archive", "Archive it on GitHub", "Decides to archive this repository. Nothing happens on GitHub until you run it in apply.", true, false},
+			{"delete", "Delete it", "Decides to delete this repository. Nothing happens on GitHub until you run it in apply.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
@@ -174,5 +210,28 @@ func TestVocabularyNotNowForms(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("not_now[%d] = %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// TestVocabularyWaitingStrip: the strip after an outward decision and the
+// item page's came-back fact are serve's words.
+func TestVocabularyWaitingStrip(t *testing.T) {
+	r := newRig(t)
+	var v struct {
+		Waiting struct {
+			Text  string `json:"text"`
+			Apply string `json:"apply"`
+			Undo  string `json:"undo"`
+		} `json:"waiting"`
+		CameBackFact string `json:"came_back_fact"`
+	}
+	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
+		t.Fatalf("vocabulary %d", c)
+	}
+	if v.Waiting.Text != "{done} \u00b7 waiting in {apply} \u00b7 {undo}" || v.Waiting.Apply != "apply" || v.Waiting.Undo != "undo" {
+		t.Errorf("waiting %+v", v.Waiting)
+	}
+	if v.CameBackFact != "came back \u00b7 {reason}" {
+		t.Errorf("came_back_fact %q", v.CameBackFact)
 	}
 }

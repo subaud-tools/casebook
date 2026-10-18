@@ -25,7 +25,6 @@ import type {
   ItemsView,
   ItemView,
   ItemDetailView,
-  Decision,
   DecideResult,
   AcceptResult,
   Committed,
@@ -57,13 +56,16 @@ import {
   rowSub,
   decideSummary,
   CAME_BACK,
+  decideRoute,
+  doneWords,
+  waitingStrip,
 } from './decide-math.ts';
 import { decideQuery, flatFor } from './router-helpers.ts';
 import { groupKeys } from './key-layer.ts';
-import { showChoiceError, askClosingComment } from './choices.ts';
+import { showChoiceError } from './choices.ts';
 import { lookingLine } from './sessions.ts';
 import { coalesced } from './coalesce.ts';
-import { openRejectSheet, openDiscardSheet } from './proposals.ts';
+import { openDiscardSheet } from './proposals.ts';
 import { makeFilterBar, filterEditor, type FilterEditor } from './filters.ts';
 import {
   makeRuleRow,
@@ -77,6 +79,10 @@ import { parseFilterIds, filterLabel } from './filters-text.ts';
 // RECOMMEND_THE_REST is what the not-recommended group's "Ask ‹session› to
 // recommend N" sends the dock's session: a normal message, delivered when
 // its turn ends.
+// STRIP_MS is how long the strip after an outward decision ("Closed it ·
+// waiting in apply · undo") shows.
+export const STRIP_MS = 6000;
+
 export const RECOMMEND_THE_REST =
   'Please recommend the items casebook still needs a recommendation for: call casebook_next until it says done.';
 
@@ -202,8 +208,8 @@ export function makeDecide(ctx: Ctx): Section {
   let leftOpen: ItemView[] = [];
   let leftOpenTotal = 0;
   let shown: ItemView[] = [];
-  // currentOpenKey is the key of the item currently shown in the reading column;
-  // used by the 'a' and 'r' key bindings.
+  // currentOpenKey is the key of the item currently shown in the reading
+  // column.
   let currentOpenKey: string | null = null;
   // The detail the reading column shows (its item is currentOpenKey).
   let shownDetail: ItemDetailView | null = null;
@@ -213,14 +219,15 @@ export function makeDecide(ctx: Ctx): Section {
   let lastOrder: string[] = [];
   // deciding is the key this tab is deciding now (one at a time).
   let deciding: string | null = null;
-  // lastUndo is the last decision made in this tab, for u: the item, the
-  // decision it had before (null: none) and the one this tab's decide or
-  // accept committed (serve's reply), which undo expects to find.
+  // lastUndo is the last decision made in this tab (one item, or a group's
+  // items), for u and the strip's undo: per item, the decision it had
+  // before (null: none) and the one this tab's decide or accept committed
+  // (serve's reply), which undo expects to find.
   let lastUndo: {
     key: string;
-    prev: Decision | null;
+    prev: Committed | null;
     expect: Committed;
-  } | null = null;
+  }[] = [];
   // serve's decision vocabulary (the groups' buttons, the summary, the
   // recommendation line); null until it loads.
   let vocab: DecisionVocabView | null = null;
@@ -1357,6 +1364,22 @@ export function makeDecide(ctx: Ctx): Section {
 
   // groupButton is one of group id's buttons: while one runs, the group's
   // buttons wait.
+  // groupSays is what a group's decision does, in serve's words (the
+  // choice whose label the group carries): its button's hover.
+  function groupSays(g: GroupView): string {
+    for (const k of vocab?.kinds ?? []) {
+      const c = (k.choices ?? []).find(
+        (x) => x.disposition === g.disposition && x.label === g.label,
+      );
+      if (c) return c.says;
+    }
+    return '';
+  }
+  function withSays(el: HTMLElement, says: string): HTMLElement {
+    if (says) el.title = says;
+    return el;
+  }
+
   function groupButton(
     id: string,
     cls: string,
@@ -1491,7 +1514,10 @@ export function makeDecide(ctx: Ctx): Section {
         : rows.length >= g.total && rows.every((it) => !!it.looking);
       acts.replaceChildren(
         ...[
-          button('fill cb-group-act', w.act, () => actGroup(g)),
+          withSays(
+            button('fill cb-group-act', w.act, () => actGroup(g)),
+            groupSays(g),
+          ),
           t
             ? button('cb-group-look', w.look, () => lookGroup(g), looked)
             : null,
@@ -1643,14 +1669,16 @@ export function makeDecide(ctx: Ctx): Section {
   }
 
   // actGroup accepts the recommendations of a group (or its ticked items).
-  // An outward choice only goes to To apply. When the open item was one of
-  // them, the next undecided item opens; with none open, the first
-  // undecided one does.
+  // An outward choice only goes to apply, and the strip says so ("Deleted
+  // all 3 · waiting in apply · undo"; its undo takes them all back). When
+  // the open item was one of them, the next undecided item opens; with
+  // none open, the first undecided one does.
   async function actGroup(g: GroupView): Promise<void> {
     if (deciding) return;
     const open = currentOpenKey;
     deciding = open ?? '\u0000group';
     try {
+      const ticked = tickedIn(g).length;
       const { keys, ids } = await target(g);
       if (!ids.length) return;
       const order = await orderFor(open);
@@ -1662,7 +1690,23 @@ export function makeDecide(ctx: Ctx): Section {
         return;
       }
       selection.deselect(keys);
-      lastUndo = null;
+      // Undo puts back what each had, as serve says it was when it
+      // decided (not the list's rows: a group's items aren't all loaded,
+      // and a live reload may already show the new decisions).
+      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
+        key,
+        prev: r.previous?.[key] ?? null,
+        expect,
+      }));
+      if (g.outward && vocab)
+        waited(
+          doneWords(vocab, g.disposition, {
+            label: g.label,
+            total: g.total,
+            ticked,
+          }),
+        );
+      else hideStrip();
       if (!open || keys.includes(open)) {
         await moveOn(open ?? '', order);
       } else {
@@ -1843,12 +1887,14 @@ export function makeDecide(ctx: Ctx): Section {
   function paintDetail(key: string, detail: ItemDetailView): void {
     shownDetail = detail;
     const el = renderItem(ctx, detail, {
-      // Re-render after a reject or a change from the recommendation card.
-      onRefresh: () => void openDetail(key),
       decide: (d, until, note) => void decideOpen(key, d, until, note),
-      accept: () => void acceptOpen(),
       cardsReady: () => renderAsk(),
       nav: renderNav(key),
+      sourceName: (source) => {
+        if (!source.startsWith('rule:')) return '';
+        const id = source.slice(5);
+        return ruleRows.find((r) => r.rule.id === id)?.rule.name || id;
+      },
     });
     readEl.replaceChildren(el);
     renderAsk();
@@ -1887,9 +1933,8 @@ export function makeDecide(ctx: Ctx): Section {
       'button',
       {
         type: 'button',
-        class:
-          'kit-card edge-agent cb-choice cb-look-card' +
-          (looking ? ' looking' : ''),
+        class: 'kit-btn cb-choice cb-look-card' + (looking ? ' looking' : ''),
+        title: looking || w.says,
         dataset: { n: String(n) },
         disabled: !!looking || askingKey === key,
         async onclick() {
@@ -1910,9 +1955,8 @@ export function makeDecide(ctx: Ctx): Section {
           } else void refreshLooking(key);
         },
       },
-      h('span', { class: 'cb-choice-k' }, String(n)),
+      h('span', { class: 'cb-choice-mark' }),
       h('span', { class: 'cb-choice-label' }, w.label),
-      h('span', { class: 'cb-choice-says' }, looking || w.says),
     ) as HTMLButtonElement;
     if (old) old.replaceWith(card);
     else grid.append(card);
@@ -1920,7 +1964,7 @@ export function makeDecide(ctx: Ctx): Section {
   ctx.onDockTarget(() => renderAsk());
 
   // refreshLooking reads whether a session is looking into key (the open
-  // item) and shows it in place, under the question, without re-rendering
+  // item) and shows it in place, first in the reading, without re-rendering
   // the item (Court may be mid-input on it).
   let lookingSeq = 0;
   async function refreshLooking(key: string): Promise<void> {
@@ -1973,9 +2017,9 @@ export function makeDecide(ctx: Ctx): Section {
 
   // proposalsChanged: a proposal for the open item came, or went (a live
   // "proposals" event naming key), or evidence for it came (why). The item re-renders, so its
-  // recommendation card and the "recommended" mark appear or go; while
-  // Court is mid-input it doesn't, and a quiet line under the question
-  // says what changed, with "show" to re-render.
+  // recommendation and the "recommended" mark appear or go; while Court is
+  // mid-input it doesn't, and a quiet line first in the reading says what
+  // changed, with "show" to re-render.
   let freshSeq = 0;
   async function proposalsChanged(
     key: string,
@@ -2026,7 +2070,7 @@ export function makeDecide(ctx: Ctx): Section {
     );
     const old = readEl.querySelector('.cb-rec-fresh');
     if (old) old.replaceWith(line);
-    else readEl.querySelector('.cb-question')?.after(line);
+    else readEl.querySelector('.cb-reading')?.prepend(line);
   }
 
   // ---- the decide step: decide, move on, undo ------------------------------
@@ -2097,11 +2141,72 @@ export function makeDecide(ctx: Ctx): Section {
   // committed. With no such reply, u does nothing rather than guess.
   function remember(
     key: string,
-    prev: Decision | null,
     made: Record<string, Committed> | null,
+    previous: Record<string, Committed> | null,
   ): void {
     const expect = made?.[key];
-    lastUndo = expect ? { key, prev, expect } : null;
+    lastUndo = expect ? [{ key, prev: previous?.[key] ?? null, expect }] : [];
+  }
+
+  // ---- the strip: where an outward decision went --------------------------
+
+  // The strip after an outward decision, over the middle pane's foot: what
+  // it did, "waiting in apply" (apply links to where it went) and undo, in
+  // serve's words; for STRIP_MS, or until the next one.
+  const strip = h('div', {
+    class: 'cb-strip',
+    role: 'status',
+    hidden: true,
+  });
+  let stripTimer: ReturnType<typeof setTimeout> | null = null;
+  function hideStrip(): void {
+    if (stripTimer) clearTimeout(stripTimer);
+    stripTimer = null;
+    strip.hidden = true;
+  }
+  function showStrip(text: string, groupLink: string, undo: () => void): void {
+    if (!vocab) return;
+    strip.replaceChildren(
+      ...waitingStrip(vocab.waiting, text).map((part) =>
+        typeof part === 'string'
+          ? part
+          : 'link' in part
+            ? h('a', { href: groupLink, class: 'cb-strip-apply' }, part.link)
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'cb-link cb-strip-undo',
+                  onclick() {
+                    hideStrip();
+                    undo();
+                  },
+                },
+                part.button,
+              ),
+      ),
+    );
+    if (!strip.isConnected) document.body.append(strip);
+    // Over the middle pane, centred at its foot.
+    const r = readEl.getBoundingClientRect();
+    strip.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    strip.hidden = false;
+    if (stripTimer) clearTimeout(stripTimer);
+    stripTimer = setTimeout(hideStrip, STRIP_MS);
+  }
+
+  // waited shows the strip for an outward decision: done, in serve's words
+  // ("Closed it", "Deleted all 3"). Undo takes back what lastUndo holds.
+  function waited(done: string): void {
+    if (done) showStrip(done, '#/apply', () => void undo());
+  }
+
+  // outwardChoice: d is a choice that only goes to apply for key's kind.
+  function outwardChoice(key: string, d: string): boolean {
+    const kind = key.slice(0, key.indexOf(':'));
+    return !!vocab?.kinds
+      ?.find((k) => k.kind === kind)
+      ?.choices?.find((c) => c.disposition === d)?.outward;
   }
 
   // orderFor is the view's order to move on from key in: the list's rows,
@@ -2161,7 +2266,11 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
-  // decideOpen decides the open item (a card, a number key) and moves on.
+  // decideOpen decides the open item (a button, a number key) and moves
+  // on. The recommended choice accepts its recommendation; another settles
+  // it as decided differently (it counts against its rule or agent); with
+  // none it is a plain decide. An outward one says where it went (the
+  // strip).
   async function decideOpen(
     key: string,
     disposition: string,
@@ -2171,22 +2280,59 @@ export function makeDecide(ctx: Ctx): Section {
     if (deciding) return;
     deciding = key;
     const order = await orderFor(key);
-    const prev =
-      shownDetail?.item.key === key
-        ? (shownDetail.item.decision ?? null)
-        : null;
+    // The item's recommendation as serve has it now: one may have come (or
+    // gone) while Court was typing a closing comment or picking a Not now,
+    // and the decision must count for or against it.
+    let p = shownProposal();
     try {
-      const payload: Record<string, unknown> = { keys: [key], disposition };
-      if (until) payload['until'] = until;
-      // A close's closing comment ('' or none: it closes without one).
-      if (note) payload['note'] = note;
-      const r = await ctx.api.post<DecideResult>('/decide', payload);
-      if (!(r.decided_keys ?? []).length) {
-        showReadError((r.errors ?? []).join('; ') || 'nothing was decided');
-        return;
+      const now = await ctx.api.get<ItemDetailView>('/item', { key });
+      const fresh = now.item.proposal;
+      p = fresh && fresh.state === 'pending' ? fresh : null;
+    } catch {
+      // keep what the page shows
+    }
+    const route = decideRoute(
+      p && p.key === key ? p : null,
+      disposition,
+      until,
+    );
+    try {
+      let made: Record<string, Committed> | null = null;
+      let previous: Record<string, Committed> | null = null;
+      if (route.path === 'accept') {
+        const body: Record<string, unknown> = { ids: [route.id] };
+        // A close's closing comment ('' or none: it closes without one).
+        if (note) body['note'] = note;
+        const r = await ctx.api.post<AcceptResult>('/proposals/accept', body);
+        if (!r.accepted) {
+          showReadError((r.errors ?? []).join('; ') || 'nothing was decided');
+          return;
+        }
+        made = r.decisions;
+        previous = r.previous;
+      } else {
+        const payload: Record<string, unknown> =
+          route.path === 'change'
+            ? { id: route.id, disposition }
+            : { keys: [key], disposition };
+        if (until) payload['until'] = until;
+        if (note) payload['note'] = note;
+        const r = await ctx.api.post<DecideResult>(
+          route.path === 'change' ? '/proposals/change' : '/decide',
+          payload,
+        );
+        if (!(r.decided_keys ?? []).length) {
+          showReadError((r.errors ?? []).join('; ') || 'nothing was decided');
+          return;
+        }
+        made = r.decisions;
+        previous = r.previous;
       }
       selection.deselect([key]);
-      remember(key, prev, r.decisions);
+      remember(key, made, previous);
+      if (outwardChoice(key, disposition) && vocab)
+        waited(doneWords(vocab, disposition, { key }));
+      else hideStrip();
       await moveOn(key, order);
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
@@ -2195,67 +2341,37 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
-  // acceptOpen accepts the open item's recommendation (a, or the card's
-  // accept) and moves on. A close first asks for Court's closing comment
-  // (the field a close card opens, empty: the recommendation's reason is
-  // written to Court and is never the comment); its buttons accept, with
-  // that comment or none.
-  async function acceptOpen(note?: string): Promise<void> {
-    const p = shownProposal();
-    const key = currentOpenKey;
-    if (!p || !key || deciding) return;
-    if (
-      note === undefined &&
-      p.disposition === 'close' &&
-      askClosingComment(readEl, (n) => void acceptOpen(n))
-    )
-      return;
-    deciding = key;
-    const order = await orderFor(key);
-    const prev = shownDetail?.item.decision ?? null;
-    try {
-      const body: Record<string, unknown> = { ids: [p.id] };
-      if (note) body['note'] = note;
-      const r = await ctx.api.post<AcceptResult>('/proposals/accept', body);
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join('; ') || 'nothing was accepted');
-        return;
-      }
-      selection.deselect([key]);
-      remember(key, prev, r.decisions);
-      await moveOn(key, order);
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
-    }
-  }
-
-  // undo takes back the last decision this tab made, in one step serve
-  // checks: it restores the decision the item had before (or clears it when
-  // it had none) only while the item's decision is still the one this tab
-  // committed. serve refuses otherwise (409); its message shows.
+  // undo takes back the last decisions this tab made, in one step serve
+  // checks: per item, it restores the decision the item had before (or
+  // clears it when it had none) only while the item's decision is still the
+  // one this tab committed. serve refuses one decided since (409 when
+  // nothing is undone); its message shows.
   async function undo(): Promise<void> {
     const u = lastUndo;
-    if (!u || deciding) return;
-    deciding = u.key;
+    if (!u.length || deciding) return;
+    deciding = u[0].key;
+    lastUndo = [];
+    hideStrip();
     try {
-      await ctx.api.post<DecisionUndoResult>('/decisions/undo', {
-        key: u.key,
-        expect: u.expect,
-        restore: u.prev
-          ? {
-              disposition: u.prev.disposition,
-              until: u.prev.until ?? '',
-              note: u.prev.note ?? '',
-            }
-          : null,
+      const r = await ctx.api.post<DecisionUndoResult>('/decisions/undo', {
+        items: u.map((x) => ({
+          key: x.key,
+          expect: x.expect,
+          restore: x.prev
+            ? {
+                disposition: x.prev.disposition,
+                until: x.prev.until ?? '',
+                note: x.prev.note ?? '',
+              }
+            : null,
+        })),
       });
-      lastUndo = null;
-      openKey(u.key);
+      if (u.length === 1) openKey(u[0].key);
+      else void reload();
+      const errs = r.errors ?? [];
+      if (errs.length) showReadError(errs.join('; '));
     } catch (err) {
-      // A refusal stands: this decision can't be undone any more.
-      lastUndo = null;
+      // A refusal stands: these decisions can't be undone any more.
       showReadError(err instanceof Error ? err.message : String(err));
     } finally {
       deciding = null;
@@ -2281,9 +2397,9 @@ export function makeDecide(ctx: Ctx): Section {
     feedAttached();
   });
 
-  // shownProposal is the pending proposal the reading column shows: what a
-  // and r act on. Not the list's row (the list may be reloading, its rows
-  // gone until the answer comes).
+  // shownProposal is the pending proposal the reading column shows: what
+  // the decision buttons are pressed against. Not the list's row (the list
+  // may be reloading, its rows gone until the answer comes).
   function shownProposal() {
     const d = shownDetail;
     if (!d || d.item.key !== currentOpenKey) return null;
@@ -2291,42 +2407,14 @@ export function makeDecide(ctx: Ctx): Section {
     return p && p.state === 'pending' ? p : null;
   }
 
-  // 'a' and 'r' accept/reject the open item's proposal. They are
-  // Section.keys: app.ts registers them only while Attention is shown, so on
-  // #/rules they cannot reach the open item Attention keeps while hidden, and
-  // Rules and Apply are free to bind their own a/r.
-  const acceptKey: KeyBinding = {
-    keys: 'a',
-    label: 'accept proposal',
-    group: 'page',
-    run() {
-      void acceptOpen();
-    },
-  };
-
-  const rejectKey: KeyBinding = {
-    keys: 'r',
-    label: 'reject proposal',
-    group: 'page',
-    run() {
-      const p = shownProposal();
-      if (!p || !currentOpenKey) return;
-      openRejectSheet(ctx, [p.id], () => {
-        selection.deselect([currentOpenKey!]);
-        void openDetail(currentOpenKey!);
-        void reload();
-      });
-    },
-  };
-
   // u undoes the last decision this tab made; 1..9 pick the open item's
-  // nth card (a click on it: Not now opens its conditions).
+  // nth button (a click on it: Not now opens its conditions).
   const undoKey: KeyBinding = {
     keys: 'u',
     label: 'undo the last decision',
     group: 'page',
     run() {
-      if (!lastUndo) return false;
+      if (!lastUndo.length) return false;
       void undo();
     },
   };
@@ -2351,13 +2439,7 @@ export function makeDecide(ctx: Ctx): Section {
     void navGo(d < 0 ? 'prevGroup' : 'nextGroup');
   });
 
-  const listKeys: KeyBinding[] = [
-    acceptKey,
-    rejectKey,
-    undoKey,
-    ...choiceKeys,
-    ...jumpKeys,
-  ];
+  const listKeys: KeyBinding[] = [undoKey, ...choiceKeys, ...jumpKeys];
 
   // The vocabulary words the groups' buttons and the summary.
   void getVocab(ctx)
