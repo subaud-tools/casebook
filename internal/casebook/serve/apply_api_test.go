@@ -48,7 +48,8 @@ func TestPlanEndpointRefusesStale(t *testing.T) {
 // TestApproveRunsCasebookLaneAndDispatchesAgentLane verifies that
 // POST /api/apply/approve:
 //   - approves the job,
-//   - opens a batch needs-you card (kind="batch") BEFORE dispatching,
+//   - opens no batch card: Court's approve (and confirm, for what can't be
+//     undone) is the last thing he presses (Court, 2026-10-18),
 //   - dispatches the agent job exactly once (idempotent),
 //   - starts the casebook lane in the background.
 func TestApproveRunsCasebookLaneAndDispatchesAgentLane(t *testing.T) {
@@ -77,19 +78,15 @@ func TestApproveRunsCasebookLaneAndDispatchesAgentLane(t *testing.T) {
 		t.Fatalf("job state = %q after approve, want approved", jobView.Job.State)
 	}
 
-	// A batch needs-you card must exist (opened before dispatch).
+	// No batch card: approving runs it.
 	cards, err := r.s.Apply.NeedsYouFor(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("NeedsYouFor: %v", err)
 	}
-	var hasBatch bool
 	for _, c := range cards {
-		if c.Kind == "batch" && c.State == "open" {
-			hasBatch = true
+		if c.Kind == "batch" {
+			t.Errorf("approve opened a batch card: %+v", c)
 		}
-	}
-	if !hasBatch {
-		t.Errorf("no open batch card after approve; cards: %+v", cards)
 	}
 
 	// The agent session must have received a delivery for this job.

@@ -1,9 +1,11 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -560,5 +562,60 @@ func TestKnownPreconditionIsDescribed(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("job body missing %q; body:\n%s", want, body)
 		}
+	}
+}
+
+// laggingGh answers a PR view OPEN the first times, then CLOSED: GitHub's
+// read lagging just after a close (Court, 2026-10-18: two closed PRs stayed
+// "reported").
+type laggingGh struct {
+	mu    sync.Mutex
+	views int
+	open  int
+}
+
+func (g *laggingGh) Gh(_ context.Context, args ...string) ([]byte, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(args) > 1 && args[0] == "pr" && args[1] == "view" {
+		g.views++
+		if g.views <= g.open {
+			return []byte(`{"state":"OPEN"}`), nil
+		}
+		return []byte(`{"state":"CLOSED"}`), nil
+	}
+	return []byte("{}"), nil
+}
+
+// TestReportedStepVerifiesOnceGitHubCatchesUp: an inconclusive first read
+// is read again a little later, and the step is verified when GitHub shows it.
+func TestReportedStepVerifiesOnceGitHubCatchesUp(t *testing.T) {
+	r := newRig(t)
+	r.attach(t, "s1")
+	r.s.App.Gh = &laggingGh{open: 2}
+	r.s.VerifyRetry = 20 * time.Millisecond
+	job, err := r.s.Apply.Create(ctx, agentTestPlan(), "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job, err = r.s.Apply.Approve(ctx, job.ID, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	step := job.Steps[0]
+	for _, st := range []string{"started", "reported"} {
+		if c := r.do(t, "POST", "/api/agent/job-step", map[string]any{"session": "s1", "job": job.ID, "step": step.ID, "state": st}, nil); c != http.StatusOK {
+			t.Fatalf("%s: %d", st, c)
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		j, _ := r.s.Apply.Get(ctx, job.ID)
+		if j.Steps[0].State == apply.StepVerified {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("step is %s, want verified once GitHub shows it closed", j.Steps[0].State)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

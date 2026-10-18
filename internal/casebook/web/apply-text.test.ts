@@ -18,13 +18,14 @@ import {
   planSummary,
   progress,
   stepMark,
-  applyOrder,
+  runOrder,
+  runsThrough,
   applyLabel,
-  outwardGo,
-  plannedKeys,
+  startedKeys,
   ageText,
   observations,
   heldOutside,
+  planTitle,
 } from './apply-text.ts';
 import type { Job, JobStep, NeedsYou } from './wire.d.ts';
 
@@ -59,7 +60,7 @@ function job(state: string, steps: JobStep[]): Job {
 }
 
 describe('the order', () => {
-  test('approved, running and paused jobs are running; plans are plans; the rest done', () => {
+  test('approved, running and paused jobs run; done and failed are done; plans and discarded plans are not listed', () => {
     const js = [
       'planned',
       'approved',
@@ -69,24 +70,20 @@ describe('the order', () => {
       'failed',
       'cancelled',
     ].map((s, i) => ({ ...job(s, []), id: i + 1 }));
-    const o = applyOrder(js);
+    const o = runOrder(js);
     assert.deepEqual(
       o.running.map((j) => j.state),
       ['paused', 'running', 'approved'],
     );
     assert.deepEqual(
-      o.plans.map((j) => j.state),
-      ['planned'],
-    );
-    assert.deepEqual(
       o.done.map((j) => j.state),
-      ['cancelled', 'failed', 'done'],
+      ['failed', 'done'],
     );
   });
   test('each part is newest first', () => {
     const js = [1, 3, 2].map((id) => ({ ...job('running', []), id }));
     assert.deepEqual(
-      applyOrder(js).running.map((j) => j.id),
+      runOrder(js).running.map((j) => j.id),
       [3, 2, 1],
     );
   });
@@ -276,14 +273,7 @@ describe('ordering', () => {
   });
 });
 
-describe('outwardGo', () => {
-  test('the verb agrees with the count', () => {
-    assert.equal(outwardGo(1), 'The outward step goes');
-    assert.equal(outwardGo(3), 'The 3 outward steps go');
-  });
-});
-
-describe('plannedKeys', () => {
+describe('startedKeys', () => {
   const j = (id: number, state: string, keys: string[]): Job =>
     ({
       id,
@@ -297,27 +287,39 @@ describe('plannedKeys', () => {
     j(1, 'planned', ['pr:o/r#1', 'pr:o/r#2']),
     j(2, 'running', ['pr:o/r#3']),
     j(3, 'cancelled', ['pr:o/r#4']),
-    j(4, 'planned', ['pr:o/r#2', 'pr:o/r#2']),
     j(5, 'approved', ['pr:o/r#5']),
     j(6, 'paused', ['pr:o/r#6']),
     j(7, 'done', ['pr:o/r#7']),
     j(8, 'failed', ['pr:o/r#8']),
     j(9, 'planned', ['pr:o/r#3']),
   ];
-  test('every unfinished job holds its keys; a started job before a plan, then the newest', () => {
-    const m = plannedKeys(jobs);
-    assert.deepEqual(
-      [...m.entries()]
-        .map(([k, v]) => `${k} ${v.planned ? 'in plan' : 'in job'} #${v.id}`)
-        .sort(),
-      [
-        'pr:o/r#1 in plan #1',
-        'pr:o/r#2 in plan #4',
-        'pr:o/r#3 in job #2',
-        'pr:o/r#5 in job #5',
-        'pr:o/r#6 in job #6',
-      ],
-    );
+  test('a job approved, running or paused holds its keys; a plan holds nothing (its items still wait in review)', () => {
+    const m = startedKeys(jobs);
+    assert.deepEqual([...m.entries()].map(([k, id]) => `${k} #${id}`).sort(), [
+      'pr:o/r#3 #2',
+      'pr:o/r#5 #5',
+      'pr:o/r#6 #6',
+    ]);
+  });
+});
+
+describe('runsThrough', () => {
+  const local = step('branch-delete-local', 'casebook');
+  const out = step('pr-close', 'agent');
+  test('an all-local plan needs no agent', () => {
+    assert.deepEqual(runsThrough([local], null), { text: '', can: true });
+  });
+  test('outward steps run through the attached agent', () => {
+    assert.deepEqual(runsThrough([local, out], 'pi'), {
+      text: 'runs through pi',
+      can: true,
+    });
+  });
+  test('with no agent attached, outward steps cannot run', () => {
+    assert.deepEqual(runsThrough([out], null), {
+      text: 'Open casebook from an agent to run this.',
+      can: false,
+    });
   });
 });
 
@@ -353,17 +355,18 @@ describe('heldOutside', () => {
   const B = 'branch:o/r@x';
   test('a branch with two steps counts once', () => {
     const jobs = [
-      job('planned', [
+      job('running', [
         [B, 'branch-delete-local'],
         [B, 'branch-delete-remote'],
       ]),
     ];
     assert.equal(heldOutside(jobs, 'delete|branch', new Set()), 1);
   });
-  test('a loaded item and a finished job count nothing', () => {
+  test('a loaded item, a finished job and a plan count nothing', () => {
     const jobs = [
-      job('planned', [[B, 'branch-delete-local']]),
+      job('running', [[B, 'branch-delete-local']]),
       job('done', [['branch:o/r@y', 'branch-delete-local']]),
+      job('planned', [['branch:o/r@z', 'branch-delete-local']]),
     ];
     assert.equal(heldOutside(jobs, 'delete|branch', new Set([B])), 0);
   });
@@ -371,5 +374,53 @@ describe('heldOutside', () => {
     const jobs = [job('running', [['repo:o/r', 'repo-archive']])];
     assert.equal(heldOutside(jobs, 'delete|branch', new Set()), 0);
     assert.equal(heldOutside(jobs, 'archive|repo', new Set()), 1);
+  });
+});
+
+// Court 2026-10-17: a plan says how many it acts on, "Delete 7 repos".
+describe('planTitle', () => {
+  const job = (steps: Array<[string, string]>): Job =>
+    ({
+      id: 3,
+      state: 'planned',
+      steps: steps.map(([key, action], i) => ({
+        id: i + 1,
+        key,
+        action,
+        lane: 'agent',
+      })),
+    }) as unknown as Job;
+  const nouns = (kind: string): [string, string] =>
+    kind === 'branch' ? ['branch', 'branches'] : [kind, kind + 's'];
+  test('one action: its count', () => {
+    assert.equal(
+      planTitle(
+        job([
+          ['repo:o/a', 'repo-delete'],
+          ['repo:o/b', 'repo-delete'],
+        ]),
+        nouns,
+      ),
+      'Delete 2 repos',
+    );
+  });
+  test('one item reads singular', () => {
+    assert.equal(
+      planTitle(job([['pr:o/a#1', 'pr-merge']]), nouns),
+      'Merge 1 pr',
+    );
+  });
+  test('a branch counts once across its local and remote steps', () => {
+    assert.equal(
+      planTitle(
+        job([
+          ['branch:o/r@x', 'branch-delete-local'],
+          ['branch:o/r@x', 'branch-delete-remote'],
+          ['pr:o/r#2', 'pr-close'],
+        ]),
+        nouns,
+      ),
+      'Delete 1 local branch, delete 1 remote branch, close 1 pr',
+    );
   });
 });

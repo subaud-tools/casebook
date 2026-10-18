@@ -21,6 +21,7 @@ import (
 	"github.com/subaud-tools/tackle/internal/casebook/db"
 	"github.com/subaud-tools/tackle/internal/casebook/item"
 	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/tackle/internal/casebook/testgit"
 )
 
 // pushEvents returns the "push" events published after cursor, in order.
@@ -636,5 +637,36 @@ func TestRemoteRefusalReachesTheSummary(t *testing.T) {
 	}
 	if strings.Contains(sum.PushError, "racing") {
 		t.Errorf("push_error %q reads as a race", sum.PushError)
+	}
+}
+
+// TestWatchAnnouncesAPushMadeElsewhere (Court, 2026-10-18: the bar stayed on
+// "offline · 1 queued" after another process's sync pushed): when what waits
+// to be pushed changes without HEAD moving, the watcher announces it, so the
+// page reads its status again.
+func TestWatchAnnouncesAPushMadeElsewhere(t *testing.T) {
+	r := newRig(t)
+	testgit.Commit(t, r.App.Repo.Dir, "notes/elsewhere.txt", "a commit not pushed yet")
+	r.s.WatchEvery = 50 * time.Millisecond
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go r.s.watch(wctx)
+	// The watcher sees HEAD move and the commit waiting.
+	time.Sleep(300 * time.Millisecond)
+	before, _ := r.s.Bus.Head(ctx)
+	// Another process pushes: HEAD stays, nothing waits any more.
+	testgit.Git(t, r.App.Repo.Dir, "push", "-q", "origin", "HEAD:main")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		evs, _, _ := r.s.Bus.Since(ctx, before, 100)
+		for _, e := range evs {
+			if e.Type == "push" {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no push event after a push made elsewhere: the page keeps saying queued")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

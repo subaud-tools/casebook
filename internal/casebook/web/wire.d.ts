@@ -64,6 +64,7 @@ export interface ItemDetailView {
   evidence: Evidence[] | null;
   history: Event[] | null;
   decisions: LogEntry[] | null;
+  done_how: string;
 }
 
 export interface DecideResult {
@@ -751,6 +752,7 @@ export interface JobStep {
   undone_at?: string;
   undoable?: boolean;
   undo_note?: string;
+  permanent?: boolean;
 }
 
 export interface Conflict {

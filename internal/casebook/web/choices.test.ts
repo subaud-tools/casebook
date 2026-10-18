@@ -398,12 +398,12 @@ describe('waitingStrip', () => {
   test("serve's sentence split around the link and the button", () => {
     const w = {
       text: '{done} \u00b7 waiting in {apply} \u00b7 {undo}',
-      apply: 'apply',
+      apply: 'review',
       undo: 'undo',
     };
     assert.deepEqual(waitingStrip(w, 'Closed it'), [
       'Closed it \u00b7 waiting in ',
-      { link: 'apply' },
+      { link: 'review' },
       ' \u00b7 ',
       { button: 'undo' },
     ]);
@@ -595,14 +595,14 @@ describe('lookIntoCard', () => {
 });
 
 describe('applyGroupLink', () => {
-  test("goes to the apply group a decision joined: its disposition and the key's kind", () => {
+  test("goes to the review group a decision joined: its disposition and the key's kind", () => {
     assert.equal(
       applyGroupLink('delete', 'branch:o/r@feat/x'),
-      '#/apply?group=delete%7Cbranch',
+      '#/review?group=delete%7Cbranch',
     );
     assert.equal(
       applyGroupLink('close', 'pr:o/r#3'),
-      '#/apply?group=close%7Cpr',
+      '#/review?group=close%7Cpr',
     );
   });
 });

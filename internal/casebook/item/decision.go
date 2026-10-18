@@ -66,10 +66,10 @@ var questions = map[Kind]string{
 }
 
 // The hover says what a choice decides and when anything happens: an
-// outward choice only once it is run in apply, any other never.
+// outward choice only once it is run in review, any other never.
 const (
 	keepSays  = "Decides to keep it as it is. Nothing to run."
-	onGitHub  = " Nothing happens on GitHub until you run it in apply."
+	onGitHub  = " Nothing happens on GitHub until you run it in review."
 	notNowSay = "Hides it until a date or an event you pick. Nothing to run."
 	stopSays  = "casebook stops asking about it. Nothing to run."
 )
@@ -97,12 +97,12 @@ var choices = map[Kind][]Choice{
 	},
 	KindBranch: {
 		keepIt,
-		{Disposition: Delete, Label: "Delete it", Many: "Delete {n}", Says: "Decides to delete this branch. Nothing is deleted until you run it in apply.", Done: "Deleted it", DoneMany: "Deleted {n}", Outward: true},
+		{Disposition: Delete, Label: "Delete it", Many: "Delete {n}", Says: "Decides to delete this branch. Nothing is deleted until you run it in review.", Done: "Deleted it", DoneMany: "Deleted {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindWorktree: {
 		keepIt,
-		{Disposition: Delete, Label: "Remove it", Many: "Remove {n}", Says: "Decides to remove this worktree. Nothing is removed until you run it in apply.", Done: "Removed it", DoneMany: "Removed {n}", Outward: true},
+		{Disposition: Delete, Label: "Remove it", Many: "Remove {n}", Says: "Decides to remove this worktree. Nothing is removed until you run it in review.", Done: "Removed it", DoneMany: "Removed {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindRepo: {

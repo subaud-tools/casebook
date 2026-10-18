@@ -97,33 +97,33 @@ func TestVocabularyWordingPerKind(t *testing.T) {
 	}{
 		"pr": {"What should happen to this pull request?", []c{
 			{"keep", "Leave it open", saysLeaveOp, false, false},
-			{"merge", "Merge it", "Decides to merge this pull request. Nothing happens on GitHub until you run it in apply.", true, false},
-			{"close", "Close it without merging", "Decides to close this pull request. Nothing happens on GitHub until you run it in apply.", true, false},
+			{"merge", "Merge it", "Decides to merge this pull request. Nothing happens on GitHub until you run it in review.", true, false},
+			{"close", "Close it without merging", "Decides to close this pull request. Nothing happens on GitHub until you run it in review.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"issue": {"What should happen to this issue?", []c{
 			{"keep", "Leave it open", saysLeaveOp, false, false},
-			{"close", "Close it", "Decides to close this issue. Nothing happens on GitHub until you run it in apply.", true, false},
+			{"close", "Close it", "Decides to close this issue. Nothing happens on GitHub until you run it in review.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"branch": {"What should happen to this branch?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Delete it", "Decides to delete this branch. Nothing is deleted until you run it in apply.", true, false},
+			{"delete", "Delete it", "Decides to delete this branch. Nothing is deleted until you run it in review.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"worktree": {"What should happen to this worktree?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Remove it", "Decides to remove this worktree. Nothing is removed until you run it in apply.", true, false},
+			{"delete", "Remove it", "Decides to remove this worktree. Nothing is removed until you run it in review.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
 		"repo": {"What should happen to this repository?", []c{
 			{"keep", "Keep it", saysKeep, false, false},
-			{"archive", "Archive it on GitHub", "Decides to archive this repository. Nothing happens on GitHub until you run it in apply.", true, false},
-			{"delete", "Delete it", "Decides to delete this repository. Nothing happens on GitHub until you run it in apply.", true, false},
+			{"archive", "Archive it on GitHub", "Decides to archive this repository. Nothing happens on GitHub until you run it in review.", true, false},
+			{"delete", "Delete it", "Decides to delete this repository. Nothing happens on GitHub until you run it in review.", true, false},
 			{"wait", "Not now", saysNotNow, false, true},
 			{"ignore", "Stop tracking it", saysIgnore, false, false},
 		}},
@@ -228,7 +228,7 @@ func TestVocabularyWaitingStrip(t *testing.T) {
 	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
 		t.Fatalf("vocabulary %d", c)
 	}
-	if v.Waiting.Text != "{done} \u00b7 waiting in {apply} \u00b7 {undo}" || v.Waiting.Apply != "apply" || v.Waiting.Undo != "undo" {
+	if v.Waiting.Text != "{done} \u00b7 waiting in {apply} \u00b7 {undo}" || v.Waiting.Apply != "review" || v.Waiting.Undo != "undo" {
 		t.Errorf("waiting %+v", v.Waiting)
 	}
 	if v.CameBackFact != "came back \u00b7 {reason}" {

@@ -91,6 +91,9 @@ type JobStep struct {
 	// UndoNote says whether a step of this action can be undone
 	// (UndoNote). Computed when read, never stored.
 	UndoNote string `json:"undo_note,omitempty"`
+	// Permanent: it can never be undone (Permanent); the page confirms
+	// before approving. Computed when read, never stored.
+	Permanent bool `json:"permanent,omitempty"`
 }
 
 // NeedsYou is a card requesting Court's attention for a job (and optionally a step).
@@ -217,6 +220,7 @@ func (s *Store) Create(ctx context.Context, p Plan, machine string) (Job, error)
 				ExpectedTip:  ps.ExpectedTip,
 				State:        StepPending,
 				UndoNote:     UndoNote(ps.Action),
+				Permanent:    Permanent(ps.Action),
 			}
 		}
 
@@ -233,6 +237,27 @@ func (s *Store) Create(ctx context.Context, p Plan, machine string) (Job, error)
 		return Job{}, err
 	}
 	return job, nil
+}
+
+// Preview is the job Create would make of p, not stored (no ids): what
+// review shows before Court runs it.
+func Preview(p Plan, machine string, now time.Time) Job {
+	steps := make([]JobStep, len(p.Steps))
+	for i, ps := range p.Steps {
+		steps[i] = JobStep{
+			Key:          ps.Key,
+			Action:       ps.Action,
+			Lane:         ps.Lane,
+			Command:      ps.Command,
+			Precondition: ps.Precondition,
+			Posts:        ps.Posts,
+			ExpectedTip:  ps.ExpectedTip,
+			State:        StepPending,
+			UndoNote:     UndoNote(ps.Action),
+			Permanent:    Permanent(ps.Action),
+		}
+	}
+	return Job{Machine: machine, State: JobPlanned, CreatedAt: now, Steps: steps}
 }
 
 // Approve transitions a job from planned to approved, setting session and
@@ -477,6 +502,66 @@ func (s *Store) List(ctx context.Context) ([]Job, error) {
 		jobs[i].Steps = steps
 	}
 	return jobs, nil
+}
+
+// Verified is when an item's steps in its job were verified: the first
+// and the last of them.
+type Verified struct {
+	First, Last time.Time
+}
+
+// VerifiedSince is each item key whose latest job verified every step it
+// holds for the key (none failed, pending, paused, skipped or undone), the
+// last after t: what casebook has done since then.
+func (s *Store) VerifiedSince(ctx context.Context, t time.Time) (map[string]Verified, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT key, job_id, COUNT(*), SUM(state = ? AND undone_at = 0), MIN(verified_at), MAX(verified_at)
+		 FROM steps WHERE key IN (SELECT key FROM steps WHERE state = ? AND verified_at > ?)
+		 GROUP BY key, job_id ORDER BY key, job_id`,
+		StepVerified, StepVerified, ms(t))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	type last struct {
+		all         bool
+		first, last int64
+	}
+	latest := map[string]last{}
+	for rows.Next() {
+		var k string
+		var job, n, done, first, lastAt int64
+		if err := rows.Scan(&k, &job, &n, &done, &first, &lastAt); err != nil {
+			return nil, err
+		}
+		latest[k] = last{all: n == done, first: first, last: lastAt} // ordered by job: the latest wins
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := map[string]Verified{}
+	for k, l := range latest {
+		if l.all && l.last > ms(t) {
+			out[k] = Verified{First: time.UnixMilli(l.first), Last: time.UnixMilli(l.last)}
+		}
+	}
+	return out, nil
+}
+
+// LastVerified is the job and time of key's latest verified step that
+// wasn't undone (0 when none).
+func (s *Store) LastVerified(ctx context.Context, key string) (int64, time.Time, error) {
+	var job, at int64
+	err := s.DB.QueryRowContext(ctx,
+		`SELECT job_id, verified_at FROM steps WHERE key = ? AND state = ? AND undone_at = 0 ORDER BY verified_at DESC LIMIT 1`,
+		key, StepVerified).Scan(&job, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, time.Time{}, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	return job, time.UnixMilli(at), nil
 }
 
 // Steps returns all steps for a job in position order.
@@ -900,6 +985,7 @@ func scanStep(sc scanner) (JobStep, error) {
 	st.UndoneAt = tm(undoneAt)
 	st.Undoable = st.State == StepVerified && st.UndoneAt.IsZero() && AutoUndoable(st.Restore)
 	st.UndoNote = UndoNote(st.Action)
+	st.Permanent = Permanent(st.Action)
 	return st, nil
 }
 

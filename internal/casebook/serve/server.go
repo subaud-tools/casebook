@@ -64,6 +64,8 @@ type Server struct {
 
 	laneMu            sync.Mutex        // guards laneRun
 	laneRun           map[int64]bool    // job id → a casebook lane is running for it
+	reads             ownerReads        // when GitHub was last read for each owner (applied)
+	VerifyRetry       time.Duration     // between reads of a reported step GitHub hasn't caught up on (3s)
 	onLaneStart       func(jobID int64) // test hook: called once per lane that actually starts
 	onBeforeLaneExit  func(jobID int64) // test hook: called just before the lane goroutine clears laneRun
 	activity          atomic.Int64      // unix ms of the last API request
@@ -120,12 +122,20 @@ func (s *Server) setPageOpen(ctx context.Context, open bool) {
 }
 
 // takePageOpen reports whether a tab was connected when the previous serve
-// went away, and clears the flag.
-func (s *Server) takePageOpen(ctx context.Context) bool {
-	var v string
+// went away, and the agent it was attached to, and clears the flag.
+func (s *Server) takePageOpen(ctx context.Context) (bool, string) {
+	var v, sess string
 	_ = s.DB.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = 'page_open'").Scan(&v)
+	_ = s.DB.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = 'page_session'").Scan(&sess)
 	s.setPageOpen(ctx, false)
-	return v == "1"
+	return v == "1", sess
+}
+
+// setPageSession records the agent a tab is attached to (its dock says so,
+// "" when it detached): a restart reopens the page for it.
+func (s *Server) setPageSession(ctx context.Context, id string) {
+	_, _ = s.DB.ExecContext(ctx, `INSERT INTO meta(key, value) VALUES ('page_session', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, id)
 }
 
 // pageStream wraps the page's event stream: it counts connected tabs, keeps
@@ -206,6 +216,9 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 	}
 	s := &Server{App: a, DB: d, Queue: q, Props: propose.New(d), Apply: apply.NewStore(d), Bus: bus.New(d), Index: &Index{},
 		Now: time.Now, Wait: 60 * time.Second, WatchEvery: watchEvery, waiters: map[string]chan struct{}{}, laneRun: map[int64]bool{}}
+	// What casebook verified done since the index's observation leaves To
+	// apply at once (the next sync sees it gone).
+	s.Index.Applied = s.applied
 	// Record the serve lifetime context now so lanes started during New (a
 	// restart resume) are cancelled when serve stops. Run passes the same
 	// cancelable context and re-records it alongside s.stop.
@@ -238,6 +251,8 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 	if err := s.resumeInterruptedJobs(ctx); err != nil {
 		return nil, err
 	}
+	// Reported steps GitHub hadn't caught up on are read again.
+	s.verifyReported(ctx)
 	s.pruneEvents(ctx)
 	s.pruneSessions(ctx)
 	s.activity.Store(time.Now().UnixMilli())
@@ -644,6 +659,7 @@ func (s *Server) watch(ctx context.Context) {
 	lastPrune := time.Now()
 	knownLeft := map[string]bool{}
 	knownStuck := map[int64]bool{}
+	lastQueued := -1
 	for {
 		select {
 		case <-ctx.Done():
@@ -653,6 +669,15 @@ func (s *Server) watch(ctx context.Context) {
 				if err := s.rebuild(ctx); err != nil {
 					fmt.Fprintf(os.Stderr, "casebook serve: rebuild: %v\n", err)
 				}
+			}
+			// What waits to be pushed can change with HEAD still: another
+			// process's sync pushes after committing. The page reads its
+			// status again on a push event.
+			if q, _ := s.pushState(ctx); q != lastQueued {
+				if lastQueued >= 0 {
+					s.publish(ctx, "push", PushEvent{State: PushDone})
+				}
+				lastQueued = q
 			}
 			s.checkLeftCrossings(ctx, knownLeft)
 			s.checkStuckCrossings(ctx, knownStuck)
@@ -715,6 +740,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/proposals/withdraw", s.postWithdraw)
 	m.HandleFunc("GET /api/sessions", s.getSessions)
 	m.HandleFunc("POST /api/sessions/move", s.postMoveSession)
+	m.HandleFunc("POST /api/page/attached", s.postPageAttached)
 	m.HandleFunc("GET /api/threads", s.getThreads)
 	m.HandleFunc("POST /api/threads", s.postThread)
 	m.HandleFunc("POST /api/threads/move", s.postMoveThread)
@@ -840,7 +866,9 @@ type Options struct {
 	// Ready is called once listening. pageWasOpen: a tab was connected when
 	// the previous serve went away (a stop, an upgrade or a crash), so the
 	// caller should open the page again; the old tab's token died with it.
-	Ready   func(url string, pageWasOpen bool)
+	// session is the agent that tab was attached to ("" none): the page opens
+	// for it again.
+	Ready   func(url string, pageWasOpen bool, session string)
 	Open    func(url string) error // opens the page in the browser (casebook_open); nil: can't
 	Log     io.Writer              // diagnostics
 	Assets  fs.FS                  // nil: the embedded placeholder
@@ -871,7 +899,7 @@ func Run(ctx context.Context, a *app.App, o Options) error {
 		return err
 	}
 	s.stop, s.life = cancel, ctx
-	wasOpen := s.takePageOpen(ctx)
+	wasOpen, pageSession := s.takePageOpen(ctx)
 	assetsFS := o.Assets
 	if assetsFS == nil {
 		assetsFS, _ = fs.Sub(assets, "assets")
@@ -905,7 +933,7 @@ func Run(ctx context.Context, a *app.App, o Options) error {
 		o.Started(s, adv)
 	}
 	if o.Ready != nil {
-		o.Ready(srv.URL, wasOpen)
+		o.Ready(srv.URL, wasOpen, pageSession)
 	}
 	err = srv.Wait()
 	cancel()          // serve is stopping: a push in flight ends, its commits stay queued

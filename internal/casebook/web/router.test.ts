@@ -269,3 +269,18 @@ describe('old addresses land on decide', () => {
     test(hash, () => assert.deepStrictEqual(parse(hash), want));
   }
 });
+
+// apply became review and run (Court, 2026-10-17): #/apply and its group
+// land on review; #/apply/<job> opens the job in run.
+describe('old apply addresses land on review or run', () => {
+  for (const [hash, want] of [
+    ['#/apply', { section: 'review', sub: '', query: '' }],
+    [
+      '#/apply?group=delete%7Crepo',
+      { section: 'review', sub: '', query: 'group=delete%7Crepo' },
+    ],
+    ['#/apply/12', { section: 'run', sub: '12', query: '' }],
+  ] as const) {
+    test(hash, () => assert.deepStrictEqual(parse(hash), want));
+  }
+});

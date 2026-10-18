@@ -206,6 +206,20 @@ func (s *Server) getItems(w http.ResponseWriter, r *http.Request) {
 	group.Limit = atoi(q.Get("limit"))
 	query := group
 	query.Offset = atoi(q.Get("offset"))
+	// open= (a JSON list of group ids: a label may hold a comma) lists the
+	// open groups' rows alone, the page starting with every group
+	// collapsed; the groups and their counts stay every group's.
+	if q.Has("open") {
+		var ids []string
+		if err := json.Unmarshal([]byte(q.Get("open")), &ids); err != nil {
+			reply(w, nil, httpError{code: http.StatusBadRequest, msg: "open: " + err.Error()})
+			return
+		}
+		query.Open = map[string]bool{}
+		for _, id := range ids {
+			query.Open[id] = true
+		}
+	}
 	items, total := s.Index.List(query, pending)
 	if items == nil {
 		items = []ItemView{}
@@ -311,7 +325,9 @@ func (s *Server) itemDetail(ctx context.Context, it engine.Item, k item.Key) Ite
 		hist = hist[len(hist)-50:]
 	}
 	log, _ := s.App.Repo.Log(ctx, k.File())
+	job, verified, _ := s.Apply.LastVerified(ctx, it.ID)
 	return ItemDetailView{
+		DoneHow:   doneHow(string(v.Status), job, verified, time.Local),
 		Item:      v,
 		Proposals: nonNil(proposals),
 		Evidence:  nonNil(evidence),
@@ -423,7 +439,7 @@ func decisionVocab() DecisionVocabView {
 		DiscardAll:     "discard all {n}",
 		Summary:        SummaryVocab{ToDecide: "{n} to decide", CameBack: "{n} came back", Group: "{who} \u00b7 {decision} \u00b7 {n}", NotRecommended: "{n} not recommended yet"},
 		CountWords:     countWords,
-		ToApplyHint:    "goes to apply first",
+		ToApplyHint:    "goes to review first",
 		Untick:         "untick",
 		LeftOpen:       "left open",
 		CameBack: map[string]string{
@@ -432,7 +448,7 @@ func decisionVocab() DecisionVocabView {
 			string(item.StatusConflict): "two decisions for it disagree",
 		},
 		CameBackFact:   "came back \u00b7 {reason}",
-		Waiting:        WaitingVocab{Text: "{done} \u00b7 waiting in {apply} \u00b7 {undo}", Apply: "apply", Undo: "undo"},
+		Waiting:        WaitingVocab{Text: "{done} \u00b7 waiting in {apply} \u00b7 {undo}", Apply: "review", Undo: "undo"},
 		Recommends:     "agent recommends",
 		RuleRecommends: "{rule} recommends",
 		Nav: NavVocab{
@@ -892,6 +908,20 @@ func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	reply(w, SessionsView{Sessions: out}, nil)
+}
+
+// postPageAttached records the agent a tab's dock attached ("" when it
+// detached): a restart reopens the page for the most recent one.
+func (s *Server) postPageAttached(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Session string `json:"session"`
+	}
+	if err := decode(r, &in); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	s.setPageSession(r.Context(), in.Session)
+	reply(w, map[string]string{"session": in.Session}, nil)
 }
 
 // postMoveSession atomically moves all threads (and their queued messages) from

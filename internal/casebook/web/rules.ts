@@ -1,5 +1,4 @@
-// rules.ts — a rule in decide's middle pane, read only, and the list of
-// every rule ("rules N").
+// rules.ts — a rule in decide's middle pane, read only.
 //
 // renderRule(ctx, detail, hooks) draws one rule as a document: kicker,
 // title, facts (on or off, matches, excluded, author, record), what it does,
@@ -8,10 +7,6 @@
 // repo. Unticking a match excludes it (with an optional reason); ticking an
 // excluded one includes it again. edit opens the rule editor beside the
 // list (hooks.onEdit); turn on / turn off is hooks.onToggle.
-//
-// renderRuleList(ctx, rows, hooks) is every rule, off ones too: its name,
-// on, off or not valid, what it recommends and how many items it matches,
-// with ⋯ (edit, turn on / off). A row opens the rule (hooks.onOpen).
 
 import { h, facts, buttons, card, sheet, type Button } from '/_kit/kit.js';
 import type {
@@ -19,13 +14,12 @@ import type {
   MatchPreview,
   MatchRow,
   RuleDetailView,
-  RuleRow,
 } from './wire.d.ts';
 import type { Ctx } from './app.ts';
 import { conditionEditor } from './conditions.ts';
-import { keyWithoutKind, pluralize } from './decide-math.ts';
+import { keyWithoutKind } from './decide-math.ts';
 import { DANGER_DISPS, getVocab } from './decide.ts';
-import { dispositionLabel, ruleMenu } from './rule-editor.ts';
+import { dispositionLabel } from './rule-editor.ts';
 import {
   authorOf,
   matchesHeading,
@@ -439,104 +433,5 @@ export function renderRule(
   drawFacts();
   drawGroupChips();
   drawMatches();
-  return el;
-}
-
-export interface RuleListHooks {
-  onOpen(row: RuleRow): void;
-  onEdit(row: RuleRow): void;
-  onToggle(row: RuleRow): Promise<void>;
-}
-
-/**
- * renderRuleList is every rule, off ones too, in the middle pane: each
- * row its name, on / off / not valid, its decision and how many items it
- * matches, and ⋯ (edit, turn on / off). A row opens the rule.
- */
-export function renderRuleList(
-  ctx: Ctx,
-  rows: RuleRow[],
-  hooks: RuleListHooks,
-): HTMLElement {
-  const note = h('p', { class: 'cb-rule-note', role: 'status' });
-  const decision = (row: RuleRow) =>
-    h('span', { class: 'cb-rules-row-d' }, row.rule.propose.disposition);
-  const decisions: Array<[RuleRow, HTMLElement]> = [];
-  const line = (row: RuleRow): HTMLElement => {
-    const off = row.rule.status !== 'active';
-    const d = decision(row);
-    decisions.push([row, d]);
-    const state = row.invalid ? 'not valid' : off ? 'off' : 'on';
-    return h(
-      'li',
-      {
-        class: 'cb-rules-row' + (off ? ' cb-rule-off' : ''),
-        'data-id': row.rule.id,
-      },
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'cb-rules-row-open',
-          title: row.invalid ?? '',
-          onclick() {
-            hooks.onOpen(row);
-          },
-        },
-        h('span', { class: 'cb-rules-row-name' }, row.rule.name || row.rule.id),
-        h(
-          'span',
-          {
-            class: 'cb-rules-row-state',
-            'data-state': state,
-          },
-          state,
-        ),
-        d,
-        h(
-          'span',
-          { class: 'cb-rules-row-n' },
-          row.invalid ? '' : pluralize(row.matches, 'match', 'matches'),
-        ),
-      ),
-      ruleMenu(row, {
-        onEdit: () => hooks.onEdit(row),
-        onToggle: () => {
-          note.textContent = '';
-          void hooks.onToggle(row).catch((err: unknown) => {
-            note.textContent = message(err);
-          });
-        },
-      }),
-    );
-  };
-  const el = h(
-    'div',
-    { class: 'kit-doc' },
-    h(
-      'article',
-      { class: 'cb-rules-doc', 'data-testid': 'rule-list' },
-      h('h1', { class: 'kit-h1' }, pluralize(rows.length, 'rule')),
-      h(
-        'p',
-        null,
-        'A rule recommends a decision for the undecided items it matches. Its recommendations are a group in the list, accepted in one go.',
-      ),
-      rows.length
-        ? h('ul', { class: 'cb-rules-rows' }, ...rows.map(line))
-        : h('p', { class: 'cb-read-empty-prompt' }, 'No rules yet.'),
-      note,
-    ),
-  );
-  void getVocab(ctx)
-    .then((vocab) => {
-      for (const [row, d] of decisions)
-        d.textContent = dispositionLabel(
-          vocab,
-          null,
-          row.rule.propose.disposition,
-        );
-    })
-    .catch(() => {});
   return el;
 }

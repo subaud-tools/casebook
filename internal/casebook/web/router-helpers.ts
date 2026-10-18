@@ -50,6 +50,12 @@ export function parse(hash: string): {
       query: head === 'rules' && id ? `rule=${encodeURIComponent(id)}` : query,
     };
   }
+  // apply became review and run: its groups are reviewed, its jobs run.
+  if (head === 'apply') {
+    return slash === -1
+      ? { section: 'review', sub: '', query }
+      : { section: 'run', sub: safeDecode(path.slice(slash + 1)), query };
+  }
   if (slash === -1) {
     return { section: path || 'decide', sub: '', query };
   }

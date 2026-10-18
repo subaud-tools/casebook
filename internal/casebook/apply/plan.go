@@ -97,6 +97,13 @@ func UndoNote(action string) string {
 	return "No undo here."
 }
 
+// Permanent reports whether a step of action can never be undone (a
+// deleted repository, a merge): the page asks Court to confirm before it
+// runs.
+func Permanent(action string) bool {
+	return action == "repo-delete" || action == "pr-merge"
+}
+
 // ErrStale is returned by Build when the observation age exceeds syncInterval.
 // The caller should offer a sync before retrying.
 var ErrStale = errors.New("observation is older than one sync interval; sync first")

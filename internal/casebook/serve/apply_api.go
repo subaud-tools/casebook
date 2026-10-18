@@ -84,13 +84,22 @@ func (s *Server) buildEnv() apply.Env {
 }
 
 // postApplyPlan is POST /api/apply/plan.
-// Input: {"keys":["..."],"all":true}
+// Input: {"keys":["..."],"all":true,"preview":true}
+// preview (review showing a group) builds the plan and stores nothing.
 // Returns PlanView, 409 when the index observation is stale, or 422 when
 // there is nothing to plan (no job is made).
+//
+// Named keys are a group the page opened in review: a plan not yet approved
+// with exactly these steps is reused (no new job); plans not yet approved
+// that hold any of the keys otherwise are cancelled and a fresh plan built,
+// so an item is in one unfinished job. A key in an approved, running or
+// paused job is refused (409).
 func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Keys []string `json:"keys"`
 		All  bool     `json:"all"`
+		// Preview builds the plan to show and stores nothing (review).
+		Preview bool `json:"preview"`
 	}
 	if err := decode(r, &in); err != nil {
 		reply(w, nil, err)
@@ -116,6 +125,7 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 
 	// Filter items: all to-apply or only the requested keys.
 	var items []engine.Item
+	var planned []apply.Job
 	heldOut := 0
 	if in.All {
 		// An item already in a job that hasn't finished (a plan not yet
@@ -134,11 +144,16 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 	} else {
 		keySet := make(map[string]bool, len(in.Keys))
 		for _, k := range in.Keys {
-			if j := held[k]; j != nil {
+			if j := held[k]; j != nil && j.State != apply.JobPlanned {
 				reply(w, nil, httpError{code: http.StatusConflict, msg: heldMsg(k, *j)})
 				return
 			}
 			keySet[k] = true
+		}
+		planned, err = s.plannedHolding(ctx, keySet)
+		if err != nil {
+			reply(w, nil, err)
+			return
 		}
 		for _, it := range res.Items {
 			if keySet[it.ID] {
@@ -189,8 +204,26 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 
 	plan.Head = s.Index.Head()
 
+	if in.Preview {
+		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: apply.Preview(plan, s.App.Cfg.Machine, now)}, nil)
+		return
+	}
+
 	if s.afterOverlapCheck != nil {
 		s.afterOverlapCheck()
+	}
+
+	// The group's plan already exists: reuse it.
+	if len(planned) == 1 && sameSteps(planned[0].Steps, plan.Steps) {
+		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: planned[0]}, nil)
+		return
+	}
+	for _, j := range planned {
+		if err := s.Apply.Cancel(ctx, j.ID); err != nil {
+			reply(w, nil, err)
+			return
+		}
+		s.publish(ctx, "job", map[string]any{"id": j.ID, "state": apply.JobCancelled})
 	}
 
 	// Persist as a planned job.
@@ -238,6 +271,41 @@ func (s *Server) heldKeys(ctx context.Context, except int64, startedOnly bool) (
 		}
 	}
 	return out, nil
+}
+
+// plannedHolding is the plans not yet approved with a step on any of keys.
+func (s *Server) plannedHolding(ctx context.Context, keys map[string]bool) ([]apply.Job, error) {
+	jobs, err := s.Apply.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []apply.Job
+	for _, j := range jobs {
+		if j.State != apply.JobPlanned {
+			continue
+		}
+		for _, st := range j.Steps {
+			if keys[st.Key] {
+				out = append(out, j)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// sameSteps reports whether a stored plan's steps are the ones just built:
+// same items, actions and commands, in order.
+func sameSteps(have []apply.JobStep, want []apply.Step) bool {
+	if len(have) != len(want) {
+		return false
+	}
+	for i := range have {
+		if have[i].Key != want[i].Key || have[i].Action != want[i].Action || have[i].Command != want[i].Command {
+			return false
+		}
+	}
+	return true
 }
 
 // heldMsg is serve's refusal for an item already in job j.
@@ -315,22 +383,14 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 
 	s.publish(ctx, "job", map[string]any{"id": job.ID, "state": apply.JobApproved})
 
-	// Step 2: Count agent-lane steps and open batch card BEFORE dispatching.
+	// Step 2: Count agent-lane steps. Approving is Court's go (and for what
+	// can't be undone, the page has already asked him to confirm): no
+	// second confirm before the agent starts (Court, 2026-10-18).
 	var agentCount int
 	for _, st := range job.Steps {
 		if st.Lane == apply.LaneAgent {
 			agentCount++
 		}
-	}
-	var batchCard apply.NeedsYou
-	if agentCount > 0 {
-		q := fmt.Sprintf("The agent has been dispatched with %d step(s). Confirm when ready to proceed.", agentCount)
-		batchCard, err = s.Apply.OpenNeedsYou(ctx, job.ID, 0, "batch", q, "")
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		s.publish(ctx, "needs_you", batchCard)
 	}
 
 	// Step 3: Dispatch the agent job ONCE (idempotent via dispatched_at).

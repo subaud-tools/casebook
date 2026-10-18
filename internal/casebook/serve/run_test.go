@@ -77,13 +77,20 @@ func TestStaleAdvertIsNotRunning(t *testing.T) {
 // runOnce starts serve, returns its advert and whether it was told the page
 // was open, and a stop function.
 func runOnce(t *testing.T, r *apptest.Rig, opened *[]string) (Advert, bool, func()) {
+	adv, was, _, stop := runOnceSession(t, r, opened)
+	return adv, was, stop
+}
+
+// runOnceSession is runOnce, with the agent the reopened page is attached to.
+func runOnceSession(t *testing.T, r *apptest.Rig, opened *[]string) (Advert, bool, string, func()) {
 	t.Helper()
 	started := make(chan Advert, 1)
 	was := make(chan bool, 1)
+	sess := make(chan string, 1)
 	errc := make(chan error, 1)
 	go func() {
 		errc <- Run(context.Background(), r.App, Options{Version: "test",
-			Ready:   func(_ string, pageWasOpen bool) { was <- pageWasOpen },
+			Ready:   func(_ string, pageWasOpen bool, session string) { was <- pageWasOpen; sess <- session },
 			Open:    func(url string) error { *opened = append(*opened, url); return nil },
 			Started: func(_ *Server, a Advert) { started <- a }})
 	}()
@@ -95,11 +102,70 @@ func runOnce(t *testing.T, r *apptest.Rig, opened *[]string) (Advert, bool, func
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve did not start")
 	}
-	return adv, <-was, func() {
+	return adv, <-was, <-sess, func() {
 		if err := Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		<-errc
+	}
+}
+
+// TestRestartReopensThePageForItsAgent (Court, 2026-10-18: every restart left
+// the page with no agent): the page an agent's tab had open is reopened for
+// that agent, so the tab can still run what Court approves.
+func TestRestartReopensThePageForItsAgent(t *testing.T) {
+	r := apptest.New(t)
+	var opened []string
+	adv, _, _, stop := runOnceSession(t, r, &opened)
+	closeTab := stream(t, adv.Base, adv.Token)
+	defer closeTab()
+	time.Sleep(100 * time.Millisecond)
+	if c := callBody(t, adv, "/api/page/attached", `{"session":"s1"}`); c != http.StatusOK {
+		t.Fatalf("attached: %d", c)
+	}
+	stop()
+	_, was, sess, stop := runOnceSession(t, r, &opened)
+	defer stop()
+	if !was || sess != "s1" {
+		t.Fatalf("restart reopened %v for %q, want the page for s1", was, sess)
+	}
+}
+
+// TestTheDockSaysWhichAgentItIsAttachedTo (review, 2026-10-18): the agent a
+// restart reopens the page for is the one the tab's dock last attached, as
+// it said so; a page reading a session (To apply's jobs, the dock's own
+// reads) doesn't choose it, and a detach clears it.
+func TestTheDockSaysWhichAgentItIsAttachedTo(t *testing.T) {
+	r := apptest.New(t)
+	var opened []string
+	restart := func(adv Advert, stop func(), do func(Advert)) (Advert, string, func()) {
+		closeTab := stream(t, adv.Base, adv.Token)
+		time.Sleep(100 * time.Millisecond)
+		do(adv)
+		stop()
+		closeTab()
+		adv, _, sess, stop := runOnceSession(t, r, &opened)
+		return adv, sess, stop
+	}
+	adv, _, _, stop := runOnceSession(t, r, &opened)
+	adv, sess, stop := restart(adv, stop, func(a Advert) {
+		call(t, a, "GET", "/api/sessions?session=s1")
+	})
+	if sess != "" {
+		t.Errorf("a sessions read for s1 chose it: restart for %q", sess)
+	}
+	adv, sess, stop = restart(adv, stop, func(a Advert) {
+		callBody(t, a, "/api/page/attached", `{"session":"s1"}`)
+	})
+	if sess != "s1" {
+		t.Errorf("after an attach to s1, restart for %q", sess)
+	}
+	_, sess, stop = restart(adv, stop, func(a Advert) {
+		callBody(t, a, "/api/page/attached", `{"session":""}`)
+	})
+	defer stop()
+	if sess != "" {
+		t.Errorf("after a detach, restart for %q", sess)
 	}
 }
 
@@ -191,10 +257,11 @@ func TestOpenLandsOnAnItemOrTheFront(t *testing.T) {
 	}{
 		{`{}`, 200, "?t=" + adv.Token},
 		{`{"key":"pr:schuettc/hail#3"}`, 200, "?t=" + adv.Token + "#/item/pr:schuettc%2Fhail%233"},
-		{`{"view":"new"}`, 400, ""},
+		// An older channel's view is ignored (TestOpenAttachesThePageToTheCallingSession).
+		{`{"view":"new"}`, 200, "?t=" + adv.Token},
 		{`{"key":"pr:schuettc/hail#999"}`, 404, ""},
 		{`{"key":"not a key"}`, 400, ""},
-		{`{"key":"pr:schuettc/hail#3","view":"new"}`, 400, ""},
+		{`{"key":"pr:schuettc/hail#3","view":"new"}`, 200, "?t=" + adv.Token + "#/item/pr:schuettc%2Fhail%233"},
 	} {
 		before := len(opened)
 		if got := callBody(t, adv, "/api/agent/open", c.body); got != c.code {

@@ -2,12 +2,12 @@
 // view chips, and the editor that opens in the middle pane.
 //
 // makeFilterBar(ctx, hooks) draws one toggle chip per filter (serve's
-// GET /api/filters, in id order), each with a ⋯ menu (edit, delete), then
-// `+ filter`. Selecting is the caller's (hooks.onSelect with the new
-// selection; the address keeps it), and so is editing (hooks.onEdit: the
-// page opens filterEditor beside the list). A filter that doesn't validate
-// shows marked, with serve's message as its title: it can be edited or
-// deleted, not selected.
+// GET /api/filters, in id order), then `+ filter`, as the rules row is
+// drawn. Selecting is the caller's (hooks.onSelect with the new selection;
+// the address keeps it); the page shows the clicked filter in the middle
+// pane (renderFilter: edit, make a rule, delete). A filter that doesn't
+// validate shows marked, with serve's message as its title: a click shows
+// it, to fix, without selecting it.
 //
 // filterEditor(ctx, row, hooks) is the editor: its title, the name with
 // save and cancel, then the rules' condition editor (conditions.ts), so
@@ -16,12 +16,11 @@
 // on the left. serve validates: a 400 shows under the condition it names
 // (showError), a 409 under the name.
 
-import { h, ApiError } from '/_kit/kit.js';
+import { h, ApiError, buttons, card, type Button } from '/_kit/kit.js';
 import type { Condition, FilterRow, FiltersView } from './wire.d.ts';
 import type { Ctx } from './app.ts';
 import { conditionEditor, setConditionError } from './conditions.ts';
 import { conditionErrorIndex, slug } from './rules-text.ts';
-import { menuNav } from './menu-nav.ts';
 import { toggleFilter } from './filters-text.ts';
 
 export interface FilterBar {
@@ -35,13 +34,13 @@ function message(err: unknown): string {
 }
 
 export function makeFilterBar(
-  ctx: Ctx,
+  _ctx: Ctx,
   hooks: {
-    onSelect(ids: string[]): void;
-    onChanged(): void;
-    onDeleted(id: string): void;
-    onEdit(row: FilterRow | null): void;
-    onMakeRule?(row: FilterRow): void;
+    /** The new selection, and the chip clicked (the filter to show). */
+    onSelect(ids: string[], clicked: string): void;
+    /** A filter that doesn't validate: show it, to fix, unselected. */
+    onOpen(row: FilterRow): void;
+    onNew(): void;
   },
 ): FilterBar {
   let rows: FilterRow[] = [];
@@ -57,7 +56,7 @@ export function makeFilterBar(
       type: 'button',
       class: 'kit-chip cb-filter-add',
       onclick() {
-        hooks.onEdit(null);
+        hooks.onNew();
       },
     },
     '+ filter',
@@ -71,12 +70,6 @@ export function makeFilterBar(
     errEl,
   );
 
-  // ---- the chips ---------------------------------------------------------
-
-  // menuOpen is the chip whose ⋯ menu is open (its id), so a repaint keeps
-  // it open.
-  let closeMenu: (() => void) | null = null;
-
   function chip(row: FilterRow): HTMLElement {
     const id = row.filter.id;
     const on = selected.includes(id);
@@ -88,80 +81,26 @@ export function makeFilterBar(
         'data-id': id,
         'aria-pressed': String(on),
         onclick() {
+          if (row.invalid) {
+            hooks.onOpen(row);
+            return;
+          }
           const next = toggleFilter(rows, selected, id);
-          if (next !== selected) hooks.onSelect(next);
+          if (next !== selected) hooks.onSelect(next, id);
         },
       },
       row.filter.name || id,
     );
     if (row.invalid) {
       b.setAttribute('data-invalid', '');
-      b.setAttribute('aria-disabled', 'true');
       b.title = row.invalid;
     }
-    const more = h('button', {
-      type: 'button',
-      class: 'cb-filter-more',
-      'aria-label': `${row.filter.name || id}: edit or delete`,
-      'aria-haspopup': 'menu',
-      'aria-expanded': 'false',
-      onclick() {
-        setMenu(menu.hidden);
-      },
-    });
-    more.textContent = '\u22ef';
-    const item = (label: string, run: () => void): HTMLElement =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'cb-filter-menu-item',
-          role: 'menuitem',
-          'data-act': label,
-          onclick() {
-            setMenu(false);
-            run();
-          },
-        },
-        label,
-      );
-    const menu = h(
-      'div',
-      { class: 'cb-filter-menu', role: 'menu', hidden: true },
-      item('edit', () => hooks.onEdit(row)),
-      ...(hooks.onMakeRule && !row.invalid
-        ? [item('make a rule', () => hooks.onMakeRule?.(row))]
-        : []),
-      item('delete', () => void remove(id)),
-    );
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setMenu(false);
-      more.focus();
-    };
-    function setMenu(open: boolean): void {
-      if (open) closeMenu?.();
-      menu.hidden = !open;
-      more.setAttribute('aria-expanded', String(open));
-      if (open) {
-        closeMenu = () => setMenu(false);
-        document.addEventListener('keydown', onEsc, true);
-        menu.querySelector<HTMLElement>('.cb-filter-menu-item')?.focus();
-      } else {
-        if (closeMenu) closeMenu = null;
-        document.removeEventListener('keydown', onEsc, true);
-      }
-    }
-    menuNav(menu, '.cb-filter-menu-item', more, () => setMenu(false));
-    return h('span', { class: 'cb-filter-item', 'data-id': id }, b, more, menu);
+    return b;
   }
 
   function paint(r: FilterRow[], sel: string[]): void {
     rows = r;
     selected = sel;
-    closeMenu?.();
     chipsEl.replaceChildren(...rows.map(chip), addBtn);
   }
 
@@ -170,18 +109,74 @@ export function makeFilterBar(
     errEl.textContent = msg ?? '';
   }
 
-  async function remove(id: string): Promise<void> {
-    try {
-      await ctx.api.post<FiltersView>('/filters/delete', { id });
-      hooks.onDeleted(id);
-      hooks.onChanged();
-    } catch (err) {
-      setError(message(err));
-    }
-  }
-
   paint([], []);
   return { el, paint, setError };
+}
+
+/**
+ * renderFilter draws a saved filter in the middle pane, read only: its
+ * conditions, then edit, make a rule and delete (delete posts here; the
+ * caller hears hooks.onDeleted).
+ */
+export function renderFilter(
+  ctx: Ctx,
+  row: FilterRow,
+  hooks: {
+    onEdit(): void;
+    onMakeRule(): void;
+    onDeleted(): void;
+  },
+): HTMLElement {
+  const f = row.filter;
+  const note = h('p', { class: 'cb-rule-note', role: 'status' });
+  const bs: Button[] = [{ label: 'edit', run: () => hooks.onEdit() }];
+  if (!row.invalid)
+    bs.push({ label: 'make a rule', run: () => hooks.onMakeRule() });
+  bs.push({
+    label: 'delete',
+    run: () => {
+      note.textContent = '';
+      void ctx.api
+        .post<FiltersView>('/filters/delete', { id: f.id })
+        .then(() => hooks.onDeleted())
+        .catch((err: unknown) => {
+          note.textContent = message(err);
+        });
+    },
+  });
+  return h(
+    'div',
+    { class: 'kit-doc' },
+    h(
+      'article',
+      { class: 'cb-rule cb-filter-doc', 'data-filter': f.id },
+      h('p', { class: 'kit-kick' }, 'filter'),
+      h('h1', { class: 'kit-h1' }, f.name || f.id),
+      row.invalid
+        ? card({
+            edge: 'signal',
+            head: 'not valid',
+            body: h(
+              'div',
+              null,
+              h('p', { class: 'cb-invalid-msg' }, row.invalid),
+              h(
+                'p',
+                { class: 'cb-invalid-help' },
+                'This filter selects nothing until it is valid. Edit it to fix it.',
+              ),
+            ),
+          })
+        : null,
+      h('h3', { class: 'kit-label' }, 'items that match all of'),
+      conditionEditor(
+        ctx,
+        { match: f.match, status: 'active', editable: false },
+        () => {},
+      ),
+      h('div', { class: 'cb-rule-actions' }, buttons(bs), note),
+    ),
+  );
 }
 
 export interface FilterEditor {

@@ -536,6 +536,9 @@ func (s *Server) agentOpen(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Session string `json:"session"`
 		Key     string `json:"key"`
+		// View is what an agent's channel started before views went still
+		// sends; it is ignored, so that agent can still open the page.
+		View string `json:"view"`
 	}
 	if err := decode(r, &in); err != nil {
 		reply(w, nil, err)
@@ -765,17 +768,11 @@ func (s *Server) agentJobStep(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.publish(ctx, "step", map[string]any{"id": step.ID, "job_id": in.Job, "state": apply.StepReported})
-		// Verify the outcome with a fresh gh read.
-		obs := apply.ObserveGh(ctx, step, s.App.Gh)
-		verState := apply.Verify(step, obs)
-		if verState != apply.StepReported { // StepReported means inconclusive: leave as-is
-			detail := ""
-			if verState == apply.StepFailed {
-				detail = apply.DetailDrift
-			}
-			if err := s.Apply.SetStepState(ctx, step.ID, verState, detail); err == nil {
-				s.publish(ctx, "step", map[string]any{"id": step.ID, "job_id": in.Job, "state": verState})
-			}
+		// Verify the outcome with a fresh gh read. GitHub can still show the
+		// old state just after a change: an inconclusive read is tried again
+		// a few times in the background.
+		if !s.verifyStep(ctx, in.Job, step) {
+			s.verifyLater(in.Job, step)
 		}
 		// Check whether the job has reached a terminal state after this report.
 		s.settleJob(ctx, job.ID)
@@ -896,12 +893,10 @@ func buildJobBody(job apply.Job, user string) (string, error) {
 		job.ID, len(agentSteps))
 	b.WriteString("Work through each step in order. Check preconditions live before running.\n")
 
-	// The batch is not confirmed until Court says so. The agent must not touch
-	// the world until then, and must do nothing at all if Court skips it.
-	b.WriteString("\nWAIT FOR THE BATCH:\n")
-	fmt.Fprintf(&b, "Do not run any step until %s confirms the batch.\n", user)
-	b.WriteString("The confirmation arrives as a message in this thread.\n")
-	fmt.Fprintf(&b, "If %s skips the batch, run nothing.\n", user)
+	// Approving in casebook was the user's confirmation: the agent runs the
+	// steps without asking again in chat (Court, 2026-10-18).
+	fmt.Fprintf(&b, "%s approved these exact steps in casebook; that is their confirmation.\n", user)
+	b.WriteString("Do not ask again in chat: run them now, pausing a step only if its precondition fails.\n")
 
 	// List agent-lane steps.
 	if len(agentSteps) > 0 {

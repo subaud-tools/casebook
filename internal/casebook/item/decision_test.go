@@ -225,11 +225,11 @@ func TestChoiceMany(t *testing.T) {
 
 // TestEveryChoiceSaysWhatHappensAndWhen: a choice's hover says what it
 // decides and when anything happens: an outward choice "…until you run it
-// in apply.", every other "Nothing to run.".
+// in review.", every other "Nothing to run.".
 func TestEveryChoiceSaysWhatHappensAndWhen(t *testing.T) {
 	for _, k := range []Kind{KindRepo, KindPR, KindIssue, KindBranch, KindWorktree} {
 		for _, c := range Choices(k) {
-			if c.Outward && !strings.HasSuffix(c.Says, " until you run it in apply.") {
+			if c.Outward && !strings.HasSuffix(c.Says, " until you run it in review.") {
 				t.Errorf("%s %q: outward says %q", k, c.Label, c.Says)
 			}
 			if !c.Outward && !strings.HasSuffix(c.Says, " Nothing to run.") {
@@ -245,7 +245,7 @@ func TestEveryChoiceSaysWhatHappensAndWhen(t *testing.T) {
 		}
 		return ""
 	}
-	if got, want := says(KindIssue, Close), "Decides to close this issue. Nothing happens on GitHub until you run it in apply."; got != want {
+	if got, want := says(KindIssue, Close), "Decides to close this issue. Nothing happens on GitHub until you run it in review."; got != want {
 		t.Errorf("issue close says %q, want %q", got, want)
 	}
 	if got, want := says(KindBranch, Keep), "Decides to keep it as it is. Nothing to run."; got != want {

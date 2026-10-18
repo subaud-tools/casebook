@@ -78,21 +78,11 @@ func TestAnItemIsInAtMostOneUnfinishedJob(t *testing.T) {
 		}
 	}
 
-	// A plan holds its items too: named, it's "plan #N".
+	// A plan for the issue alone (named plans reuse or replace each other:
+	// TestPlanForAGroupReusesOrReplacesItsPlan).
 	var issuePlan PlanView
 	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{"issue:schuettc/hail#4"}}, &issuePlan); c != http.StatusOK {
 		t.Fatalf("plan the issue: %d", c)
-	}
-	before, _ := r.s.Apply.List(ctx)
-	var out map[string]any
-	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{"issue:schuettc/hail#4"}}, &out); c != http.StatusConflict {
-		t.Fatalf("plan the issue twice: %d, want 409", c)
-	}
-	if msg, _ := out["error"].(string); !strings.Contains(msg, "issue:schuettc/hail#4 is already in plan #"+strconv.FormatInt(issuePlan.Job.ID, 10)) {
-		t.Fatalf("refusal %q doesn't name the plan", msg)
-	}
-	if jobs, _ := r.s.Apply.List(ctx); len(jobs) != len(before) {
-		t.Fatalf("a refusal made a job: %d jobs, want %d", len(jobs), len(before))
 	}
 
 	// Failed releases (the PR's job), cancelled releases (the issue's plan).
@@ -129,6 +119,80 @@ func TestAnItemIsInAtMostOneUnfinishedJob(t *testing.T) {
 	}
 	if got := planKeys(afterDone); !strings.Contains(got, "pr:schuettc/hail#3") {
 		t.Fatalf("plan all after the PR's job is done = %q, want the PR", got)
+	}
+}
+
+// unfinishedHolding is the unfinished jobs with a step on key.
+func unfinishedHolding(t *testing.T, r *rig, key string) []apply.Job {
+	t.Helper()
+	jobs, err := r.s.Apply.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []apply.Job
+	for _, j := range jobs {
+		switch j.State {
+		case apply.JobPlanned, apply.JobApproved, apply.JobRunning, apply.JobPaused:
+		default:
+			continue
+		}
+		for _, st := range j.Steps {
+			if st.Key == key {
+				out = append(out, j)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// TestPlanForAGroupReusesOrReplacesItsPlan: opening a group in review plans
+// exactly its keys. A plan not yet approved with the same keys is reused (no
+// new job); one that holds any of the keys otherwise is cancelled and a fresh
+// plan built, so an item is still in one unfinished job. An approved job
+// still holds its items (TestAnItemIsInAtMostOneUnfinishedJob).
+func TestPlanForAGroupReusesOrReplacesItsPlan(t *testing.T) {
+	r := newRig(t)
+	decideTwo(t, r)
+	pr, issue := "pr:schuettc/hail#3", "issue:schuettc/hail#4"
+
+	var first PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr}}, &first); c != http.StatusOK {
+		t.Fatalf("plan the PR: %d", c)
+	}
+	before, _ := r.s.Apply.List(ctx)
+	var again PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr}}, &again); c != http.StatusOK {
+		t.Fatalf("plan the PR again: %d, want 200 (reused)", c)
+	}
+	if again.Job.ID != first.Job.ID || again.Job.State != apply.JobPlanned {
+		t.Fatalf("plan again = job %d (%s), want plan #%d reused", again.Job.ID, again.Job.State, first.Job.ID)
+	}
+	if len(again.Groups) == 0 || len(again.Plan.Steps) == 0 {
+		t.Fatalf("a reused plan came back without its steps: %+v", again)
+	}
+	if jobs, _ := r.s.Apply.List(ctx); len(jobs) != len(before) {
+		t.Fatalf("reusing made a job: %d jobs, want %d", len(jobs), len(before))
+	}
+
+	// Different keys: the plan holding the PR is cancelled, a fresh one built.
+	var both PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr, issue}}, &both); c != http.StatusOK {
+		t.Fatalf("plan the PR and issue: %d, want 200 (replaced)", c)
+	}
+	if both.Job.ID == first.Job.ID {
+		t.Fatalf("plan for other keys reused plan #%d", first.Job.ID)
+	}
+	if got := planKeys(both); !strings.Contains(got, pr) || !strings.Contains(got, issue) {
+		t.Fatalf("fresh plan keys = %q, want the PR and the issue", got)
+	}
+	if j, _ := r.s.Apply.Get(ctx, first.Job.ID); j.State != apply.JobCancelled {
+		t.Fatalf("replaced plan #%d is %s, want cancelled", first.Job.ID, j.State)
+	}
+	for _, k := range []string{pr, issue} {
+		if h := unfinishedHolding(t, r, k); len(h) != 1 || h[0].ID != both.Job.ID {
+			t.Fatalf("%s is in %d unfinished jobs, want only #%d", k, len(h), both.Job.ID)
+		}
 	}
 }
 
@@ -195,19 +259,15 @@ func TestConcurrentPlansAndApprovesKeepAnItemInOneJob(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	ok := 0
 	for _, c := range codes {
-		switch c {
-		case http.StatusOK:
-			ok++
-		case http.StatusConflict:
-		default:
-			t.Fatalf("concurrent plan answered %d", c)
+		if c != http.StatusOK {
+			t.Fatalf("concurrent plan answered %d (codes %v): each reuses the one plan", c, codes)
 		}
 	}
-	if ok != 1 {
-		t.Fatalf("%d concurrent plans of one item were made (codes %v), want 1", ok, codes)
+	if n := len(unfinishedHolding(t, r, "pr:schuettc/hail#3")); n != 1 {
+		t.Fatalf("%d unfinished jobs hold the PR after concurrent plans, want 1", n)
 	}
+	ok := 0
 
 	// Two overlapping plans (through the store), approved at once: one wins.
 	jobs, _ := r.s.Apply.List(ctx)
@@ -240,5 +300,70 @@ func TestConcurrentPlansAndApprovesKeepAnItemInOneJob(t *testing.T) {
 	}
 	if ok != 1 {
 		t.Fatalf("%d overlapping plans were approved at once (codes %v), want 1", ok, codes)
+	}
+}
+
+// TestPreviewMakesNoPlan (Court, 2026-10-17: two tabs reviewing one group
+// cancelled each other's plans): preview builds the plan to show and stores
+// nothing: no job is made and no plan holding the keys is cancelled.
+func TestPreviewMakesNoPlan(t *testing.T) {
+	r := newRig(t)
+	decideTwo(t, r)
+	pr := "pr:schuettc/hail#3"
+	var saved PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr}}, &saved); c != http.StatusOK {
+		t.Fatalf("plan: %d", c)
+	}
+	before, _ := r.s.Apply.List(ctx)
+	var v PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr, "issue:schuettc/hail#4"}, "preview": true}, &v); c != http.StatusOK {
+		t.Fatalf("preview: %d", c)
+	}
+	if v.Job.ID != 0 || v.Job.State != apply.JobPlanned || len(v.Job.Steps) == 0 || len(v.Groups) == 0 {
+		t.Fatalf("preview = job %d (%s) with %d steps, want an unsaved plan with steps", v.Job.ID, v.Job.State, len(v.Job.Steps))
+	}
+	if after, _ := r.s.Apply.List(ctx); len(after) != len(before) {
+		t.Fatalf("preview made a job: %d jobs, want %d", len(after), len(before))
+	}
+	if j, _ := r.s.Apply.Get(ctx, saved.Job.ID); j.State != apply.JobPlanned {
+		t.Fatalf("preview cancelled plan #%d (%s)", saved.Job.ID, j.State)
+	}
+}
+
+// TestAVerifiedItemLeavesReview (Court, 2026-10-17: nine repos deleted and
+// still listed in review): an item whose step casebook verified since the
+// last sync leaves review and its count at once; the next sync, which sees
+// it gone, takes over. An item whose step failed stays.
+func TestAVerifiedItemLeavesReview(t *testing.T) {
+	r := newRig(t)
+	decideTwo(t, r)
+	pr, issue := "pr:schuettc/hail#3", "issue:schuettc/hail#4"
+	var v PlanView
+	if c := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr, issue}}, &v); c != http.StatusOK {
+		t.Fatalf("plan: %d", c)
+	}
+	for _, st := range v.Job.Steps {
+		for _, s := range []apply.StepState{apply.StepRunning, apply.StepReported} {
+			if err := r.s.Apply.SetStepState(ctx, st.ID, s, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		end := apply.StepVerified
+		if st.Key == issue {
+			end = apply.StepFailed
+		}
+		if err := r.s.Apply.SetStepState(ctx, st.ID, end, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var l ItemsView
+	if c := r.do(t, "GET", "/api/items?view=to-apply&limit=200", nil, &l); c != http.StatusOK {
+		t.Fatalf("items %d", c)
+	}
+	if got := ids(l.Items); len(got) != 1 || got[0] != issue || l.Total != 1 {
+		t.Fatalf("review lists %v (total %d), want only the failed %s", got, l.Total, issue)
+	}
+	if n := r.summary(t).Counts["to-apply"]; n != 1 {
+		t.Fatalf("review count %d, want 1", n)
 	}
 }

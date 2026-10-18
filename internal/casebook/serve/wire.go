@@ -154,6 +154,8 @@ type ItemDetailView struct {
 	Evidence  []propose.Evidence `json:"evidence"`
 	History   []journal.Event    `json:"history"`
 	Decisions []store.LogEntry   `json:"decisions"`
+	// DoneHow says how a done item got done (doneHow); "" when not done.
+	DoneHow string `json:"done_how"`
 }
 
 // DecideResult is the response body of POST /api/decide and POST

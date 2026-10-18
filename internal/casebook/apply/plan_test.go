@@ -700,3 +700,18 @@ func TestEveryPlanGroupSaysWhetherItCanBeUndone(t *testing.T) {
 		t.Error("an unknown action has no undo note")
 	}
 }
+
+// TestPermanentIsWhatCannotBeUndone (Court, 2026-10-17: confirm on
+// irrevocable changes): a step is permanent exactly when its undo note
+// says it cannot be undone.
+func TestPermanentIsWhatCannotBeUndone(t *testing.T) {
+	for _, a := range []string{"branch-delete-local", "branch-delete-remote", "worktree-remove", "repo-archive", "repo-delete", "pr-close", "pr-merge", "issue-close"} {
+		want := strings.HasPrefix(UndoNote(a), "Cannot be undone")
+		if got := Permanent(a); got != want {
+			t.Errorf("Permanent(%q) = %v, want %v (%q)", a, got, want, UndoNote(a))
+		}
+	}
+	if !Permanent("repo-delete") || Permanent("repo-archive") {
+		t.Fatal("repo-delete is permanent, repo-archive is not")
+	}
+}

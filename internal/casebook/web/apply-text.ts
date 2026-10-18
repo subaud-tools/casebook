@@ -6,19 +6,16 @@ import type { Job, JobStep, NeedsYou, Step } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 
 /**
- * applyOrder splits the jobs as apply lists them, each part newest first:
- * running (approved, running, paused) on top, the plans not approved yet
- * with the waiting groups, and done (done, failed, cancelled) last.
+ * runOrder splits the jobs as run lists them, each part newest first:
+ * running (approved, running, paused) on top, done (done, failed) below. A
+ * plan is review's (it hasn't run), and a cancelled job is a plan that was
+ * replaced before it ran: neither is listed.
  */
-export function applyOrder(jobs: Job[]): {
-  running: Job[];
-  plans: Job[];
-  done: Job[];
-} {
-  const out = { running: [] as Job[], plans: [] as Job[], done: [] as Job[] };
+export function runOrder(jobs: Job[]): { running: Job[]; done: Job[] } {
+  const out = { running: [] as Job[], done: [] as Job[] };
   for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
-    if (j.state === 'planned') out.plans.push(j);
-    else if (FINISHED_JOB.has(j.state)) out.done.push(j);
+    if (j.state === 'planned' || j.state === 'cancelled') continue;
+    if (FINISHED_JOB.has(j.state)) out.done.push(j);
     else out.running.push(j);
   }
   return out;
@@ -27,12 +24,12 @@ export function applyOrder(jobs: Job[]): {
 // A job that will not run again.
 const FINISHED_JOB = new Set(['done', 'failed', 'cancelled']);
 
-/** isRunning: approved, running or paused (applyOrder's running). */
+/** isRunning: approved, running or paused (runOrder's running). */
 export function isRunning(job: Job): boolean {
   return job.state !== 'planned' && !FINISHED_JOB.has(job.state);
 }
 
-/** isFinished: done, failed or cancelled (applyOrder's done). */
+/** isFinished: done, failed or cancelled. */
 export function isFinished(job: Job): boolean {
   return FINISHED_JOB.has(job.state);
 }
@@ -65,6 +62,30 @@ const TITLES: Record<string, string> = {
 /** actionTitle names a group of steps: "Delete local branches". */
 export function actionTitle(action: string): string {
   return TITLES[action] ?? action;
+}
+
+/**
+ * planTitle names a plan by what it does and to how many: "Delete 7
+ * repos", one part per action ("Delete 1 local branch, close 2 prs").
+ * nouns gives a kind's singular and plural (serve's vocabulary); a branch
+ * deleted locally and on the remote counts once in each.
+ */
+export function planTitle(
+  job: Job,
+  nouns: (kind: string) => [string, string],
+): string {
+  const parts = groupSteps(job.steps ?? []).map((g) => {
+    const n = new Set(g.steps.map((s) => s.key)).size;
+    const kind = g.steps[0]?.key.slice(0, g.steps[0].key.indexOf(':')) ?? '';
+    const [one, many] = nouns(kind);
+    const words = actionTitle(g.action).split(' ');
+    const mid = words.slice(1, -1);
+    return [words[0], String(n), ...mid, n === 1 ? one : many].join(' ');
+  });
+  if (!parts.length) return `job #${job.id}`;
+  return parts
+    .map((t, i) => (i ? t.charAt(0).toLowerCase() + t.slice(1) : t))
+    .join(', ');
 }
 
 const PAST: Record<string, string> = {
@@ -304,44 +325,38 @@ export function makeSeq(): { next(): number; isLatest(n: number): boolean } {
 }
 
 /**
- * outwardGo starts the sentence about where a plan's outward steps go, its
- * verb agreeing: "The outward step goes", "The 3 outward steps go".
+ * startedKeys maps each item key with a step in a job approved, running or
+ * paused to that job (the newest, when two hold it). A plan not yet
+ * approved holds nothing here: its items still wait in review, where
+ * opening their group builds (or reuses) the plan.
  */
-export function outwardGo(n: number): string {
-  return n === 1 ? 'The outward step goes' : `The ${n} outward steps go`;
-}
-
-/** Held: the unfinished job an item is in, and whether it is still a plan. */
-export interface Held {
-  id: number;
-  planned: boolean;
-}
-
-/**
- * plannedKeys maps each item key with a step in an unfinished job (a plan
- * not yet approved or discarded, or a job approved, running or paused) to
- * that job: serve plans an item into at most one. A started job is named
- * before a plan (the newest of each, when two hold it: jobs from before
- * serve kept to one). Done, failed and cancelled jobs hold nothing.
- */
-export function plannedKeys(jobs: Job[]): Map<string, Held> {
-  const m = new Map<string, Held>();
-  const rank = (h: Held) => (h.planned ? 0 : 1);
+export function startedKeys(jobs: Job[]): Map<string, number> {
+  const m = new Map<string, number>();
   for (const j of jobs) {
-    if (!['planned', 'approved', 'running', 'paused'].includes(j.state))
-      continue;
-    const h: Held = { id: j.id, planned: j.state === 'planned' };
+    if (!STARTED.has(j.state)) continue;
     for (const s of j.steps ?? []) {
       const was = m.get(s.key);
-      if (
-        !was ||
-        rank(h) > rank(was) ||
-        (rank(h) === rank(was) && h.id > was.id)
-      )
-        m.set(s.key, h);
+      if (was === undefined || j.id > was) m.set(s.key, j.id);
     }
   }
   return m;
+}
+
+const STARTED = new Set(['approved', 'running', 'paused']);
+
+/**
+ * runsThrough is review's line about who runs a plan: its outward steps
+ * run through the agent the page is attached to; with none attached they
+ * can't run. An all-local plan needs no agent.
+ */
+export function runsThrough(
+  steps: Step[],
+  agent: string | null,
+): { text: string; can: boolean } {
+  if (!needsSession(steps)) return { text: '', can: true };
+  if (agent === null)
+    return { text: 'Open casebook from an agent to run this.', can: false };
+  return { text: `runs through ${agent || 'agent'}`, can: true };
 }
 
 /** ageText: a short age, "40s", "12m", "3h", "2d". */
@@ -388,8 +403,8 @@ export function stepGroup(s: Step): string {
 }
 
 /**
- * heldOutside counts the items of waiting group id that an unfinished job
- * holds and the list hasn't loaded: each item once, however many steps its
+ * heldOutside counts the items of waiting group id that a started job
+ * (approved, running, paused) holds and the list hasn't loaded: each item once, however many steps its
  * job has for it (a branch's local and remote delete).
  */
 export function heldOutside(
@@ -399,8 +414,7 @@ export function heldOutside(
 ): number {
   const held = new Set<string>();
   for (const j of jobs) {
-    if (!['planned', 'approved', 'running', 'paused'].includes(j.state))
-      continue;
+    if (!STARTED.has(j.state)) continue;
     for (const s of j.steps ?? [])
       if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
   }

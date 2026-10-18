@@ -3,7 +3,7 @@
 // pane.
 //
 // makeDecide(ctx) builds the kit list(), wires the filters, the rule row
-// ("+ rule", "rules N") and search, fetches items from GET /api/items
+// (a chip per rule, "+ rule") and search, fetches items from GET /api/items
 // (view=all), and opens items in the reading column via renderItem() from
 // item.ts. Each rule's recommendations are a group whose header is the rule
 // (its name, "rule", its decision, its count, ⋯); "Came back" leads.
@@ -67,14 +67,19 @@ import { showChoiceError } from './choices.ts';
 import { lookingLine } from './sessions.ts';
 import { coalesced } from './coalesce.ts';
 import { openDiscardSheet } from './proposals.ts';
-import { makeFilterBar, filterEditor, type FilterEditor } from './filters.ts';
+import {
+  makeFilterBar,
+  filterEditor,
+  renderFilter,
+  type FilterEditor,
+} from './filters.ts';
 import {
   makeRuleRow,
   ruleEditor,
   ruleMenu,
   toggleRule,
 } from './rule-editor.ts';
-import { PREVIEW_DEBOUNCE_MS, renderRule, renderRuleList } from './rules.ts';
+import { PREVIEW_DEBOUNCE_MS, renderRule } from './rules.ts';
 import { parseFilterIds, filterLabel } from './filters-text.ts';
 
 // STRIP_MS is how long the strip after an outward decision ("Closed it ·
@@ -192,11 +197,11 @@ export function makeDecide(ctx: Ctx): Section {
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let totalItemsForView = 0; // updated after every load
   // The view's groups (serve's order and counts, every page) and the ones
-  // Court collapsed (in memory only). A collapsed group's rows are not
-  // given to the list, so j and k pass over them.
+  // Court opened (in memory only). Every group starts collapsed (Court,
+  // 2026-10-17: what's waiting reads as a list of groups); serve sends the
+  // rows of the open ones alone (open=), so j and k pass over the rest.
   let groups: GroupView[] = [];
-  // The left-open group starts collapsed.
-  const collapsed = new Set<string>([LEFT_OPEN]);
+  const opened = new Set<string>();
   // What the page knows of each item it has seen in a group (loaded rows
   // and a group fetched whole): its group and its pending proposal's id.
   // A ticked item on a page not loaded is counted and acted on from here.
@@ -319,7 +324,7 @@ export function makeDecide(ctx: Ctx): Section {
     // editing a rule, which rule).
     else if (draft !== null && editing === 'rule' && editingId)
       ctx.setAttached({ rule: editingId, list: listAttached() });
-    else if (draft === null && !listShown && filters.rule)
+    else if (draft === null && filters.rule)
       ctx.setAttached({ rule: filters.rule });
     else ctx.setAttached({ list: listAttached() });
   }
@@ -342,15 +347,56 @@ export function makeDecide(ctx: Ctx): Section {
   function showReadEmpty(): void {
     currentOpenKey = null;
     shownDetail = null;
-    listShown = false;
-    // A selected rule shows in the middle pane until an item is opened.
+    // A selected rule shows in the middle pane until an item is opened;
+    // so does a selected filter (the one last clicked, else the last
+    // selected), or one that doesn't validate, clicked to fix.
     const rr =
       filters.rule && draft === null
         ? ruleRows.find((r) => r.rule.id === filters.rule)
         : undefined;
+    const fr = draft === null && !filters.rule ? filterShown() : undefined;
     readEl.replaceChildren(renderReadEmpty());
     if (rr) void showRuleDoc(rr);
+    else if (fr) showFilterDoc(fr);
     feedAttached();
+  }
+
+  // shownFilter is the filter chip last clicked: the middle pane shows it
+  // while it is selected (or, not valid, until another is clicked).
+  let shownFilter: string | null = null;
+  function filterShown(): FilterRow | undefined {
+    const sel = filters.filters;
+    const clicked = filterRows.find((r) => r.filter.id === shownFilter);
+    if (clicked && (clicked.invalid || sel.includes(clicked.filter.id)))
+      return clicked;
+    const last = sel[sel.length - 1];
+    return filterRows.find((r) => r.filter.id === last);
+  }
+  // showFilterDoc puts a filter in the middle pane, read only, with edit,
+  // make a rule and delete.
+  function showFilterDoc(fr: FilterRow): void {
+    const id = fr.filter.id;
+    readEl.replaceChildren(
+      renderFilter(ctx, fr, {
+        onEdit() {
+          openFilterEditor(fr);
+        },
+        onMakeRule() {
+          openRuleEditor(null, {
+            name: fr.filter.name,
+            match: fr.filter.match ?? [],
+          });
+        },
+        onDeleted() {
+          if (shownFilter === id) shownFilter = null;
+          filterRows = filterRows.filter((r) => r.filter.id !== id);
+          if (filters.filters.includes(id))
+            selectFilters(filters.filters.filter((x) => x !== id));
+          else showReadEmpty();
+          void loadFilters();
+        },
+      }),
+    );
   }
 
   // showRuleDoc puts the selected rule in the middle pane, read only, with
@@ -385,41 +431,9 @@ export function makeDecide(ctx: Ctx): Section {
     );
   }
 
-  // showRuleList puts every rule, off ones too, in the middle pane ("rules
-  // N"): a row opens its rule and narrows the list to it.
-  function showRuleList(): void {
-    if (draft !== null) closeFilterEditor(true);
-    if (currentOpenKey) goList();
-    currentOpenKey = null;
-    shownDetail = null;
-    listShown = true;
-    paintRuleList();
-    feedAttached();
-  }
-  function paintRuleList(): void {
-    readEl.replaceChildren(
-      renderRuleList(ctx, ruleRows, {
-        onOpen(row) {
-          listShown = false;
-          selectRule(row.rule.id);
-        },
-        onEdit(row) {
-          listShown = false;
-          openRuleEditor(row, null);
-        },
-        async onToggle(row) {
-          await toggleRule(ctx, row);
-          await loadRules();
-          void reload();
-        },
-      }),
-    );
-  }
-  // listShown: the middle pane shows the rule list (it follows the rules).
-  let listShown = false;
-
-  // Initialise the reading column with the empty state so it is never blank.
-  showReadEmpty();
+  // Initialise the reading column with the empty state so it is never blank
+  // (nothing is selected yet: the filters and rules aren't loaded).
+  readEl.replaceChildren(renderReadEmpty());
 
   // ---- foot -----------------------------------------------------------------
 
@@ -531,41 +545,40 @@ export function makeDecide(ctx: Ctx): Section {
   // between the view chips and the switch.
   let filterRows: FilterRow[] = [];
   const filterBar = makeFilterBar(ctx, {
-    onSelect(ids) {
+    onSelect(ids, clicked) {
+      // A chip clicked while an editor is open ends it first.
+      if (draft !== null) closeFilterEditor(false);
+      shownFilter = ids.includes(clicked) ? clicked : null;
       selectFilters(ids);
     },
-    onChanged() {
-      void loadFilters().then(() => {
-        if (filtered()) void reload();
-      });
+    onOpen(row) {
+      if (draft !== null) closeFilterEditor(true);
+      shownFilter = row.filter.id;
+      // A selected rule has the middle pane: drop it so the filter shows.
+      if (filters.rule) selectRule(null);
+      else {
+        if (currentOpenKey) goList();
+        showReadEmpty();
+      }
     },
-    onDeleted(id) {
-      if (editingId === id) closeFilterEditor(true);
-      if (filters.filters.includes(id))
-        selectFilters(filters.filters.filter((x) => x !== id));
-    },
-    onEdit(row) {
-      openFilterEditor(row);
-    },
-    onMakeRule(row) {
-      openRuleEditor(null, {
-        name: row.filter.name,
-        match: row.filter.match ?? [],
-      });
+    onNew() {
+      openFilterEditor(null);
     },
   });
 
-  // ---- rules: "+ rule" and "rules N" under the filters ----------------------
+  // ---- rules: a chip per rule under the filters ------------------------------
 
   // ruleRows are serve's rules (GET /api/rules), off ones too: their names
-  // head their groups, and "rules N" lists them.
+  // head their groups, and each is a chip.
   let ruleRows: RuleRow[] = [];
   const ruleRow = makeRuleRow(ctx, {
+    onSelect(id) {
+      // A chip clicked while an editor is open ends it first.
+      if (draft !== null) closeFilterEditor(false);
+      selectRule(id);
+    },
     onNew() {
       openRuleEditor(null, null);
-    },
-    onList() {
-      showRuleList();
     },
   });
   async function loadRules(): Promise<void> {
@@ -587,10 +600,9 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
   function paintRules(): void {
-    ruleRow.paint(ruleRows);
+    ruleRow.paint(ruleRows, draft !== null ? null : filters.rule);
     // The groups' headers name their rules.
     paintAll();
-    if (listShown && draft === null && !currentOpenKey) paintRuleList();
   }
   // selectRule makes id the selection (null: back to everything): the list
   // shows the rule's matches, the middle pane the rule.
@@ -800,6 +812,9 @@ export function makeDecide(ctx: Ctx): Section {
       filterRows = v.filters ?? [];
       paintFilters();
       paintRail();
+      // The middle pane shows the selected filter as saved (one just
+      // saved, too), unless an item, a rule or an editor has it.
+      if (draft === null && !currentOpenKey && !filters.rule) showReadEmpty();
     } catch {
       // non-fatal: the chips stay as they were
     }
@@ -916,6 +931,8 @@ export function makeDecide(ctx: Ctx): Section {
     p['limit'] = String(PAGE_SIZE);
     if (filters.q) p['q'] = filters.q;
     if (flat) p['group'] = 'false';
+    else
+      p['open'] = JSON.stringify([...opened].filter((id) => id !== LEFT_OPEN));
     return p;
   }
 
@@ -975,7 +992,7 @@ export function makeDecide(ctx: Ctx): Section {
         return;
       }
       totalItems = data.total;
-      totalItemsForView = data.total;
+      totalItemsForView = viewTotal(data);
       loadedItems = items;
       leftOpen = data.left_open ?? [];
       leftOpenTotal = data.left_open_total ?? 0;
@@ -990,7 +1007,7 @@ export function makeDecide(ctx: Ctx): Section {
         editor?.showError(null);
         paintPreviewLine(
           draft.length
-            ? `previewing a draft ${editing} \u00b7 ${pluralize(data.total, 'item')}`
+            ? `previewing a draft ${editing} \u00b7 ${pluralize(viewTotal(data), 'item')}`
             : 'add a condition to preview',
         );
       }
@@ -1029,6 +1046,13 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
+  // viewTotal is how many the view holds: grouped, every group's count
+  // (serve's total is the open groups' rows, what the pages go through).
+  function viewTotal(data: ItemsView): number {
+    if (flat || !data.groups?.length) return data.total;
+    return data.groups.reduce((n, g) => n + g.total, 0);
+  }
+
   // loadMore adds the next page ("show more"). Not while the first page is
   // loading (it starts the rows again); a page that comes back after a
   // first-page load started is not added (the rows it followed are gone).
@@ -1049,7 +1073,7 @@ export function makeDecide(ctx: Ctx): Section {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       totalItems = data.total;
-      totalItemsForView = data.total;
+      totalItemsForView = viewTotal(data);
       setRows();
       markOpenRow();
       updateFoot();
@@ -1066,10 +1090,10 @@ export function makeDecide(ctx: Ctx): Section {
   // left-open group last: its header and (expanded) its muted rows.
   function setRows(): void {
     const withLeft = offset >= totalItems && leftOpenTotal > 0;
-    const left = withLeft && !collapsed.has(LEFT_OPEN) ? leftOpen : [];
+    const left = withLeft && opened.has(LEFT_OPEN) ? leftOpen : [];
     const open = flat
       ? loadedItems
-      : loadedItems.filter((it) => !collapsed.has(it.group));
+      : loadedItems.filter((it) => opened.has(it.group));
     shown = [...open, ...left];
     handle.setItems(shown);
     const rowEls = handle.el.querySelectorAll<HTMLElement>(
@@ -1113,9 +1137,10 @@ export function makeDecide(ctx: Ctx): Section {
 
   // ---- « ‹ › »: the open item's place in the list ---------------------------
 
-  // navOrder is the list's loaded rows in group order, a collapsed group's
-  // included, the left-open group last once every page is loaded. Flat,
-  // the rows are one group (the view).
+  // navOrder is the list's loaded rows in group order: serve sends only the
+  // open groups' rows (openNeighbour opens a collapsed one to move into),
+  // the left-open group last once every page is loaded. Flat, the rows are
+  // one group (the view).
   function navOrder(): { key: string; group: string }[] {
     const rows = loadedItems.map((it) => ({
       key: it.key,
@@ -1252,8 +1277,19 @@ export function makeDecide(ctx: Ctx): Section {
   async function navGo(which: NavWhich): Promise<void> {
     const key = currentOpenKey;
     if (!key) return;
-    let target = navTargets(navOrder(), navGroups(), key)[which];
     const ahead = which === 'next' || which === 'nextGroup';
+    // Groups start collapsed and serve sends only the open ones' rows: a
+    // move out of key's group into a collapsed neighbour (in serve's order)
+    // opens it and loads its rows first, so the move lands there and not in
+    // the next open group after it.
+    if (
+      which === 'nextGroup' ||
+      which === 'prevGroup' ||
+      atGroupEdge(key, ahead)
+    )
+      await openNeighbour(key, ahead);
+    if (currentOpenKey !== key) return;
+    let target = navTargets(navOrder(), navGroups(), key)[which];
     while (!target && ahead && offset < totalItems) {
       const before = offset;
       if (reloading) await reload();
@@ -1264,11 +1300,50 @@ export function makeDecide(ctx: Ctx): Section {
     }
     if (!target || currentOpenKey !== key) return;
     const group = navOrder().find((r) => r.key === target)?.group ?? '';
-    if (collapsed.has(group)) {
-      collapsed.delete(group);
+    if (!opened.has(group)) {
+      opened.add(group);
       setRows();
     }
     openKey(target);
+  }
+
+  // atGroupEdge: key is its group's last row (ahead: every one of its rows
+  // loaded) or first row, so › or ‹ leaves the group.
+  function atGroupEdge(key: string, ahead: boolean): boolean {
+    const order = navOrder();
+    const i = order.findIndex((r) => r.key === key);
+    if (i < 0) return false;
+    const g = order[i].group;
+    if (!ahead) return i === 0 || order[i - 1].group !== g;
+    if (i + 1 < order.length && order[i + 1].group === g) return false;
+    const total = navGroups().find((x) => x.id === g)?.total ?? 0;
+    return order.filter((r) => r.group === g).length >= total;
+  }
+
+  // openNeighbour opens the group next to key's (after it ahead, else
+  // before) in serve's order when it is collapsed and has items, and loads
+  // its rows. false when the neighbour is open, empty or there is none.
+  async function openNeighbour(key: string, ahead: boolean): Promise<boolean> {
+    if (flat) return false;
+    const cur = navOrder().find((r) => r.key === key)?.group;
+    if (cur === undefined) return false;
+    const gs = navGroups();
+    const at = gs.findIndex((g) => g.id === cur);
+    if (at < 0) return false;
+    for (
+      let i = at + (ahead ? 1 : -1);
+      i >= 0 && i < gs.length;
+      i += ahead ? 1 : -1
+    ) {
+      const g = gs[i];
+      if (g.total <= 0 || (g.id === LEFT_OPEN && offset < totalItems)) continue;
+      if (opened.has(g.id)) return false;
+      opened.add(g.id);
+      if (g.id === LEFT_OPEN) setRows();
+      else await reload();
+      return true;
+    }
+    return false;
   }
 
   // ---- the groups ------------------------------------------------------------
@@ -1303,10 +1378,9 @@ export function makeDecide(ctx: Ctx): Section {
     const body = handle.el.querySelector<HTMLElement>('.kit-rows');
     heads = [];
     if (!body) return;
-    const loaded = new Set(loadedItems.map((it) => it.group));
+    // Every group has its header, from serve's counts, loaded rows or not.
     let last: Element | null = null;
     for (const g of groups) {
-      if (!loaded.has(g.id)) continue;
       const head = groupHead(g);
       heads.push(head);
       const first = open.findIndex((it) => it.group === g.id);
@@ -1339,12 +1413,16 @@ export function makeDecide(ctx: Ctx): Section {
     tags: HTMLElement[] = [],
     more: HTMLElement | null = null,
   ): { el: HTMLElement; acts: HTMLElement } {
-    const isOpen = !collapsed.has(id);
+    const isOpen = opened.has(id);
+    // Opening a group asks serve for its rows (the left-open group's come
+    // with every load); closing one drops them.
     const toggleOpen = (): void => {
-      if (collapsed.has(id)) collapsed.delete(id);
-      else collapsed.add(id);
-      setRows();
-      markOpenRow();
+      if (opened.has(id)) opened.delete(id);
+      else opened.add(id);
+      if (id === LEFT_OPEN) {
+        setRows();
+        markOpenRow();
+      } else void reload();
     };
     const top = h(
       'div',
@@ -1634,11 +1712,11 @@ export function makeDecide(ctx: Ctx): Section {
     }
     try {
       const items = await fetchGroup(g);
-      if (collapsed.delete(g.id)) {
-        setRows();
-        markOpenRow();
-      }
       selection.all(items.map((it) => it.key));
+      if (!opened.has(g.id)) {
+        opened.add(g.id);
+        void reload();
+      }
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
     }
@@ -1840,6 +1918,7 @@ export function makeDecide(ctx: Ctx): Section {
     const p = buildQuery(0);
     delete p['offset'];
     delete p['limit'];
+    delete p['open'];
     return p;
   }
 
@@ -2603,13 +2682,7 @@ export function makeDecide(ctx: Ctx): Section {
         // another): the rule row, the groups' headers and an open rule
         // follow.
         void loadRules().then(() => {
-          if (
-            filters.rule &&
-            !currentOpenKey &&
-            draft === null &&
-            !listShown &&
-            active
-          )
+          if (filters.rule && !currentOpenKey && draft === null && active)
             showReadEmpty();
         });
       } else if (type === 'filters') {

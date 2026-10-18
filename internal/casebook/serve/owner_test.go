@@ -95,7 +95,10 @@ func TestOpenAttachesThePageToTheCallingSession(t *testing.T) {
 	}{
 		{`{"session":"s1"}`, 200, "?t=" + adv.Token + "&session=s1"},
 		{`{"session":"s1","key":"pr:schuettc/hail#3"}`, 200, "?t=" + adv.Token + "&session=s1#/item/pr:schuettc%2Fhail%233"},
-		{`{"session":"s1","view":"proposed"}`, 400, ""},
+		// An agent's channel started before views went still sends view
+		// (empty or not): it is ignored, so that agent can still open the page.
+		{`{"session":"s1","view":"proposed"}`, 200, "?t=" + adv.Token + "&session=s1"},
+		{`{"session":"s1","view":""}`, 200, "?t=" + adv.Token + "&session=s1"},
 		{`{}`, 200, "?t=" + adv.Token},
 		{`{"session":"nobody"}`, 404, ""},
 	} {

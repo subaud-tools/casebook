@@ -157,7 +157,7 @@ func TestVocabularyGroupWords(t *testing.T) {
 	if v.CountWords != (CountWords{One: "it", Two: "both", All: "all {n}", Some: "{n}"}) {
 		t.Fatalf("count words %+v", v.CountWords)
 	}
-	if v.ToApplyHint != "goes to apply first" || v.Untick != "untick" {
+	if v.ToApplyHint != "goes to review first" || v.Untick != "untick" {
 		t.Fatalf("hint %q, untick %q", v.ToApplyHint, v.Untick)
 	}
 	if v.LeftOpen != "left open" {
@@ -314,5 +314,39 @@ func TestWithdrawFlatIsTheWholeView(t *testing.T) {
 	r.proposeFor(t, []string{"issue:schuettc/hail#5"}, "keep")
 	if n := r.withdraw(t, map[string]any{"view": "new", "group": "false"}); n != 2 {
 		t.Fatalf("withdrew %d from the flat list, want 2", n)
+	}
+}
+
+// TestItemsOpenListsOnlyTheOpenGroups: with every group collapsed (Court,
+// 2026-10-17), the page asks for the rows of the open groups alone (open=, a JSON
+// list; an empty list lists no rows), and still gets every
+// group's count.
+func TestItemsOpenListsOnlyTheOpenGroups(t *testing.T) {
+	r := newRig(t)
+	var its []engine.Item
+	var closing []string
+	for n := 1; n <= 30; n++ {
+		it := newPR(n, false)
+		its = append(its, it)
+		if n <= 10 {
+			closing = append(closing, it.ID)
+		}
+	}
+	r.s.Index.set(engine.Result{Items: its}, r.s.Index.Head(), time.Now())
+	if _, errs := r.s.Props.Propose(ctx, "pi:s1", closing, "close", "", ""); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	id := "pi:s1|close|Close it without merging"
+	for _, c := range []struct {
+		open  string
+		total int
+	}{{`[]`, 0}, {`["` + id + `"]`, 10}, {`["none"]`, 20}, {`["` + id + `","none"]`, 30}} {
+		var l ItemsView
+		if code := r.do(t, "GET", "/api/items?view=all&limit=200&open="+url.QueryEscape(c.open), nil, &l); code != 200 {
+			t.Fatalf("items %d", code)
+		}
+		if l.Total != c.total || len(l.Items) != c.total || len(l.Groups) != 2 {
+			t.Fatalf("open=%q: total %d, %d items, groups %+v; want %d", c.open, l.Total, len(l.Items), l.Groups, c.total)
+		}
 	}
 }

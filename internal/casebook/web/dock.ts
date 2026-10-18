@@ -28,6 +28,7 @@
 // asking the agent opens it; the header's › folds it back. A click is
 // kept for the tab (sessionStorage) until a message arrives.
 
+import { latestInOrder } from './in-order.ts';
 import { h, card } from '/_kit/kit.js';
 import type {
   Session,
@@ -224,7 +225,7 @@ function renderAgentBody(msg: MessageView): Node {
         href: '#',
         onclick(e: Event) {
           e.preventDefault();
-          go('apply', encodeURIComponent(id));
+          go('run', encodeURIComponent(id));
         },
       });
       a.textContent = `job ${id}`;
@@ -1093,9 +1094,17 @@ export function makeDock(ctx: Ctx): DockHandle {
     ctx.setAgentName(sess?.harness ?? '');
   }
 
+  // tellAttached tells serve the agent this tab is attached to ("" for
+  // none): a restart reopens the page for it. In order, the latest last: a
+  // slow report of an earlier agent never lands after a later one.
+  const tellAttached = latestInOrder((id: string) =>
+    ctx.api.post('/page/attached', { session: id }),
+  );
+
   // detach drops a lone-session guess: no session, so the chooser asks.
   function detach() {
     auto = false;
+    if (currentSessionId) tellAttached('');
     currentSessionId = '';
     currentThreadId = 0;
     threads = [];
@@ -1111,6 +1120,7 @@ export function makeDock(ctx: Ctx): DockHandle {
 
   async function switchSession(id: string) {
     currentSessionId = id;
+    tellAttached(id);
     currentThreadId = 0;
     // The tray holds the previous session's batch until the new threads
     // load: empty it now, so it can never send that batch here.
@@ -1323,6 +1333,10 @@ export function makeDock(ctx: Ctx): DockHandle {
       // Asking the agent opens the pane, where the answer will show.
       if (manual !== true) setManual(true);
       return composer.sendText(body, attached, purpose);
+    },
+    pane: () => manual,
+    setPane(v: boolean | null): void {
+      if (v !== manual) setManual(v);
     },
   };
 }

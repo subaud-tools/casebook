@@ -117,15 +117,15 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 						// A restart reopens a page that was open: its tab's
 						// token died with the old serve.
 						// The open Court asked for is attached to the session
-						// that asked (if any); a reopen after a restart is not
-						// anyone's: whoever started this serve isn't the
-						// session the old tab belonged to, so the page asks.
-						Ready: func(url string, pageWasOpen bool) {
+						// that asked (if any); a reopen after a restart is
+						// attached to the agent the old tab was (Court,
+						// 2026-10-18: restarts left the page with no agent).
+						Ready: func(url string, pageWasOpen bool, session string) {
 							switch {
 							case !boolFlag(fs, "no-open"):
 								_ = openBrowser(url + serve.SessionQuery(callerSession()))
 							case pageWasOpen:
-								_ = openBrowser(url)
+								_ = openBrowser(url + serve.SessionQuery(session))
 							}
 						},
 						Open: func(url string) error { return openBrowser(url) }})

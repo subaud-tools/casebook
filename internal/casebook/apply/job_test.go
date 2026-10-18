@@ -1576,3 +1576,41 @@ func TestAJobsStepsSayWhetherTheyCanBeUndone(t *testing.T) {
 		}
 	}
 }
+
+// TestVerifiedSinceNeedsEveryStepOfTheItem (review, 2026-10-18): an item is
+// done only when every step its job holds for it is verified. A branch
+// whose local delete verified and whose remote delete failed is not done.
+func TestVerifiedSinceNeedsEveryStepOfTheItem(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore(openTestDB(t))
+	before := time.Now().Add(-time.Minute)
+	half, both := "branch:schuettc/a@x", "branch:schuettc/b@y"
+	_, js := makeJob(t, s, []Step{
+		{Key: half, Action: "branch-delete-local", Lane: LaneCasebook, Command: "git branch -D x"},
+		{Key: half, Action: "branch-delete-remote", Lane: LaneCasebook, Command: "git push origin :x"},
+		{Key: both, Action: "branch-delete-local", Lane: LaneCasebook, Command: "git branch -D y"},
+		{Key: both, Action: "branch-delete-remote", Lane: LaneCasebook, Command: "git push origin :y"},
+	})
+	walk := func(id int64, to ...StepState) {
+		for _, st := range to {
+			if err := s.SetStepState(ctx, id, st, ""); err != nil {
+				t.Fatalf("step %d → %s: %v", id, st, err)
+			}
+		}
+	}
+	walk(js[0].ID, StepRunning, StepReported, StepVerified)
+	walk(js[1].ID, StepRunning, StepFailed)
+	walk(js[2].ID, StepRunning, StepReported, StepVerified)
+	walk(js[3].ID, StepRunning, StepReported, StepVerified)
+	got, err := s.VerifiedSince(ctx, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got[half]; ok {
+		t.Errorf("%s: local verified, remote failed: reported done (%v)", half, got)
+	}
+	v, ok := got[both]
+	if !ok || v.First.IsZero() || v.Last.Before(v.First) {
+		t.Errorf("%s: every step verified: got %+v, %v", both, v, ok)
+	}
+}

@@ -22,6 +22,10 @@ type Index struct {
 	builtAt time.Time
 	head    string
 	gen     uint64 // bumped on every set: which build a cached count belongs to
+	// Applied is each key casebook verified done since an observation (serve
+	// sets it): such an item has left To apply before a sync sees it gone.
+	// decided is when an item's current decision was made.
+	Applied func(since time.Time, decided func(key string) time.Time) map[string]bool
 }
 
 func (x *Index) set(r engine.Result, head string, at time.Time) {
@@ -93,6 +97,7 @@ type Query struct {
 	Rule     string          // rule id whose matched keys are in MatchSet
 	MatchSet map[string]bool // the keys a rule matched (Rule != ""): only those items; nil: no such filter
 	Group    string          // a group's ID (GroupView.ID): only its items
+	Open     map[string]bool // the groups the page has open (open=): only their items; nil: every group's
 	Flat     bool            // group=false: one list, newest first; items keep their Group and Groups still count
 	Filtered bool            // filters=: every item, whatever its status, in MatchSet
 	Now      time.Time       // clock for the age filter; zero falls back to time.Now()
@@ -113,6 +118,19 @@ func inView(view string, it engine.Item, pending map[string]propose.Proposal) bo
 		return it.Status == item.StatusToApply && it.Decision != nil
 	}
 	return true
+}
+
+// applied is Applied for this build (nil without one). The caller holds x.mu.
+func (x *Index) applied() map[string]bool {
+	if x.Applied == nil {
+		return nil
+	}
+	return x.Applied(x.builtAt, func(key string) time.Time {
+		if it, ok := x.byKey[key]; ok && it.Decision != nil {
+			return it.Decision.DecidedAt
+		}
+		return time.Time{}
+	})
 }
 
 // leftOpenInView reports whether an item left open belongs to an Attention
@@ -224,6 +242,9 @@ func matches(q Query, it engine.Item, group string) bool {
 	if q.Group != "" && group != q.Group {
 		return false
 	}
+	if q.Open != nil && !q.Open[group] {
+		return false
+	}
 	if q.Kind != "" && string(it.Kind) != q.Kind {
 		return false
 	}
@@ -316,8 +337,12 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 	var out []ItemView
 	groups := map[string]*GroupView{}
 	var gs []string
+	var done map[string]bool
+	if q.View == ViewToApply && !q.Filtered {
+		done = x.applied()
+	}
 	for _, it := range src {
-		if !q.Filtered && !inView(q.View, it, pending) {
+		if !q.Filtered && !inView(q.View, it, pending) || done[it.ID] {
 			continue
 		}
 		g := groupOf(q.View, it, pending)
@@ -374,7 +399,7 @@ func (x *Index) List(q Query, pending map[string]propose.Proposal) ([]ItemView, 
 func (x *Index) Groups(q Query, pending map[string]propose.Proposal) []GroupView {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
-	q.Group = ""
+	q.Group, q.Open = "", nil
 	_, gs := x.listed(q, pending)
 	return gs
 }
@@ -389,8 +414,12 @@ func (x *Index) Keys(q Query, pending map[string]propose.Proposal) []string {
 		src = x.res.Items
 	}
 	var out []string
+	var done map[string]bool
+	if q.View == ViewToApply && !q.Filtered {
+		done = x.applied()
+	}
 	for _, it := range src {
-		if (q.Filtered || inView(q.View, it, pending)) && matches(q, it, groupOf(q.View, it, pending).ID) {
+		if (q.Filtered || inView(q.View, it, pending)) && !done[it.ID] && matches(q, it, groupOf(q.View, it, pending).ID) {
 			out = append(out, it.ID)
 		}
 	}
@@ -450,8 +479,9 @@ func (x *Index) Counts(pending map[string]propose.Proposal) map[string]int {
 			}
 		}
 	}
+	done := x.applied()
 	for _, it := range x.res.Items {
-		if inView(ViewToApply, it, pending) {
+		if inView(ViewToApply, it, pending) && !done[it.ID] {
 			c[ViewToApply]++
 		}
 	}

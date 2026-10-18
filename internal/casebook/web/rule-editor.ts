@@ -2,9 +2,9 @@
 // filter that recommends; both live with the items, one editor, one
 // preview).
 //
-// makeRuleRow(ctx, hooks) is the row under the filters: "+ rule" and
-// "rules N". ruleMenu(row, hooks) is a rule's ⋯ (edit, turn off or on), on
-// its group's header and in the rule list.
+// makeRuleRow(ctx, hooks) is the row under the filters, drawn as they are:
+// a chip per rule, then "+ rule". ruleMenu(row, hooks) is a rule's ⋯ (edit,
+// turn off or on), on its group's header.
 //
 // ruleEditor(ctx, row, seed, hooks) is the filter editor with one more line:
 // what the rule proposes (a decision, and a note). Saving turns the rule on
@@ -55,7 +55,7 @@ export function dispositionLabel(
 
 /**
  * ruleMenu is a rule's ⋯ and its menu: edit, turn off (or on). It goes on
- * a rule group's header and on each row of the rule list.
+ * a rule's group header.
  */
 export function ruleMenu(
   row: RuleRow,
@@ -140,18 +140,28 @@ export async function toggleRule(ctx: Ctx, row: RuleRow): Promise<void> {
 
 export interface RuleRowBar {
   el: HTMLElement;
-  paint(rows: RuleRow[]): void;
+  paint(rows: RuleRow[], selected: string | null): void;
 }
 
 /**
- * makeRuleRow is the row under the filters: "+ rule" (a new rule, in the
- * editor beside the list) and "rules N" (every rule, off ones too, in the
- * middle pane).
+ * makeRuleRow is the row under the filters, drawn as the filters are: a
+ * "rules" label, one chip per rule (off ones dimmed), then "+ rule". A chip
+ * selects its rule (hooks.onSelect; the selected one again: null, back to
+ * everything), and the page shows it in the middle pane with edit and turn
+ * on / off. A rule that doesn't validate shows marked, with serve's message
+ * as its title.
  */
 export function makeRuleRow(
   _ctx: Ctx,
-  hooks: { onNew(): void; onList(): void },
+  hooks: {
+    onSelect(id: string | null): void;
+    onNew(): void;
+  },
 ): RuleRowBar {
+  const chipsEl = h('div', {
+    class: 'kit-chips cb-filter-chips',
+    'data-group': 'rules',
+  });
   const addBtn = h(
     'button',
     {
@@ -164,30 +174,47 @@ export function makeRuleRow(
     },
     '+ rule',
   );
-  const listBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'kit-chip cb-rules-n',
-      'data-testid': 'rules-n',
-      onclick() {
-        hooks.onList();
-      },
-    },
-    'rules 0',
-  );
   const el = h(
     'div',
-    { class: 'kit-chips cb-rule-row', 'aria-label': 'rules' },
-    addBtn,
-    listBtn,
+    { class: 'cb-filters cb-rule-row', 'aria-label': 'rules' },
+    h('span', { class: 'cb-bar-label' }, 'rules'),
+    chipsEl,
   );
-  return {
-    el,
-    paint(rows) {
-      listBtn.textContent = `rules ${rows.length}`;
-    },
-  };
+
+  function chip(row: RuleRow, selected: string | null): HTMLElement {
+    const id = row.rule.id;
+    const on = selected === id;
+    const off = row.rule.status !== 'active';
+    const b = h(
+      'button',
+      {
+        type: 'button',
+        class:
+          'kit-chip cb-rule-chip' +
+          (on ? ' on' : '') +
+          (off ? ' cb-rule-off' : ''),
+        'data-id': id,
+        'aria-pressed': String(on),
+        title: off ? 'off' : '',
+        onclick() {
+          hooks.onSelect(on ? null : id);
+        },
+      },
+      row.rule.name || id,
+    );
+    if (row.invalid) {
+      b.setAttribute('data-invalid', '');
+      b.title = row.invalid;
+    }
+    return b;
+  }
+
+  function paint(rows: RuleRow[], selected: string | null): void {
+    chipsEl.replaceChildren(...rows.map((r) => chip(r, selected)), addBtn);
+  }
+
+  paint([], null);
+  return { el, paint };
 }
 
 export interface RuleEditor {

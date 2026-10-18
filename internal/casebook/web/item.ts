@@ -272,8 +272,14 @@ export function renderItem(
 
   // ---- facts: one line, "came back · ‹reason›" first when it came back -----
   const factPairs: Array<[string, string]> = [];
+  // A done item says how, in serve's words: casebook's job, or found already
+  // so with nothing run (never only "done", which reads as casebook's work).
+  if (it.status)
+    factPairs.push([
+      'status',
+      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status,
+    ]);
   if (it.repo) factPairs.push(['repo', it.repo]);
-  if (it.status) factPairs.push(['status', it.status]);
   if (it.author)
     factPairs.push(['author', it.author + (it.author_is_bot ? ' (bot)' : '')]);
   if (it.created_at) factPairs.push(['opened', fmtDate(it.created_at)]);

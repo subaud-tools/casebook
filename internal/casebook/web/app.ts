@@ -7,6 +7,7 @@
 //
 // Later tasks import registerSection and registerDock to fill in the sections.
 
+import { browserShared } from './shared-stream.ts';
 import {
   bar,
   type BarHandle,
@@ -23,8 +24,15 @@ import {
   type Primary,
 } from '/_kit/kit.js';
 import type { Attached, SummaryView } from './wire.d.ts';
-import { onRoute, dispatchCurrent, go, type Route } from './router.ts';
+import {
+  onRoute,
+  dispatchCurrent,
+  go,
+  pathEscape,
+  type Route,
+} from './router.ts';
 import { makeKeyLayer } from './key-layer.ts';
+import { makeWalkthrough, walkthroughSeen } from './walkthrough.ts';
 
 // ---- public contracts -------------------------------------------------------
 
@@ -81,6 +89,18 @@ export interface Ctx {
     attached?: Attached,
     purpose?: string,
   ): Promise<string>;
+  /**
+   * pauseLive holds the live stream (the walkthrough: nothing moves under
+   * it); false delivers what it held, in order, and lets it through again.
+   */
+  pauseLive(on: boolean): void;
+  /**
+   * The agent pane's click for this tab (true open, false a strip, null as
+   * the conversation says); setDockPane sets it (the walkthrough opens the
+   * pane, then puts back what it found).
+   */
+  dockPane(): boolean | null;
+  setDockPane(v: boolean | null): void;
 }
 
 /** The session the dock's composer sends to. */
@@ -159,6 +179,9 @@ export interface DockHandle {
     attached?: Attached,
     purpose?: string,
   ): Promise<string>;
+  /** pane and setPane: the pane's click (see Ctx.dockPane). */
+  pane(): boolean | null;
+  setPane(v: boolean | null): void;
 }
 
 // ---- section + dock registry ------------------------------------------------
@@ -298,7 +321,8 @@ function start(first: SummaryView | null): void {
     brand: { name: 'casebook', mark },
     sections: [
       { id: 'decide', label: 'decide' },
-      { id: 'apply', label: 'apply' },
+      { id: 'review', label: 'review' },
+      { id: 'run', label: 'run' },
     ],
     active: 'decide',
     onSection(id) {
@@ -395,6 +419,10 @@ function start(first: SummaryView | null): void {
 
   // The keyboard layer: always the shown section's (its list, its keys),
   // plus the page-wide keys registered on ctx.keys (key-layer.ts).
+  // The live stream held while the walkthrough shows (Ctx.pauseLive).
+  let livePaused = false;
+  const held: Array<{ type: string; data: unknown }> = [];
+
   const layer = makeKeyLayer(
     (list) => createKeys(list ? { list } : {}),
     (m) => console.error(m),
@@ -453,6 +481,15 @@ function start(first: SummaryView | null): void {
         ? d.sendText(body, attached, purpose)
         : Promise.resolve('no agent session');
     },
+    pauseLive(on) {
+      livePaused = on;
+      if (on) return;
+      for (const e of held.splice(0)) deliver(e.type, e.data);
+    },
+    dockPane: () => dockHandles[0]?.pane() ?? null,
+    setDockPane(v) {
+      dockHandles[0]?.setPane(v);
+    },
   };
 
   // Mount sections (later tasks call registerSection before boot; Task 1 ships
@@ -497,18 +534,18 @@ function start(first: SummaryView | null): void {
 
   // The stream, polling /api/state?since=<cursor> every 2 s while it is down
   // (the kit's live()). A poll that answers means serve is back.
+  const sharedStream = browserShared('casebook-live', '/api/state');
   function startLive(cursor?: string): ReturnType<typeof live> {
     return live({
       events: '/api/events',
       poll: '/api/state',
+      // One connection for every tab: each tab holding its own used up the
+      // browser's six and stopped every other request.
+      EventSource: sharedStream,
       cursor,
       onEvent(e) {
-        // Events this page never heard were pruned: the bar asks again too.
-        if (e.type === 'gap') loadSummary();
-        emitLive(e.type, e.data);
-        // Every section hears every event; only the active one feeds the
-        // composer's attached line (Section.show/hide).
-        for (const sec of sections.values()) sec.onLive(e.type, e.data);
+        if (livePaused) held.push({ type: e.type, data: e.data });
+        else deliver(e.type, e.data);
       },
       onStatus,
       fetch: async (url, init) => {
@@ -544,6 +581,15 @@ function start(first: SummaryView | null): void {
     }
   }
 
+  function deliver(type: string, data: unknown): void {
+    // Events this page never heard were pruned: the bar asks again too.
+    if (type === 'gap') loadSummary();
+    emitLive(type, data);
+    // Every section hears every event; only the active one feeds the
+    // composer's attached line (Section.show/hide).
+    for (const sec of sections.values()) sec.onLive(type, data);
+  }
+
   // retry reconnects now: a new stream from the same cursor, so nothing
   // missed is lost. If serve is still down, the poll says so again.
   function retry(): void {
@@ -572,13 +618,21 @@ function start(first: SummaryView | null): void {
 
   // ---- keys -----------------------------------------------------------------
 
-  // g d / g a switch places, like the bar's controls.
+  // g d / g v / g r switch places, like the bar's controls.
   for (const [k, id, label] of [
     ['g d', 'decide', 'go to decide'],
-    ['g a', 'apply', 'go to apply'],
+    ['g v', 'review', 'go to review'],
+    ['g r', 'run', 'go to run'],
   ] as const) {
     ctx.keys.register({ keys: k, label, run: () => go(id) });
   }
+  // g w shows the first-run walkthrough again.
+  const walkthrough = makeWalkthrough(ctx);
+  ctx.keys.register({
+    keys: 'g w',
+    label: 'show the walkthrough',
+    run: () => walkthrough.start(),
+  });
 
   // ---- routing --------------------------------------------------------------
 
@@ -587,8 +641,12 @@ function start(first: SummaryView | null): void {
 
     // An old address (#/attention…, #/rules…) shows as the decide address
     // it landed on (router-helpers.ts parse), without a new history entry.
-    if (/^#\/(attention|rules)(\/|\?|$)/.test(location.hash)) {
-      const hash = r.query ? `#/decide?${r.query}` : '#/decide';
+    // So does an apply address (#/apply…), as the review or run address.
+    if (/^#\/(attention|rules|apply)(\/|\?|$)/.test(location.hash)) {
+      const path = r.sub
+        ? `#/${r.section}/${pathEscape(r.sub)}`
+        : `#/${r.section}`;
+      const hash = r.query ? `${path}?${r.query}` : path;
       history.replaceState(
         null,
         '',
@@ -596,10 +654,12 @@ function start(first: SummaryView | null): void {
       );
     }
 
-    // apply is apply; everything else (an item too) is decide.
-    const sectionId = r.section === 'apply' ? 'apply' : 'decide';
+    // review and run are the apply section's two steps; everything else
+    // (an item too) is decide.
+    const step = r.section === 'review' || r.section === 'run' ? r.section : '';
+    const sectionId = step ? 'apply' : 'decide';
 
-    handle.setSection(sectionId);
+    handle.setSection(step || 'decide');
 
     for (const [id, sec] of sections) {
       const active = id === sectionId;
@@ -651,9 +711,10 @@ function start(first: SummaryView | null): void {
     summary = s;
     const counts = s.counts ?? {};
     // 'all' is everything to decide; 'to-apply' the decided items waiting
-    // to be applied.
+    // in review. run's count (jobs running or needing Court) is the apply
+    // section's own (it has the jobs).
     handle.setCount('decide', counts['all'] ?? 0);
-    handle.setCount('apply', counts['to-apply'] ?? 0);
+    handle.setCount('review', counts['to-apply'] ?? 0);
     paintStatus();
   }
   // paintStatus draws the status from the last summary; "synced Nm ago"
@@ -688,4 +749,7 @@ function start(first: SummaryView | null): void {
   // ---- initial route --------------------------------------------------------
 
   dispatchCurrent();
+
+  // The first time casebook opens, the walkthrough shows on the page.
+  if (!walkthroughSeen()) walkthrough.start();
 }
