@@ -37,7 +37,7 @@ func Decode(b []byte) (Filter, error) {
 // Encode serialises f to TOML bytes.
 func Encode(f Filter) ([]byte, error) {
 	var buf bytes.Buffer
-	buf.WriteString("# casebook saved filter. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.\n")
+	buf.WriteString("# casebook saved filter. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\n")
 	if err := toml.NewEncoder(&buf).Encode(f); err != nil {
 		return nil, fmt.Errorf("filter encode: %w", err)
 	}

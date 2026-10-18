@@ -186,3 +186,15 @@ func TestStatusConstants(t *testing.T) {
 		t.Errorf("StatusActive = %q, want %q", StatusActive, "active")
 	}
 }
+
+// TestEncodePointsAtFormatInCasebook: a rule file names where its format is
+// documented, the casebook repo (since casebook left tackle).
+func TestEncodePointsAtFormatInCasebook(t *testing.T) {
+	b, err := Encode(Rule{ID: "x", Name: "X", Status: StatusDraft, Match: []Condition{{Field: "kind", Op: "is", Value: "repo"}}, Propose: RuleAction{Disposition: "keep"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# casebook standing rule. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\n"; !strings.HasPrefix(string(b), want) {
+		t.Fatalf("header %q, want %q", strings.SplitN(string(b), "\n", 2)[0], want)
+	}
+}

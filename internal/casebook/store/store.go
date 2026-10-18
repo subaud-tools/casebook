@@ -80,7 +80,7 @@ func Init(ctx context.Context, dir, remote string) (*Repo, error) {
 		return nil, err
 	}
 	maps.Copy(files, ruleFiles)
-	files["casebook.toml"] = fmt.Appendf(nil, "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.\nformat_version = %d\n", FormatVersion)
+	files["casebook.toml"] = fmt.Appendf(nil, "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\nformat_version = %d\n", FormatVersion)
 	files["README.md"] = []byte(readme)
 	files[".gitignore"] = []byte(gitignore)
 	for rel, b := range files {
@@ -121,7 +121,7 @@ func (r *Repo) Upgrade(ctx context.Context) (bool, error) {
 	if r.Version >= FormatVersion {
 		return false, nil
 	}
-	b := fmt.Appendf(nil, "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.\nformat_version = %d\n", FormatVersion)
+	b := fmt.Appendf(nil, "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\nformat_version = %d\n", FormatVersion)
 	if _, err := r.Batch(ctx, fmt.Sprintf("upgrade casebook repo to format %d", FormatVersion), func() error {
 		_, err := r.WriteFile("casebook.toml", b)
 		return err
