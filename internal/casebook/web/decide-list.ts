@@ -59,6 +59,7 @@ import {
   decideRoute,
   doneWords,
   waitingStrip,
+  applyGroupLink,
 } from './decide-math.ts';
 import { decideQuery, flatFor } from './router-helpers.ts';
 import { groupKeys } from './key-layer.ts';
@@ -1705,6 +1706,7 @@ export function makeDecide(ctx: Ctx): Section {
             total: g.total,
             ticked,
           }),
+          applyGroupLink(g.disposition, keys[0] ?? ''),
         );
       else hideStrip();
       if (!open || keys.includes(open)) {
@@ -2196,9 +2198,10 @@ export function makeDecide(ctx: Ctx): Section {
   }
 
   // waited shows the strip for an outward decision: done, in serve's words
-  // ("Closed it", "Deleted all 3"). Undo takes back what lastUndo holds.
-  function waited(done: string): void {
-    if (done) showStrip(done, '#/apply', () => void undo());
+  // ("Closed it", "Deleted all 3"); its apply links to the group the
+  // decision joined (link). Undo takes back what lastUndo holds.
+  function waited(done: string, link: string): void {
+    if (done) showStrip(done, link, () => void undo());
   }
 
   // outwardChoice: d is a choice that only goes to apply for key's kind.
@@ -2331,7 +2334,10 @@ export function makeDecide(ctx: Ctx): Section {
       selection.deselect([key]);
       remember(key, made, previous);
       if (outwardChoice(key, disposition) && vocab)
-        waited(doneWords(vocab, disposition, { key }));
+        waited(
+          doneWords(vocab, disposition, { key }),
+          applyGroupLink(disposition, key),
+        );
       else hideStrip();
       await moveOn(key, order);
     } catch (err) {

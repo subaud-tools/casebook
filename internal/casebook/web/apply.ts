@@ -1,21 +1,26 @@
-// apply.ts — the To apply section (spec §5): decided items become a plan,
-// a plan becomes a job, and a job runs in two lanes while Court answers what
+// apply.ts — apply (spec §5, points 17-19): decided items become a plan, a
+// plan becomes a job, and a job runs in two lanes while Court answers what
 // needs him.
 //
-// The list (kit list) has three views. running: approved jobs, each row its
-// lanes ("casebook · local", "pi · outward"), its title, a thin progress bar
-// and n/total (or "queued"), and a signal line when something needs Court
-// ("1 needs you · 1 paused"). ready: the plans serve built and Court hasn't
-// approved, then the decided items waiting to be applied (selectable; the
-// foot plans the selection, or all of them; an item already in a job that
-// hasn't finished says "in plan #N" or "in job #N" and isn't offered again:
-// serve plans an item into one unfinished job at most). done: finished jobs. The foot also
-// says how old serve's observations are ("observations fresh", or "… 34m
-// old" past one sync interval, when a plan would be refused).
+// The list is one list in parts, with decide's group heads and no view
+// chips. Running on top: jobs approved, running or paused, each row its
+// lanes ("casebook · local", "pi · outward"), its title, a thin progress
+// bar and n/total (or "queued"), and a signal line when something needs
+// Court ("1 needs you · 1 paused"). Then the plans built and not approved
+// yet, and the decided items waiting, grouped by what will happen (serve's
+// to-apply groups, "Delete 3 branches"); an item in a job that hasn't
+// finished leaves its group (serve plans an item into one unfinished job
+// at most). A group's head is its button, "Delete 3 branches…" (or, with
+// some ticked, for those): it builds the group's plan and opens it in the
+// middle pane. Nothing runs from the list. Done (finished jobs) is last,
+// collapsed. #/apply?group=<id> opens a group. The foot says how old
+// serve's observations are ("observations fresh", or "… 34m old" past one
+// sync interval, when a plan would be refused).
 //
 // #/apply/<job> opens a job. A plan (a planned job) shows its steps grouped
 // by action with the exact command serve will run for each (serve's own
-// command string, never composed here), approve (with a session picker
+// command string, never composed here), where each group runs and whether
+// it can be undone (serve's words), approve and run (with a session picker
 // when the plan has agent-lane steps: a session is chosen for Court only
 // when it is the only one here or the one he picked in the dock; otherwise
 // he picks, and approving without one is impossible) and discard. A plan
@@ -28,13 +33,14 @@
 // ‖ paused, · next), with undo on a finished step serve says it can undo.
 //
 // The bar's primary follows the job: Pause job while it runs, Resume while
-// it is paused, Approve on a plan (once it can be), Plan N / Plan all on the
-// ready list, Sync first after a stale refusal. Live job, step and
+// it is paused, Approve and run on a plan (once it can be), Sync first after
+// a stale refusal; none on the list. Live job, step and
 // needs_you events mark the job they name; one reload runs at a time (at
-// most one more queued) and fetches only those jobs. A redraw keeps what
+// most one more queued) and fetches only those jobs; decisions (index,
+// decided) reload the waiting groups. A redraw keeps what
 // Court was doing: an open "edit text" field's text, the focused control
 // and the caret. A reload never draws over a newer reply (an older one is
-// dropped). While To apply is the active section it feeds the composer
+// dropped). While apply is the active section it feeds the composer
 // {job: <id>} (with the job's title for the line) for the open job and {}
 // otherwise; hidden, it never touches the attached line or the bar's
 // primary.
@@ -47,13 +53,14 @@ import {
   buttons,
   card,
   type Button,
-  type Chip,
   type KeyBinding,
   type ListHandle,
   type Primary,
 } from '/_kit/kit.js';
 import type {
   AnswerResult,
+  DecisionVocabView,
+  GroupView,
   ItemView,
   ItemsView,
   Job,
@@ -88,31 +95,32 @@ import {
   observations,
   openCardsByJob,
   outwardGo,
-  plannableCount,
   plannedKeys,
-  heldLabel,
-  heldWhere,
   planSummary,
   progress,
   stepMark,
-  viewOf,
-  type ApplyView,
+  applyLabel,
+  applyOrder,
+  heldOutside,
+  isFinished,
+  isRunning,
   type StepGroup,
 } from './apply-text.ts';
+import { getVocab } from './decide.ts';
 import { fmtAge } from './time-utils.ts';
 import { pickable, sessionMeta, sessionTitle } from './sessions.ts';
 import { coalesced } from './coalesce.ts';
 
-// Decided items are fetched 200 at a time (serve's cap, like Attention).
+// Decided items are fetched 200 at a time (serve's cap, like decide).
 const PAGE = 200;
 // The steps table shows this many rows at a time.
 const STEPS_PAGE = 200;
 
-const VIEWS: Array<{ id: ApplyView; label: string }> = [
-  { id: 'running', label: 'running' },
-  { id: 'ready', label: 'ready' },
-  { id: 'done', label: 'done' },
-];
+// The parts of the list that are not waiting groups (a waiting group's id
+// is serve's, "<disposition>|<kind>").
+const RUNNING = 'running';
+const PLANS = 'plans';
+const DONE = 'done';
 
 type Row =
   | { t: 'job'; job: Job }
@@ -147,7 +155,9 @@ let planner: Planner | null = null;
  * buildPlan asks serve for a plan of the given decided items (or all of
  * them). A built plan opens as #/apply/<job>; serve's refusal (409: the
  * observation is older than one sync interval) is shown in its own words,
- * with "sync first".
+ * with "sync first". Nothing to plan (422), or an item another tab planned
+ * first (409 without "sync first": it is in an unfinished job), says so in
+ * serve's words without offering a sync.
  */
 export function buildPlan(ctx: Ctx, what: string[] | 'all'): Promise<void> {
   const body = what === 'all' ? { all: true } : { keys: what };
@@ -155,7 +165,9 @@ export function buildPlan(ctx: Ctx, what: string[] | 'all'): Promise<void> {
     .post<PlanView>('/apply/plan', body)
     .then((v) => planner?.planned(v))
     .catch((err: unknown) =>
-      err instanceof ApiError && err.status === 422
+      err instanceof ApiError &&
+      (err.status === 422 ||
+        (err.status === 409 && !err.message.includes('sync first')))
         ? planner?.nothing(message(err))
         : planner?.refused(message(err)),
     );
@@ -229,8 +241,14 @@ export function makeApply(ctx: Ctx): Section {
   let sessions: Session[] = [];
   let items: ItemView[] = [];
   let itemsTotal = 0;
-  let machine = '';
-  let view: ApplyView = 'running';
+  // serve's waiting groups (GET /api/items?view=to-apply), in its order.
+  let groups: GroupView[] = [];
+  // serve's decision vocabulary: a group's words for a count.
+  let vocab: DecisionVocabView | null = null;
+  // The parts Court collapsed; Done starts collapsed.
+  const collapsed = new Set<string>([DONE]);
+  // The group the address asks for (#/apply?group=<id>) until it is shown.
+  let wantGroup = '';
   let active = false;
   let openId: number | null = null;
   let open: JobView | null = null;
@@ -286,9 +304,6 @@ export function makeApply(ctx: Ctx): Section {
 
   // ---- the list ----
 
-  const footCount = h('span', { class: 'cb-apply-foot-n' });
-  const footBtns = h('span', { class: 'cb-apply-foot-btns' });
-  const footSel = h('div', { class: 'cb-apply-foot-sel' }, footCount, footBtns);
   const obsText = h('span', { 'data-testid': 'observations' });
   const obsEl = h(
     'div',
@@ -296,22 +311,48 @@ export function makeApply(ctx: Ctx): Section {
     h('i', { class: 'cb-apply-obs-dot', 'aria-hidden': 'true' }),
     obsText,
   );
-  const foot = h('div', { class: 'cb-apply-foot' }, footSel, obsEl);
+  const foot = h('div', { class: 'cb-apply-foot' }, obsEl);
 
   // In a job that hasn't finished (a plan, or a job approved, running or
-  // paused): key → that job.
+  // paused): key → that job. Such an item leaves its waiting group.
   const inPlan = () => plannedKeys(jobs);
-  const plannable = () =>
-    plannableCount(
-      itemsTotal,
-      items.map((i) => i.key),
-      inPlan(),
-      itemsTotal <= items.length,
-    );
+  // A discarded plan is gone: it is listed nowhere.
+  const listed = () => jobs.filter((j) => j.state !== 'cancelled');
+  const order = () => applyOrder(listed());
+
+  // The vocabulary's words for a kind: its choices' many and its nouns.
+  const kindVocab = (kind: string) =>
+    vocab?.kinds?.find((k) => k.kind === kind);
+  // labelFor names n items of waiting group g in serve's words ("Delete 3
+  // branches"); before the vocabulary loads, serve's label for the group.
+  function labelFor(g: GroupView, n: number): string {
+    const kind = g.id.slice(g.id.indexOf('|') + 1);
+    const kv = kindVocab(kind);
+    if (!kv || !g.many) return g.label;
+    return applyLabel(g.many, kv.noun, kv.nouns, n);
+  }
+  // waiting is the group's items not held by a job (the loaded ones).
+  const waiting = (g: GroupView) =>
+    items.filter((it) => it.group === g.id && !inPlan().has(it.key));
+  // waitingCount is how many of g's items wait: serve's count less those a
+  // job holds (every loaded one; one not loaded counts once, by its key).
+  function waitingCount(g: GroupView): number {
+    const loaded = new Set(items.map((i) => i.key));
+    let held = items.filter(
+      (it) => it.group === g.id && inPlan().has(it.key),
+    ).length;
+    if (itemsTotal > items.length) held += heldOutside(jobs, g.id, loaded);
+    return Math.max(0, g.total - held);
+  }
+  const tickedIn = (g: GroupView) => {
+    const sel = new Set(handle.selectedIds());
+    return waiting(g)
+      .map((it) => it.key)
+      .filter((k) => sel.has(k));
+  };
 
   const handle: ListHandle<Row> = list<Row>({
-    label: 'to apply',
-    views: VIEWS.map((v) => ({ ...v, on: v.id === view })),
+    label: '',
     openOnMove: false,
     row(r: Row) {
       if (r.t === 'more') {
@@ -323,13 +364,11 @@ export function makeApply(ctx: Ctx): Section {
       }
       if (r.t === 'item') {
         const it = r.item;
-        const plan = inPlan().get(it.key);
         return {
           id: it.key,
           key: `${it.kind} \u00b7 ${keyWithoutKind(it.key)}`,
           title: it.title ?? keyWithoutKind(it.key),
-          meta: plan ? heldLabel(plan) : (it.decision?.disposition ?? ''),
-          selectable: !plan,
+          selectable: true,
         };
       }
       const j = r.job;
@@ -344,31 +383,20 @@ export function makeApply(ctx: Ctx): Section {
         title: jobTitle(j),
         meta: planned
           ? pluralize(p.total, 'step')
-          : p.started || viewOf(j) === 'done'
+          : p.started || isFinished(j)
             ? `${p.finished}/${p.total}`
             : 'queued',
         sub: needsLine(cardsFor(j.id), p.paused) || undefined,
       };
     },
-    onChip(group, id) {
-      if (group !== 'view') return;
-      view = id as ApplyView;
-      paintList();
-      feed();
-    },
     onOpen(r: Row, i: number) {
       if (painting) return;
       if (r.t === 'job') ctx.route.go('apply', String(r.job.id));
-      else if (r.t === 'item') {
-        // An item in a job opens that job; any other is selected.
-        const plan = inPlan().get(r.item.key);
-        if (plan) ctx.route.go('apply', String(plan.id));
-        else handle.toggle(i);
-      } else void loadItems(items.length);
+      else if (r.t === 'item') handle.toggle(i);
+      else void loadItems(items.length);
     },
     onSelect() {
-      paintFoot();
-      if (active) ctx.setPrimary(primary());
+      paintHeads();
       if (openId === null) drawOverview();
     },
     foot,
@@ -378,65 +406,85 @@ export function makeApply(ctx: Ctx): Section {
   // What needs Court (a paused step is counted as paused, not twice).
   const cardsFor = (jobId: number) =>
     openCardsByJob(cards.filter((c) => c.kind !== 'paused')).get(jobId) ?? 0;
-  const selectedKeys = () => {
-    const planned = inPlan();
-    return handle
-      .selectedIds()
-      .filter((k) => !k.startsWith('job:') && k !== 'more' && !planned.has(k));
-  };
-  // A discarded plan is gone: it is listed nowhere.
-  const listed = () => jobs.filter((j) => j.state !== 'cancelled');
 
-  function rowsFor(v: ApplyView): Row[] {
-    const js = listed()
-      .filter((j) => viewOf(j) === v)
-      .sort((a, b) => b.id - a.id)
-      .map((job): Row => ({ t: 'job', job }));
-    if (v !== 'ready') return js;
-    const its = items.map((item): Row => ({ t: 'item', item }));
-    const more: Row[] =
-      itemsTotal > items.length
-        ? [{ t: 'more', left: itemsTotal - items.length }]
-        : [];
-    return [...js, ...its, ...more];
+  // ---- the parts and their heads ----
+  //
+  // The list is one list in parts, each under a head like decide's groups:
+  // Running (jobs approved, running or paused, each with its progress bar),
+  // the plans not approved yet, the waiting groups by what will happen
+  // (serve's order), then Done, collapsed. A part with nothing in it shows
+  // no head.
+
+  interface Part {
+    id: string;
+    label: string;
+    n: number;
+    rows: Row[];
+    group?: GroupView;
   }
 
-  function counts(): Record<ApplyView, number> {
-    const c = { running: 0, ready: itemsTotal, done: 0 };
-    for (const j of listed()) c[viewOf(j)]++;
-    return c;
+  function parts(): Part[] {
+    const o = order();
+    const job = (job: Job): Row => ({ t: 'job', job });
+    const ps: Part[] = [];
+    if (o.running.length)
+      ps.push({
+        id: RUNNING,
+        label: 'Running',
+        n: o.running.length,
+        rows: o.running.map(job),
+      });
+    if (o.plans.length)
+      ps.push({
+        id: PLANS,
+        label: 'Plans to approve',
+        n: o.plans.length,
+        rows: o.plans.map(job),
+      });
+    for (const g of groups) {
+      const n = waitingCount(g);
+      if (!n) continue;
+      ps.push({
+        id: g.id,
+        label: labelFor(g, n),
+        n,
+        group: g,
+        rows: waiting(g).map((item): Row => ({ t: 'item', item })),
+      });
+    }
+    if (itemsTotal > items.length) {
+      const last = ps.length ? ps[ps.length - 1] : null;
+      if (last?.group)
+        last.rows.push({ t: 'more', left: itemsTotal - items.length });
+    }
+    if (o.done.length)
+      ps.push({
+        id: DONE,
+        label: 'Done',
+        n: o.done.length,
+        rows: o.done.map(job),
+      });
+    return ps;
   }
+
+  // The rows shown now (a collapsed part's aside), in the list's order.
+  let shown: Row[] = [];
+  // The heads drawn now, painted again when the selection changes.
+  let heads: Array<{ el: HTMLElement; paint(): void }> = [];
 
   function paintList(): void {
-    const c = counts();
-    handle.setChips(
-      'view',
-      VIEWS.map((v): Chip => ({
-        ...v,
-        on: v.id === view,
-        count: c[v.id] || undefined,
-      })),
-    );
-    const shown = rowsFor(view);
+    const ps = parts();
+    shown = ps.flatMap((p) => (collapsed.has(p.id) ? [] : p.rows));
     handle.setItems(shown);
-    const planned = inPlan();
-    const els = handle.el.querySelectorAll<HTMLElement>('.kit-row');
+    const els = handle.el.querySelectorAll<HTMLElement>('.kit-rows > .kit-row');
     els.forEach((rowEl, i) => {
       const r = shown[i];
       if (!r) return;
-      if (r.t !== 'job') {
-        if (r.t === 'item') {
-          rowEl.dataset.key = r.item.key;
-          const plan = planned.get(r.item.key);
-          if (plan) {
-            rowEl.dataset.plan = String(plan.id);
-            rowEl.classList.add('cb-in-plan');
-          }
-        } else rowEl.classList.add('cb-apply-more');
-        return;
-      }
-      decorateJobRow(rowEl, r.job);
+      if (r.t === 'item') rowEl.dataset.key = r.item.key;
+      else if (r.t === 'more') rowEl.classList.add('cb-apply-more');
+      else decorateJobRow(rowEl, r.job);
     });
+    placeHeads(ps, els);
     const openAt = shown.findIndex((r) => r.t === 'job' && r.job.id === openId);
     if (openAt >= 0) {
       painting = true;
@@ -446,7 +494,222 @@ export function makeApply(ctx: Ctx): Section {
         painting = false;
       }
     }
-    paintFoot();
+    paintObs();
+    // With nothing open, the overview's counts follow the list (a job
+    // planned or finished elsewhere).
+    drawOverview();
+    focusGroup();
+  }
+
+  // placeHeads puts each part's head before its first row or, collapsed,
+  // where its rows would be.
+  function placeHeads(ps: Part[], els: NodeListOf<HTMLElement>): void {
+    const body = handle.el.querySelector<HTMLElement>('.kit-rows');
+    heads = [];
+    if (!body) return;
+    let at = 0;
+    let last: Element | null = null;
+    for (const p of ps) {
+      const head = partHead(p);
+      heads.push(head);
+      const n = collapsed.has(p.id) ? 0 : p.rows.length;
+      if (n) {
+        els[at]?.before(head.el);
+        last = els[at + n - 1] ?? head.el;
+      } else {
+        if (last) last.after(head.el);
+        else body.prepend(head.el);
+        last = head.el;
+      }
+      at += n;
+    }
+  }
+
+  // partHead is a part's head, as decide draws a group's: the caret (it
+  // collapses and expands the part), a checkbox for a waiting group (it
+  // ticks the group's items), the label and the count; a waiting group's
+  // button under it opens the group's plan ("Delete 3 branches\u2026", or for
+  // the ticked items).
+  function partHead(p: Part): { el: HTMLElement; paint(): void } {
+    const isOpen = !collapsed.has(p.id);
+    const toggleOpen = (): void => {
+      if (collapsed.has(p.id)) collapsed.delete(p.id);
+      else collapsed.add(p.id);
+      paintList();
+    };
+    const g = p.group;
+    const box = g
+      ? h('span', {
+          class: 'cb-group-box',
+          role: 'checkbox',
+          'aria-checked': 'false',
+          'aria-label': p.label,
+          onclick() {
+            const keys = waiting(g).map((it) => it.key);
+            if (tickedIn(g).length === keys.length) handle.deselect(keys);
+            else handle.selectAll(keys);
+          },
+        })
+      : h('span', { class: 'cb-group-nobox' });
+    const top = h(
+      'div',
+      { class: 'cb-group-top' },
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'cb-group-caret',
+          'aria-expanded': String(isOpen),
+          'aria-label': p.label,
+          onclick: toggleOpen,
+        },
+        isOpen ? '\u25bc' : '\u25b6',
+      ),
+      box,
+      // A waiting group's header is its button (planning call): its name
+      // is "Delete 3 branches…", which opens the plan. Other parts' headers
+      // are their name, which folds them.
+      g
+        ? h('div', { class: 'cb-group-acts cb-apply-head-acts' })
+        : h(
+            'span',
+            { class: 'cb-group-name', onclick: toggleOpen },
+            h(
+              'span',
+              { class: 'cb-group-line' },
+              h('span', { class: 'cb-group-label' }, p.label),
+            ),
+          ),
+      h('span', { class: 'cb-group-n' }, String(p.n)),
+    );
+    const acts = g
+      ? top.querySelector<HTMLElement>('.cb-apply-head-acts')
+      : null;
+    const el = h(
+      'div',
+      {
+        class: 'cb-group cb-apply-part' + (isOpen ? '' : ' collapsed'),
+        role: 'presentation',
+        dataset: { part: p.id },
+      },
+      top,
+    );
+    const paint = (): void => {
+      if (!g || !acts) return;
+      const ticked = tickedIn(g);
+      const all = waiting(g).length;
+      box.setAttribute(
+        'aria-checked',
+        !ticked.length ? 'false' : ticked.length === all ? 'true' : 'mixed',
+      );
+      const n = ticked.length || p.n;
+      const bs: HTMLElement[] = [
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'kit-btn fill cb-group-plan',
+            // Refused as stale, the offer is to sync first: planning again
+            // would be refused again.
+            disabled: planning || !!refusal,
+            onclick() {
+              void planGroup(g, ticked);
+            },
+          },
+          `${labelFor(g, n)}\u2026`,
+        ),
+      ];
+      if (ticked.length && vocab?.untick)
+        bs.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'cb-group-untick',
+              onclick() {
+                handle.deselect(ticked);
+              },
+            },
+            vocab.untick,
+          ),
+        );
+      acts.replaceChildren(...bs);
+    };
+    paint();
+    return { el, paint };
+  }
+
+  function paintHeads(): void {
+    for (const hd of heads) hd.paint();
+  }
+
+  // planGroup asks serve for the plan of group g's ticked items, or of every
+  // item of it that waits (every page: fetched when the list hasn't them
+  // all). The plan opens in the middle pane; nothing runs from the list.
+  async function planGroup(g: GroupView, ticked: string[]): Promise<void> {
+    if (planning) return;
+    let keys = ticked;
+    if (!keys.length) {
+      keys = waiting(g).map((it) => it.key);
+      if (itemsTotal > items.length) {
+        try {
+          keys = await groupKeys(g.id);
+        } catch (err) {
+          refusal = '';
+          nothingNote = message(err);
+          drawOverview();
+          return;
+        }
+      }
+    }
+    if (keys.length) plan(keys);
+  }
+
+  // groupKeys is every key of to-apply group id a job doesn't hold.
+  async function groupKeys(id: string): Promise<string[]> {
+    const held = inPlan();
+    const keys: string[] = [];
+    for (let total = Infinity; keys.length < total;) {
+      const v = await ctx.api.get<ItemsView>('/items', {
+        view: 'to-apply',
+        group: id,
+        limit: '500',
+        offset: String(keys.length),
+      });
+      const got = v.items ?? [];
+      total = v.total;
+      if (!got.length) break;
+      keys.push(...got.map((i) => i.key));
+    }
+    return keys.filter((k) => !held.has(k));
+  }
+
+  // focusGroup opens the group the address names (#/apply?group=<id>): it
+  // expands it and scrolls its head into view, once it is listed.
+  function focusGroup(): void {
+    if (!wantGroup || !active) return;
+    const head = handle.el.querySelector<HTMLElement>(
+      `.cb-apply-part[data-part="${CSS.escape(wantGroup)}"]`,
+    );
+    if (!head) return;
+    const id = wantGroup;
+    wantGroup = '';
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+      return focusGroupEl(id);
+    }
+    focusGroupEl(id);
+  }
+  function focusGroupEl(id: string): void {
+    const head = handle.el.querySelector<HTMLElement>(
+      `.cb-apply-part[data-part="${CSS.escape(id)}"]`,
+    );
+    if (!head) return;
+    for (const el of handle.el.querySelectorAll('.cb-apply-part.cb-focus'))
+      el.classList.remove('cb-focus');
+    head.classList.add('cb-focus');
+    head.scrollIntoView({ block: 'start' });
   }
 
   // A job row: its lanes in their colours, the progress bar under the
@@ -474,7 +737,7 @@ export function makeApply(ctx: Ctx): Section {
     const meta = rowEl.querySelector<HTMLElement>('.kit-meta');
     if (meta?.textContent === 'queued') meta.classList.add('cb-queued');
     rowEl.querySelector('.kit-sub')?.classList.add('cb-needs-line');
-    if (j.state !== 'planned' && (p.started || viewOf(j) === 'done')) {
+    if (j.state !== 'planned') {
       const bar = h('div', {
         class: 'cb-pb',
         role: 'progressbar',
@@ -494,37 +757,6 @@ export function makeApply(ctx: Ctx): Section {
       }
       rowEl.querySelector('.kit-title')?.after(bar);
     }
-  }
-
-  // The foot: on ready, the selection and what it plans; always, how old the
-  // observations are that a plan would be built from.
-  function paintFoot(): void {
-    paintObs();
-    if (view !== 'ready' || !itemsTotal) {
-      footCount.textContent = '';
-      footBtns.replaceChildren();
-      footSel.hidden = true;
-      return;
-    }
-    footSel.hidden = false;
-    const n = selectedKeys().length;
-    const can = plannable();
-    const held = itemsTotal - can;
-    footCount.textContent = n
-      ? `${n} selected`
-      : can
-        ? pluralize(can, 'decided item')
-        : `${pluralize(held, 'decided item')} ${heldWhere(inPlan())}`;
-    // Signal is the selection's colour; a plain total isn't.
-    footCount.classList.toggle('cb-sel', n > 0);
-    // While a refusal stands its card is the offer (sync first): planning
-    // again would be refused again, so the foot offers no plan.
-    const bs: Button[] = [];
-    if (n && !refusal)
-      bs.push({ label: `plan ${n}`, run: () => plan(selectedKeys()) });
-    if (can && !refusal)
-      bs.push({ label: `plan all ${can}`, run: () => plan('all') });
-    footBtns.replaceChildren(bs.length ? buttons(bs) : '');
   }
 
   function paintObs(): void {
@@ -665,13 +897,13 @@ export function makeApply(ctx: Ctx): Section {
       itemsTotal = v.total;
       // A decided item that left the list (applied, or decided again) leaves
       // the selection too.
+      groups = v.groups ?? [];
       const keep = new Set(items.map((i) => i.key));
-      const gone = selectedKeys().filter((k) => !keep.has(k));
+      const gone = handle.selectedIds().filter((k) => !keep.has(k));
       if (gone.length && offset === 0 && itemsTotal <= items.length) {
         handle.deselect(gone);
       }
       paintList();
-      if (active) ctx.setPrimary(primary());
       if (openId === null) drawOverview();
     } catch {
       // non-fatal
@@ -722,7 +954,6 @@ export function makeApply(ctx: Ctx): Section {
   async function loadSummary(): Promise<void> {
     try {
       const s = await ctx.api.get<SummaryView>('/summary');
-      machine = s.machine;
       builtAt = Date.parse(s.built_at) || 0;
       intervalMs = s.sync_interval_ms;
       syncing = s.syncing;
@@ -748,7 +979,7 @@ export function makeApply(ctx: Ctx): Section {
         h(
           'div',
           { class: 'cb-read-empty' },
-          h('p', { class: 'cb-read-empty-section kit-label' }, 'to apply'),
+          h('p', { class: 'cb-read-empty-section kit-label' }, 'apply'),
           h('p', { class: 'cb-read-empty-prompt' }, message(err)),
         ),
       );
@@ -761,8 +992,9 @@ export function makeApply(ctx: Ctx): Section {
   function setOpen(v: JobView): void {
     const first = open?.job.id !== v.job.id;
     open = v;
-    // The job is listed under its view: a job opened by URL shows its chip.
-    if (v.job.state !== 'cancelled') view = viewOf(v.job);
+    // A job opened by URL shows in its part: a collapsed Done opens.
+    if (isFinished(v.job) && v.job.state !== 'cancelled')
+      collapsed.delete(DONE);
     patchJob(v);
     // An edit whose card has closed has nothing left to edit.
     for (const id of [...editors.keys()]) {
@@ -836,6 +1068,7 @@ export function makeApply(ctx: Ctx): Section {
         groups: (v.groups ?? []).map((g) => ({
           action: g.action,
           lane: g.lane,
+          undo: g.undo,
           steps: g.steps ?? [],
         })),
       };
@@ -849,7 +1082,6 @@ export function makeApply(ctx: Ctx): Section {
       if (openId === null) drawOverview();
       void loadJobs().then(() => {
         if (openId === null) drawOverview();
-        if (active) ctx.setPrimary(primary());
       });
       void loadItems();
     },
@@ -857,7 +1089,7 @@ export function makeApply(ctx: Ctx): Section {
       refusal = msg;
       if (openId === null) {
         drawOverview();
-        paintFoot();
+        paintHeads();
         if (active) ctx.setPrimary(primary());
       } else ctx.route.go('apply');
     },
@@ -900,7 +1132,7 @@ export function makeApply(ctx: Ctx): Section {
         // Another tab's sync made the observations fresh: the refusal no
         // longer holds, and nothing is planned here unasked.
         refusal = '';
-        paintFoot();
+        paintHeads();
       }
     }
     paintObs();
@@ -949,41 +1181,37 @@ export function makeApply(ctx: Ctx): Section {
     return el;
   }
 
+  // drawOverview is the middle pane with nothing open: a summary of what
+  // apply holds, and (refused) the offer to sync first. Plans start from a
+  // group's button in the list, never here.
   function drawOverview(): void {
     if (openId !== null) return;
-    const n = selectedKeys().length;
-    const can = plannable();
+    const o = order();
+    const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
     const doc = h(
       'article',
       { class: 'cb-apply-doc', 'data-testid': 'apply-overview' },
       h(
-        'p',
-        { class: 'kit-kick' },
-        `to apply${machine ? ` \u00b7 ${machine}` : ''}`,
-      ),
-      h(
         'h1',
         { class: 'kit-h1' },
-        itemsTotal
-          ? `${pluralize(itemsTotal, 'decided item')} to apply`
-          : 'Nothing decided is waiting to be applied',
+        waitingN
+          ? `${pluralize(waitingN, 'decision')} waiting`
+          : 'Nothing decided is waiting',
       ),
       facts([
-        ['running', String(counts().running)],
-        ['plans', String(jobs.filter((j) => j.state === 'planned').length)],
-        [heldWhere(inPlan()), String(itemsTotal - can)],
-        ['selected', String(n)],
+        ['running', String(o.running.length)],
+        ['plans to approve', String(o.plans.length)],
+        ['waiting', String(waitingN)],
+        ['done', String(o.done.length)],
       ]),
       h(
         'p',
         null,
-        'A plan shows the exact command for every step before anything runs. This machine applies what is on it; GitHub steps run once, from whichever machine applies them.',
+        "A group's button opens its plan here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you approve it. This machine applies what is on it; GitHub steps run once, from whichever machine applies them.",
       ),
     );
-    // Refused, the offer is to sync first (planning again would be refused
-    // again): no plan buttons beside it.
     if (refusal) doc.append(refusalCard());
-    else if (nothingNote && !can && !n)
+    else if (nothingNote)
       doc.append(
         h(
           'p',
@@ -995,21 +1223,6 @@ export function makeApply(ctx: Ctx): Section {
           nothingNote,
         ),
       );
-    else if (itemsTotal && (n || can)) {
-      const bs: Button[] = [];
-      if (n)
-        bs.push({
-          label: `plan ${n} selected`,
-          run: () => plan(selectedKeys()),
-        });
-      if (can)
-        bs.push({
-          label: `plan all ${can}`,
-          fill: !n,
-          run: () => plan('all'),
-        });
-      doc.append(buttons(bs));
-    }
     const keep = focusSnapshot(readEl);
     readEl.replaceChildren(h('div', { class: 'kit-doc' }, doc));
     focusRestore(readEl, keep);
@@ -1074,6 +1287,20 @@ export function makeApply(ctx: Ctx): Section {
             laneLabel(g.lane, agent),
           ),
           ` \u00b7 ${actionTitle(g.action)} \u00b7 ${g.steps.length}`,
+        ),
+        h(
+          'p',
+          { class: 'cb-plan-where', 'data-testid': 'plan-where' },
+          g.lane === 'agent'
+            ? `Runs on GitHub, through ${agent}.`
+            : `Runs here, on ${j.machine}.`,
+          g.undo
+            ? h(
+                'span',
+                { class: 'cb-plan-undo', 'data-testid': 'plan-undo' },
+                ` ${g.undo}`,
+              )
+            : null,
         ),
         h(
           'div',
@@ -1173,7 +1400,12 @@ export function makeApply(ctx: Ctx): Section {
               `${ps.length} sessions are here and none is chosen yet.`,
             ),
           );
-        } else bs.push({ label: 'approve', fill: true, run: () => approve() });
+        } else
+          bs.push({
+            label: 'approve and run',
+            fill: true,
+            run: () => approve(),
+          });
       }
     } else {
       el.append(
@@ -1218,7 +1450,6 @@ export function makeApply(ctx: Ctx): Section {
     try {
       const v = await ctx.api.post<JobView>('/apply/cancel', { plan_id: id });
       patchJob(v);
-      view = 'ready';
       if (openId === id) ctx.route.go('apply');
       else paintList();
     } catch (err) {
@@ -1230,7 +1461,7 @@ export function makeApply(ctx: Ctx): Section {
   }
 
   function pauseOrResume(): void {
-    if (!open || viewOf(open.job) !== 'running') return;
+    if (!open || !isRunning(open.job)) return;
     void act<JobView>(open.job.paused ? '/jobs/resume' : '/jobs/pause', {
       id: open.job.id,
     });
@@ -1267,9 +1498,9 @@ export function makeApply(ctx: Ctx): Section {
     if (open && openId !== null) {
       const j = open.job;
       if (j.state === 'planned') {
-        return canApprove() ? { label: 'Approve', run: approve } : null;
+        return canApprove() ? { label: 'Approve and run', run: approve } : null;
       }
-      if (viewOf(j) === 'running') {
+      if (isRunning(j)) {
         return j.paused
           ? { label: 'Resume', run: pauseOrResume }
           : { label: 'Pause job', run: pauseOrResume };
@@ -1281,15 +1512,10 @@ export function makeApply(ctx: Ctx): Section {
         ? null
         : { label: 'Sync first', run: () => void syncFirst() };
     }
-    if (openId === null && view === 'ready' && itemsTotal) {
-      const n = selectedKeys().length;
-      if (n) return { label: `Plan ${n}`, run: () => plan(selectedKeys()) };
-      return plannable() ? { label: 'Plan all', run: () => plan('all') } : null;
-    }
     return null;
   }
 
-  // feed tells the composer and the bar what To apply shows, only while it
+  // feed tells the composer and the bar what apply shows, only while it
   // is the active section: the open job (by number, with its title) once it
   // has loaded, else nothing.
   function feed(): void {
@@ -1300,7 +1526,7 @@ export function makeApply(ctx: Ctx): Section {
     ctx.setPrimary(primary());
   }
 
-  // ---- keys (bound only while To apply is shown) ----
+  // ---- keys (bound only while apply is shown) ----
 
   const approveKey: KeyBinding = {
     keys: 'a',
@@ -1348,6 +1574,13 @@ export function makeApply(ctx: Ctx): Section {
   void loadItems();
   void loadSessions();
   void loadSummary();
+  // The vocabulary words the waiting groups for a count.
+  void getVocab(ctx)
+    .then((v) => {
+      vocab = v;
+      paintList();
+    })
+    .catch(() => {});
 
   // Which job a live event is about.
   const jobOf = (type: string, data: unknown): number | null => {
@@ -1362,8 +1595,10 @@ export function makeApply(ctx: Ctx): Section {
     read: readEl,
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => applyKeys,
-    show(sub: string) {
+    show(sub: string, query: string) {
       active = true;
+      // #/apply?group=<id> opens that waiting group in the list.
+      wantGroup = new URLSearchParams(query ?? '').get('group') ?? '';
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, '')) : NaN;
       if (!sub || !Number.isFinite(id)) {
         if (openId !== null) close();
@@ -1441,7 +1676,7 @@ export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
   const open = (v.needs_you ?? []).filter((c) => c.state === 'open');
   const stepOf = (id: number) => steps.find((s) => s.id === id);
   const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
-  const state = j.paused && viewOf(j) === 'running' ? 'paused' : j.state;
+  const state = j.paused && isRunning(j) ? 'paused' : j.state;
 
   const doc = h(
     'article',

@@ -670,3 +670,12 @@ export function waitingStrip(w: WaitingVocab, done: string): StripPart[] {
   }
   return parts;
 }
+
+/**
+ * applyGroupLink is the apply group a decision of key went to:
+ * "#/apply?group=<disposition>|<kind>", serve's to-apply group id.
+ */
+export function applyGroupLink(disposition: string, key: string): string {
+  const kind = key.slice(0, key.indexOf(':'));
+  return `#/apply?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
+}

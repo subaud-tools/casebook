@@ -88,6 +88,9 @@ type JobStep struct {
 	// automatic (AutoUndoable), so POST /api/jobs/undo would run it (§5.5).
 	// Computed when read, never stored.
 	Undoable bool `json:"undoable,omitempty"`
+	// UndoNote says whether a step of this action can be undone
+	// (UndoNote). Computed when read, never stored.
+	UndoNote string `json:"undo_note,omitempty"`
 }
 
 // NeedsYou is a card requesting Court's attention for a job (and optionally a step).
@@ -213,6 +216,7 @@ func (s *Store) Create(ctx context.Context, p Plan, machine string) (Job, error)
 				Posts:        ps.Posts,
 				ExpectedTip:  ps.ExpectedTip,
 				State:        StepPending,
+				UndoNote:     UndoNote(ps.Action),
 			}
 		}
 
@@ -895,6 +899,7 @@ func scanStep(sc scanner) (JobStep, error) {
 	st.VerifiedAt = tm(verifiedAt)
 	st.UndoneAt = tm(undoneAt)
 	st.Undoable = st.State == StepVerified && st.UndoneAt.IsZero() && AutoUndoable(st.Restore)
+	st.UndoNote = UndoNote(st.Action)
 	return st, nil
 }
 

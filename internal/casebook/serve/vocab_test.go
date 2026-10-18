@@ -235,3 +235,28 @@ func TestVocabularyWaitingStrip(t *testing.T) {
 		t.Errorf("came_back_fact %q", v.CameBackFact)
 	}
 }
+
+// TestVocabularyNamesEachKind: each kind's nouns, one and several, the
+// words apply's group labels count in ("Delete 3 branches").
+func TestVocabularyNamesEachKind(t *testing.T) {
+	r := newRig(t)
+	var v struct {
+		Kinds []struct {
+			Kind  string `json:"kind"`
+			Noun  string `json:"noun"`
+			Nouns string `json:"nouns"`
+		} `json:"kinds"`
+	}
+	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
+		t.Fatalf("vocabulary %d", c)
+	}
+	want := map[string]string{"repo": "repo/repos", "pr": "PR/PRs", "issue": "issue/issues", "branch": "branch/branches", "worktree": "worktree/worktrees"}
+	for _, k := range v.Kinds {
+		if got := k.Noun + "/" + k.Nouns; got != want[k.Kind] {
+			t.Errorf("%s nouns %q, want %q", k.Kind, got, want[k.Kind])
+		}
+	}
+	if len(v.Kinds) != len(want) {
+		t.Errorf("%d kinds", len(v.Kinds))
+	}
+}

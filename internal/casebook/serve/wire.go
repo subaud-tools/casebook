@@ -566,6 +566,10 @@ type KindVocab struct {
 	NeedsUntil []string      `json:"needs_until"`
 	Question   string        `json:"question"`
 	Choices    []ChoiceVocab `json:"choices"`
+	// Noun and Nouns name the kind, one and several: apply's group labels
+	// count in them (a choice's Many, {n} "3 branches").
+	Noun  string `json:"noun"`
+	Nouns string `json:"nouns"`
 }
 
 // ChoiceVocab is one decision button: its disposition, label and what

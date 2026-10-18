@@ -64,10 +64,37 @@ type Plan struct {
 }
 
 // Group groups steps that share the same action and lane, for page display.
+// Undo says whether its steps can be undone (UndoNote).
 type Group struct {
 	Action string `json:"action"`
 	Lane   Lane   `json:"lane"`
+	Undo   string `json:"undo"`
 	Steps  []Step `json:"steps"`
+}
+
+// UndoNote says whether a step of action can be undone and how. An action
+// whose restore is automatic (RestoreFor, AutoUndoable) starts "Can be
+// undone"; every other says it can't.
+func UndoNote(action string) string {
+	switch action {
+	case "branch-delete-local":
+		return "Can be undone: undo makes the branch again at the same commit."
+	case "branch-delete-remote":
+		return "Can be undone: undo pushes the branch back at the same commit."
+	case "worktree-remove":
+		return "Can be undone: undo adds the worktree back on its branch."
+	case "repo-archive":
+		return "No undo here: unarchive it on GitHub to reverse it."
+	case "repo-delete":
+		return "Cannot be undone: GitHub deletes the repository."
+	case "pr-close":
+		return "No undo here: reopen it on GitHub; a posted comment stays."
+	case "pr-merge":
+		return "Cannot be undone: a merge stays merged."
+	case "issue-close":
+		return "No undo here: reopen it on GitHub; a posted comment stays."
+	}
+	return "No undo here."
 }
 
 // ErrStale is returned by Build when the observation age exceeds syncInterval.
@@ -93,6 +120,7 @@ func (p Plan) Groups() []Group {
 			result = append(result, Group{
 				Action: s.Action,
 				Lane:   s.Lane,
+				Undo:   UndoNote(s.Action),
 				Steps:  []Step{s},
 			})
 		}

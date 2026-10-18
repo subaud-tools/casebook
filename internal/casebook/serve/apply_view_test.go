@@ -2,6 +2,7 @@ package serve
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,8 @@ func TestToApplyViewListsDecidedItems(t *testing.T) {
 	if items.Total != 2 || len(items.Items) != 2 {
 		t.Fatalf("to-apply view: total %d, %d items; want the 2 decided", items.Total, len(items.Items))
 	}
-	for i, want := range []string{"issue:schuettc/hail#4", "pr:schuettc/hail#3"} {
+	// Group by group: pull requests before issues.
+	for i, want := range []string{"pr:schuettc/hail#3", "issue:schuettc/hail#4"} {
 		it := items.Items[i]
 		if it.ID != want || it.Status != "to-apply" || it.Decision == nil || string(it.Decision.Disposition) != "close" {
 			t.Errorf("item %d = %s (%s, %+v), want %s to-apply, decided close", i, it.ID, it.Status, it.Decision, want)
@@ -56,5 +58,64 @@ func TestToApplyViewListsDecidedItems(t *testing.T) {
 		if it.Status == "to-apply" {
 			t.Errorf("attention's all view lists to-apply %s", it.ID)
 		}
+	}
+}
+
+// TestToApplyListsGroupsByWhatWillHappen: apply's waiting decisions come in
+// groups by what will happen ("<disposition>|<kind>", labelled "Close 2
+// PRs"), in kind order (repo, pr, issue, branch, worktree) then choice
+// order; the list goes group by group, and a group filter narrows to one.
+func TestToApplyListsGroupsByWhatWillHappen(t *testing.T) {
+	r := newRig(t)
+	for _, d := range []struct {
+		keys []string
+		disp string
+	}{
+		{[]string{"branch:schuettc/hail@feat/client"}, "delete"},
+		{[]string{"issue:schuettc/hail#4", "issue:schuettc/hail#5"}, "close"},
+		{[]string{"pr:schuettc/hail#3"}, "close"},
+		{[]string{"pr:schuettc/hail#4"}, "merge"},
+	} {
+		var dec map[string]any
+		if c := r.do(t, "POST", "/api/decide", map[string]any{"keys": d.keys, "disposition": d.disp}, &dec); c != http.StatusOK {
+			t.Fatalf("decide %v %s: %d %v", d.keys, d.disp, c, dec)
+		}
+	}
+
+	var items ItemsView
+	if c := r.do(t, "GET", "/api/items?view=to-apply", nil, &items); c != http.StatusOK {
+		t.Fatalf("items: %d", c)
+	}
+	want := []struct{ id, label string }{
+		{"merge|pr", "Merge 1 PR"},
+		{"close|pr", "Close 1 PR"},
+		{"close|issue", "Close 2 issues"},
+		{"delete|branch", "Delete 1 branch"},
+	}
+	if len(items.Groups) != len(want) {
+		t.Fatalf("groups %+v, want %d", items.Groups, len(want))
+	}
+	for i, w := range want {
+		g := items.Groups[i]
+		if g.ID != w.id || g.Label != w.label || !g.Outward {
+			t.Errorf("group %d = %+v, want %s %q outward", i, g, w.id, w.label)
+		}
+	}
+	var order []string
+	for _, it := range items.Items {
+		order = append(order, it.Group)
+	}
+	wantOrder := []string{"merge|pr", "close|pr", "close|issue", "close|issue", "delete|branch"}
+	if strings.Join(order, ",") != strings.Join(wantOrder, ",") {
+		t.Errorf("items' groups %v, want %v", order, wantOrder)
+	}
+
+	var one ItemsView
+	r.do(t, "GET", "/api/items?view=to-apply&group=close%7Cissue", nil, &one)
+	if one.Total != 2 || one.Items[0].Group != "close|issue" {
+		t.Errorf("group=close|issue: %+v", one)
+	}
+	if len(one.Groups) != len(want) {
+		t.Errorf("a group filter keeps every group's count: %+v", one.Groups)
 	}
 }

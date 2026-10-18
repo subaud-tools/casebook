@@ -1,4 +1,4 @@
-// probe-apply.mjs — the To apply section's probe scenarios (Task 9), run by
+// probe-apply.mjs — apply's probe scenarios (Task 9), run by
 // probe.mjs with its check helpers (t.check, t.checkList, t.until,
 // t.eventually).
 //
@@ -222,42 +222,44 @@ export async function applyScenarios(shared, t) {
   }
 }
 
+// PROBE_SCENARIO (with PROBE_ONLY=apply) runs only the scenario groups
+// whose name has it: main, stale, list, nothing.
+const runs = (name) =>
+  !process.env.PROBE_SCENARIO || name.includes(process.env.PROBE_SCENARIO);
+
 async function applyScenariosIn(context, t) {
-  const serveHandle = await ownServe(T9_SEED);
-  try {
-    await applyScenariosOn(context, t, serveHandle);
-  } finally {
-    serveHandle.stop();
-    serves = serves.filter((s) => s !== serveHandle);
-  }
-  const stale = await ownServe({
-    seedRepos: [dormant('t9-stale')],
-    syncInterval: '2s',
-  });
-  try {
-    await staleScenario(context, t, stale);
-  } finally {
-    stale.stop();
-    serves = serves.filter((s) => s !== stale);
-  }
-  const nothing = await ownServe({ seedRepos: [dormant('t10-nothing')] });
-  try {
-    await nothingToPlanScenario(context, t, nothing);
-  } finally {
-    nothing.stop();
-    serves = serves.filter((s) => s !== nothing);
+  const groups = [
+    ['main', T9_SEED, applyScenariosOn],
+    [
+      'stale',
+      { seedRepos: [dormant('t9-stale')], syncInterval: '2s' },
+      staleScenario,
+    ],
+    ['list', T11_SEED, listScenario],
+    ['nothing', { seedRepos: [dormant('t10-nothing')] }, nothingToPlanScenario],
+  ];
+  for (const [name, seed, run] of groups) {
+    if (!runs(name)) continue;
+    const s = await ownServe(seed);
+    try {
+      await run(context, t, s);
+    } finally {
+      s.stop();
+      serves = serves.filter((x) => x !== s);
+    }
   }
 }
 
-// nothingToPlanScenario: a tab still offers "Plan all" when another has just
-// planned everything (it hasn't heard yet: its live wire is cut here, so the
-// race is certain). Its press makes no plan: serve refuses, 422, in its own
-// words, and the tab says so without offering "sync first" (a sync wouldn't
-// help) and stops offering "Plan all".
+// nothingToPlanScenario: a tab still offers a group's plan when another
+// has just planned it (it hasn't heard yet: its live wire is cut here, so
+// the race is certain). Its press makes no plan: serve refuses, naming the
+// plan that holds the item, and the tab says so in serve's words without
+// offering "sync first" (a sync wouldn't help) and stops offering the
+// group.
 async function nothingToPlanScenario(context, t, serveHandle) {
   const { check, checkList, until } = t;
   console.log(
-    '\nscenario: to apply — plan all with nothing left to plan makes no plan',
+    '\nscenario: apply — a group another tab planned first makes no plan',
   );
   const agent = createAgent(serveHandle.base, serveHandle.token);
   const ITEM = 'repo:schuettc/t10-nothing';
@@ -268,6 +270,7 @@ async function nothingToPlanScenario(context, t, serveHandle) {
   const pg = await context.newPage();
   const errors = [];
   pg.on('pageerror', (e) => errors.push(String(e)));
+  const BUTTON = '.cb-apply-part[data-part="archive|repo"] .cb-group-plan';
   try {
     // The tab hears nothing live: the stream and the poll both fail.
     await pg.route(/\/api\/(events|state)/, (r) => r.abort());
@@ -276,19 +279,16 @@ async function nothingToPlanScenario(context, t, serveHandle) {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
-    await pg.click('.kit-chip[data-id="ready"]');
     check(
-      'the tab offers "Plan all" for the one decided item',
+      'the tab offers the group\'s plan ("Archive 1 repo\u2026")',
       await until(
         pg,
-        () =>
-          document.querySelector('.kit-primary')?.textContent === 'Plan all' &&
-          [...document.querySelectorAll('.cb-apply-foot-btns .kit-btn')]
-            .map((b) => b.textContent)
-            .join(',') === 'plan all 1',
+        (b) =>
+          document.querySelector(b)?.textContent === 'Archive 1 repo\u2026',
+        BUTTON,
       ),
     );
-    // Another tab plans everything first.
+    // Another tab plans it first.
     const other = await agent.api('POST', '/api/apply/plan', { all: true });
     checkList(
       'another tab plans it first',
@@ -299,14 +299,15 @@ async function nothingToPlanScenario(context, t, serveHandle) {
       (r) =>
         r.url().includes('/api/apply/plan') && r.request().method() === 'POST',
     );
-    await pg.click('.kit-primary');
+    await pg.click(BUTTON);
     const r = await resp;
     const body = await r.json().catch(() => ({}));
     check(
-      `serve refuses the second plan all (${r.status()}: ${body.error ?? ''})`,
-      r.status() === 422 &&
-        body.error ===
-          'nothing to plan: every decided item is already in a plan or a job',
+      `serve refuses it, naming the plan that holds it (${r.status()}: ${body.error ?? ''})`,
+      r.status() === 409 &&
+        (body.error ?? '').startsWith(
+          `${ITEM} is already in plan #${other.job.id}`,
+        ),
     );
     const jobs = (await agent.api('GET', '/api/jobs')).jobs ?? [];
     checkList(
@@ -330,9 +331,6 @@ async function nothingToPlanScenario(context, t, serveHandle) {
         const p = document.querySelector('.kit-primary');
         return p && !p.hidden ? p.textContent : '';
       })(),
-      foot: [...document.querySelectorAll('.cb-apply-foot-btns .kit-btn')].map(
-        (b) => b.textContent,
-      ),
       hash: location.hash,
     }));
     check(
@@ -342,21 +340,386 @@ async function nothingToPlanScenario(context, t, serveHandle) {
         state.hash === '#/apply',
     );
     check(
-      `and "Plan all" is no longer offered: the item is in a plan (primary "${state.primary}", foot ${state.foot.join(', ') || 'none'})`,
-      await until(pg, () => {
-        const p = document.querySelector('.kit-primary');
-        const primary = p && !p.hidden ? p.textContent : '';
-        const foot = [
-          ...document.querySelectorAll('.cb-apply-foot-btns .kit-btn'),
-        ].map((b) => b.textContent);
-        return (
-          primary !== 'Plan all' && !foot.some((f) => f.startsWith('plan all'))
-        );
-      }),
+      'and the group is no longer offered: its item is in a plan, a row of its own',
+      await until(
+        pg,
+        ([b, id]) =>
+          !document.querySelector(b) &&
+          !!document.querySelector(`.cb-apply-list .kit-row[data-job="${id}"]`),
+        [BUTTON, other.job.id],
+      ),
     );
     check(`no page errors (${errors.join(' | ')})`, errors.length === 0);
   } finally {
     await pg.close();
+  }
+}
+
+// listScenario: apply is one list. No view chips: running jobs on top, each
+// with a progress bar that moves as the agent reports, then the decided
+// items waiting, grouped by what will happen under a button that opens the
+// group's plan ("Delete 3 branches\u2026"), then Done, collapsed, last. Nothing
+// runs from the list. A decision made in another tab raises a group's count
+// live, and the waiting strip's "apply" opens the group it joined.
+const T11 = 't11-local';
+const T11_SEED = {
+  seedClones: [{ name: T11, branches: ['feat/a', 'feat/b', 'feat/c'] }],
+  seedRepos: [
+    dormant('t11-x'),
+    dormant('t11-y'),
+    {
+      repo: 'schuettc/t11-prs',
+      pushed_at: '2026-09-20T00:00:00Z',
+      default_branch: 'main',
+      prs: [3, 4].map((number) => ({
+        repo: 'schuettc/t11-prs',
+        number,
+        title: `bump dep ${number}`,
+        author: 'dependabot[bot]',
+        state: 'OPEN',
+        created_at: '2026-03-01T00:00:00Z',
+        updated_at: '2026-03-01T00:00:00Z',
+      })),
+      issues: [],
+    },
+  ],
+};
+async function listScenario(context, t, serveHandle) {
+  const { check, checkList, until, eventually } = t;
+  console.log(
+    '\nscenario: apply — one list: running, the waiting groups, Done',
+  );
+  const agent = createAgent(serveHandle.base, serveHandle.token);
+  const job = (id) => agent.api('GET', `/api/job?id=${id}`);
+  const B = (b) => `branch:schuettc/${T11}@${b}`;
+  const X = 'repo:schuettc/t11-x';
+  const Y = 'repo:schuettc/t11-y';
+  const S = 'probe-t11-pi';
+  const here = () =>
+    agent.presence(S, 'pi \u00b7 t11', '/home/court/t11', 'pi');
+  await here();
+  const keep = setInterval(() => void here(), 1000);
+  const pg = await context.newPage();
+  const pg2 = await context.newPage();
+  const errors = [];
+  pg.on('pageerror', (e) => errors.push(String(e)));
+  pg2.on('pageerror', (e) => errors.push(`tab 2: ${e}`));
+  try {
+    // A finished job: feat/c deleted (the casebook lane runs it at once).
+    await agent.api('POST', '/api/decide', {
+      keys: [B('feat/c')],
+      disposition: 'delete',
+    });
+    const doneJob = await agent.api('POST', '/api/apply/plan', {
+      keys: [B('feat/c')],
+    });
+    await agent.api('POST', '/api/apply/approve', {
+      plan_id: doneJob.job.id,
+      session: '',
+    });
+    await eventually(
+      async () => (await job(doneJob.job.id)).job.state === 'done',
+      10000,
+    );
+    // A running job: both PRs closed, waiting on the agent.
+    const PRS = ['pr:schuettc/t11-prs#3', 'pr:schuettc/t11-prs#4'];
+    await agent.api('POST', '/api/decide', { keys: PRS, disposition: 'close' });
+    const runJob = await agent.api('POST', '/api/apply/plan', { keys: PRS });
+    await agent.api('POST', '/api/apply/approve', {
+      plan_id: runJob.job.id,
+      session: S,
+    });
+    // Waiting: the other two branches. (feat/c is in the group too: an
+    // applied item waits until a sync observes it gone.)
+    await agent.api('POST', '/api/decide', {
+      keys: [B('feat/a'), B('feat/b')],
+      disposition: 'delete',
+    });
+
+    await pg.setViewportSize({ width: 1600, height: 900 });
+    await pg.goto(serveHandle.url + '#/apply', {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const parts = () =>
+      pg.$$eval('.cb-apply-list .cb-apply-part', (els) =>
+        els.map(
+          (e) =>
+            `${e.dataset.part} ${(e.querySelector('.cb-group-label') ?? e.querySelector('.cb-group-plan'))?.textContent} ${e.querySelector('.cb-group-n').textContent}${e.classList.contains('collapsed') ? ' collapsed' : ''}${e.querySelector('.cb-group-plan') && e.querySelector('.cb-group-label') ? ' [label and button]' : ''}`,
+        ),
+      );
+    const want = [
+      'running Running 1',
+      'delete|branch Delete 3 branches\u2026 3',
+      'done Done 1 collapsed',
+    ];
+    await until(
+      pg,
+      (n) => document.querySelectorAll('.cb-apply-part').length === n,
+      want.length,
+    );
+    checkList(
+      'one list: Running, the waiting group whose header is its button, Done collapsed and last',
+      await parts(),
+      want,
+    );
+    const top = await pg.evaluate(() => ({
+      chips: document.querySelectorAll('.cb-apply-list .kit-chip').length,
+      text: document.body.innerText,
+      approve: [...document.querySelectorAll('.cb-apply-list button')]
+        .map((b) => b.textContent)
+        .filter((t) => /approve|run/i.test(t)),
+      primary: (() => {
+        const p = document.querySelector('.kit-primary');
+        return p && !p.hidden ? p.textContent : '';
+      })(),
+      runRow: document
+        .querySelector('.cb-apply-list .kit-row[data-job]')
+        ?.getBoundingClientRect().top,
+      heads: [...document.querySelectorAll('.cb-apply-part')]
+        .filter((e) => e.dataset.part !== 'running')
+        .map((e) => e.getBoundingClientRect().top),
+    }));
+    check(`apply has no view chips (${top.chips})`, top.chips === 0);
+    check(
+      'nothing on the page says "To apply" or "ready"',
+      !/to apply|\bready\b/i.test(top.text),
+    );
+    check(
+      `the running job's row is above every group (${top.runRow}; ${top.heads.join(', ')})`,
+      top.runRow !== undefined && top.heads.every((y) => y > top.runRow),
+    );
+    check(
+      `nothing runs from the list: no approve or run there, no primary (${top.approve.join(', ') || 'none'}; "${top.primary}")`,
+      top.approve.length === 0 && top.primary === '',
+    );
+    // The running job's bar moves as the agent reports its steps.
+    const bar = () =>
+      pg.evaluate(
+        (id) =>
+          document
+            .querySelector(`.cb-apply-list .kit-row[data-job="${id}"] .cb-pb`)
+            ?.getAttribute('aria-valuenow') ?? '',
+        runJob.job.id,
+      );
+    const bar0 = await bar();
+    const step0 = runJob.job.steps[0];
+    for (const state of ['started', 'reported'])
+      await agent.api('POST', '/api/agent/job-step', {
+        session: S,
+        job: runJob.job.id,
+        step: step0.id,
+        state,
+      });
+    check(
+      `the running job's progress bar rises live as a step is reported (aria-valuenow ${bar0} → 1)`,
+      bar0 === '0' &&
+        (await until(
+          pg,
+          (id) =>
+            document
+              .querySelector(`.cb-apply-list .kit-row[data-job="${id}"] .cb-pb`)
+              ?.getAttribute('aria-valuenow') === '1',
+          runJob.job.id,
+        )),
+    );
+    // Ticking names the ticked: "Delete 1 branch\u2026".
+    await pg.click(
+      `.cb-apply-list .kit-row[data-key="${B('feat/a')}"] .kit-box`,
+    );
+    check(
+      'ticking one item names it on the group button ("Delete 1 branch\u2026")',
+      await until(
+        pg,
+        () =>
+          document.querySelector(
+            '.cb-apply-part[data-part="delete|branch"] .cb-group-plan',
+          )?.textContent === 'Delete 1 branch\u2026' &&
+          document
+            .querySelector(
+              '.cb-apply-part[data-part="delete|branch"] .cb-group-box',
+            )
+            ?.getAttribute('aria-checked') === 'mixed',
+      ),
+    );
+    await pg.click(
+      `.cb-apply-list .kit-row[data-key="${B('feat/a')}"] .kit-box`,
+    );
+    await until(
+      pg,
+      () =>
+        document.querySelector(
+          '.cb-apply-part[data-part="delete|branch"] .cb-group-plan',
+        )?.textContent === 'Delete 3 branches\u2026',
+    );
+    await inThemes(t, pg, 'apply list');
+
+    // The group's button opens its plan: each item's command and undo,
+    // where it runs, approve and run.
+    const planResp = pg.waitForResponse(
+      (r) =>
+        r.url().includes('/api/apply/plan') && r.request().method() === 'POST',
+    );
+    await pg.click('.cb-apply-part[data-part="delete|branch"] .cb-group-plan');
+    const planBody = await (await planResp).json();
+    const planId = planBody.job?.id;
+    const opened = await until(
+      pg,
+      (id) =>
+        location.hash === `#/apply/${id}` &&
+        document.querySelector('.cb-plan')?.dataset.job === String(id),
+      planId,
+    );
+    const plan = await pg.evaluate(() => ({
+      keys: [
+        ...new Set(
+          [...document.querySelectorAll('.cb-plan-step')].map(
+            (e) => e.dataset.key,
+          ),
+        ),
+      ].sort(),
+      cmds: [...document.querySelectorAll('.cb-plan-step .cb-cmd')].map(
+        (e) => e.textContent,
+      ),
+      undo: [...document.querySelectorAll('[data-testid="plan-undo"]')].map(
+        (e) => e.textContent.trim(),
+      ),
+      where: [...document.querySelectorAll('[data-testid="plan-where"]')].map(
+        (e) => e.textContent,
+      ),
+      approve: [...document.querySelectorAll('.cb-approve .kit-btn')].map(
+        (b) => b.textContent,
+      ),
+    }));
+    checkList(
+      "the group's button plans its items",
+      plan.keys,
+      [B('feat/a'), B('feat/b'), B('feat/c')].sort(),
+    );
+    check(
+      `the plan opens in the middle pane with each item's exact command, serve's (${plan.cmds.length})`,
+      opened &&
+        plan.cmds.length > 0 &&
+        plan.cmds.join('\n') ===
+          planBody.groups
+            .flatMap((g) => g.steps.map((s) => s.command))
+            .join('\n'),
+    );
+    checkList(
+      "each group says where it runs and whether it can be undone, in serve's words",
+      plan.undo,
+      planBody.groups.map((g) => g.undo),
+    );
+    check(
+      `a local group runs here and can be undone (${plan.where.join(' | ')})`,
+      plan.where.length > 0 &&
+        plan.where.every(
+          (w) => w.startsWith('Runs here, on ') && w.includes('Can be undone'),
+        ),
+    );
+    checkList('the plan offers approve and run', plan.approve, [
+      'approve and run',
+      'discard',
+    ]);
+    checkList(
+      "the plan's items leave their group: the plan is its own row",
+      await parts(),
+      [
+        'running Running 1',
+        'plans Plans to approve 1',
+        'done Done 1 collapsed',
+      ],
+    );
+    check(
+      'the plan is not approved from the list (serve still has it planned)',
+      (await job(planId)).job.state === 'planned',
+    );
+    await pg.click('.cb-approve .kit-btn:has-text("discard")');
+    check(
+      'discarding it brings the group back',
+      await until(
+        pg,
+        () =>
+          location.hash === '#/apply' &&
+          document.querySelector(
+            '.cb-apply-part[data-part="delete|branch"] .cb-group-plan',
+          )?.textContent === 'Delete 3 branches\u2026',
+      ),
+    );
+
+    // A decision in a second tab raises a group's count without a reload,
+    // and its strip's apply opens that group.
+    await pg.evaluate(() => {
+      window.__sameLoad = true;
+    });
+    await pg2.setViewportSize({ width: 1600, height: 900 });
+    await pg2.goto(`${serveHandle.url}#/item/${encodeURIComponent(X)}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    await pg2.click('.cb-decide-row .cb-choice[data-d="archive"]');
+    check(
+      'a decision in a second tab shows as a group here, live ("Archive 1 repo\u2026")',
+      await until(
+        pg,
+        () =>
+          window.__sameLoad === true &&
+          document.querySelector(
+            '.cb-apply-part[data-part="archive|repo"] .cb-group-plan',
+          )?.textContent === 'Archive 1 repo\u2026',
+      ),
+    );
+    await agent.api('POST', '/api/decide', {
+      keys: [Y],
+      disposition: 'archive',
+    });
+    check(
+      "another raises the group's count, still without a reload",
+      await until(
+        pg,
+        () =>
+          window.__sameLoad === true &&
+          document.querySelector(
+            '.cb-apply-part[data-part="archive|repo"] .cb-group-n',
+          )?.textContent === '2',
+      ),
+    );
+    const href = await pg2
+      .locator('.cb-strip a')
+      .getAttribute('href')
+      .catch(() => null);
+    await pg2.click('.cb-strip a').catch(() => {});
+    check(
+      `the strip's apply opens the group it joined (${href})`,
+      href === '#/apply?group=archive%7Crepo' &&
+        (await until(
+          pg2,
+          () =>
+            document.querySelector('.cb-apply-part.cb-focus')?.dataset.part ===
+            'archive|repo',
+        )),
+    );
+    // Done opens when asked.
+    await pg.click('.cb-apply-part[data-part="done"] .cb-group-caret');
+    check(
+      'Done opens to its finished job',
+      await until(
+        pg,
+        (id) =>
+          !!document.querySelector(
+            `.cb-apply-list .kit-row[data-job="${id}"]`,
+          ) &&
+          !document
+            .querySelector('.cb-apply-part[data-part="done"]')
+            ?.classList.contains('collapsed'),
+        doneJob.job.id,
+      ),
+    );
+    check(`no page errors (${errors.join(' | ')})`, errors.length === 0);
+  } finally {
+    clearInterval(keep);
+    await pg.close();
+    await pg2.close();
   }
 }
 
@@ -395,10 +758,10 @@ async function applyScenariosOn(context, t, serveHandle) {
       timeout: 15000,
     });
 
-    // ---- the ready list and a plan ---------------------------------------
-    console.log('\nscenario: to apply — the decided items and a plan');
+    // ---- the waiting groups and a plan -----------------------------------
+    console.log('\nscenario: apply — the waiting groups and a plan');
     check(
-      'the bar counts the decided items waiting to be applied ("to apply 5")',
+      'the bar counts the decided items waiting to be applied ("apply 5")',
       await until(
         pg,
         () =>
@@ -406,92 +769,125 @@ async function applyScenariosOn(context, t, serveHandle) {
             ?.textContent === '5',
       ),
     );
-    await pg.click('.kit-chip[data-id="ready"]');
-    const readyKeys = await (async () => {
-      await until(
-        pg,
-        () => document.querySelectorAll('.cb-apply-list .kit-row').length === 5,
-      );
-      return pg.$$eval('.cb-apply-list .kit-row', (els) =>
-        els.map((e) => e.dataset.key),
-      );
-    })();
+    await until(
+      pg,
+      () => document.querySelectorAll('.cb-apply-list .kit-row').length === 5,
+    );
+    const readyKeys = await pg.$$eval('.cb-apply-list .kit-row', (els) =>
+      els.map((e) => e.dataset.key),
+    );
     const served = await agent.api('GET', '/api/items?view=to-apply');
     checkList(
-      "ready lists serve's to-apply items, in its order",
+      "the list holds serve's to-apply items, group by group in its order",
       readyKeys,
       served.items.map((i) => i.key),
     );
-    check(
-      'with nothing selected the primary is "Plan all"',
-      await until(
-        pg,
-        () =>
-          document.querySelector('.kit-primary')?.textContent === 'Plan all',
-      ),
+    const groupButtons = () =>
+      pg.$$eval('.cb-apply-part', (els) =>
+        els.map(
+          (e) =>
+            `${e.dataset.part} ${e.querySelector('.cb-group-plan')?.textContent ?? ''}`,
+        ),
+      );
+    checkList(
+      "the groups are serve's, each under its button, named for what will happen",
+      await groupButtons(),
+      [
+        'archive|repo Archive 2 repos\u2026',
+        'close|pr Close 1 PR\u2026',
+        'delete|branch Delete 2 branches\u2026',
+      ],
     );
-    const footColour = () =>
-      pg.$eval('.cb-apply-foot-n', (e) => ({
-        text: e.textContent,
-        colour: getComputedStyle(e).color,
-      }));
-    const fgC = await cssColor(pg, 'var(--kit-fg)');
-    const signalC = await cssColor(pg, 'var(--kit-signal)');
-    const plainFoot = await footColour();
     check(
-      `with nothing selected the foot's total is plain text, not the selection's signal ("${plainFoot.text}", ${plainFoot.colour})`,
-      plainFoot.text === '5 decided items' &&
-        plainFoot.colour === fgC &&
-        fgC !== signalC,
+      'nothing runs from the list: no primary',
+      (await read.primary(pg)) === '',
     );
-    // Select two rows: the primary and the foot count them.
+    // Tick two rows: their groups' buttons name the ticked.
     await pg.click(`.cb-apply-list .kit-row[data-key="${REPO_B}"] .kit-box`);
     await pg.click(`.cb-apply-list .kit-row[data-key="${PR}"] .kit-box`);
     check(
-      'two selected: the primary is "Plan 2" and the foot says "2 selected"',
+      'ticked, a group button names the ticked items ("Archive 1 repo\u2026")',
       await until(
         pg,
         () =>
-          document.querySelector('.kit-primary')?.textContent === 'Plan 2' &&
-          document.querySelector('.cb-apply-foot-n')?.textContent ===
-            '2 selected',
+          document.querySelector(
+            '.cb-apply-part[data-part="archive|repo"] .cb-group-plan',
+          )?.textContent === 'Archive 1 repo\u2026' &&
+          document
+            .querySelector('.cb-apply-part[data-part="close|pr"] .cb-group-box')
+            ?.getAttribute('aria-checked') === 'true',
       ),
     );
-    const selFoot = await footColour();
+    const signalC = await cssColor(pg, 'var(--kit-signal)');
+    const boxC = await pg.$eval(
+      '.cb-apply-part[data-part="close|pr"] .cb-group-box',
+      (e) => getComputedStyle(e).backgroundColor,
+    );
     check(
-      `a selection's count is in signal (${selFoot.colour})`,
-      selFoot.colour === signalC,
+      `a ticked group's box is in signal, the selection's colour (${boxC})`,
+      boxC === signalC,
     );
     await pg.click(`.cb-apply-list .kit-row[data-key="${REPO_B}"] .kit-box`);
     await pg.click(`.cb-apply-list .kit-row[data-key="${PR}"] .kit-box`);
 
-    // Plan all (no session is here yet).
-    const planResp = pg.waitForResponse((r) =>
-      r.url().includes('/api/apply/plan'),
-    );
-    await until(
-      pg,
-      () => document.querySelector('.kit-primary')?.textContent === 'Plan all',
-    );
+    // A group's button, pressed twice fast: one plan, of that group.
     const planPosts = [];
     const onPlanPost = (r) => {
       if (r.method() === 'POST' && r.url().includes('/api/apply/plan'))
         planPosts.push(r.url());
     };
     pg.on('request', onPlanPost);
-    // Twice, fast: a double press.
-    await pg.click('.kit-primary', { clickCount: 2 });
-    const planView = await (await planResp).json();
-    const jobId = planView.job.id;
+    const branchResp = pg.waitForResponse((r) =>
+      r.url().includes('/api/apply/plan'),
+    );
+    await pg.click('.cb-apply-part[data-part="delete|branch"] .cb-group-plan', {
+      clickCount: 2,
+    });
+    const branchPlan = await (await branchResp).json();
     // Kept: the check is that the second press posts nothing; a window for
     // a second POST to go out.
     await pg.waitForTimeout(500);
     pg.off('request', onPlanPost);
-    const jobsAfterPlan = (await agent.api('GET', '/api/jobs')).jobs ?? [];
     check(
-      `a double press of "Plan all" asks serve once (${planPosts.length} POST /api/apply/plan, ${jobsAfterPlan.length} plan)`,
-      planPosts.length === 1 && jobsAfterPlan.length === 1,
+      `a double press of a group's button asks serve once (${planPosts.length} POST /api/apply/plan)`,
+      planPosts.length === 1 &&
+        ((await agent.api('GET', '/api/jobs')).jobs ?? []).length === 1,
     );
+    checkList(
+      "it plans the group's items",
+      [...new Set(branchPlan.job.steps.map((s) => s.key))].sort(),
+      [BR('feat/l1'), BR('feat/l2')],
+    );
+    check(
+      `the plan opens as #/apply/${branchPlan.job.id}, local, "approve and run"`,
+      (await until(
+        pg,
+        (id) =>
+          location.hash === `#/apply/${id}` &&
+          document.querySelector('.cb-plan')?.dataset.job === String(id),
+        branchPlan.job.id,
+      )) &&
+        (await pg.$$eval('.cb-approve .kit-btn', (bs) =>
+          bs.map((b) => b.textContent).join(','),
+        )) === 'approve and run,discard' &&
+        (await read.primary(pg)) === 'Approve and run',
+    );
+    await pg.click('.cb-approve .kit-btn:has-text("discard")');
+    await until(
+      pg,
+      () =>
+        document.querySelector(
+          '.cb-apply-part[data-part="delete|branch"] .cb-group-plan',
+        )?.textContent === 'Delete 2 branches\u2026',
+    );
+
+    // One plan of every group (serve's plan all), opened by its address:
+    // the rest of this scenario runs it.
+    const planView = await agent.api('POST', '/api/apply/plan', { all: true });
+    const jobId = planView.job.id;
+    await pg.evaluate((id) => {
+      location.hash = `#/apply/${id}`;
+    }, jobId);
     check(
       `the plan opens as #/apply/${jobId}`,
       await until(
@@ -502,29 +898,24 @@ async function applyScenariosOn(context, t, serveHandle) {
         jobId,
       ),
     );
-    // The decided items it holds are marked as in it, and not plannable.
-    const readyRows = await pg.$$eval(
-      '.cb-apply-list .kit-row[data-key]',
-      (els) =>
-        els.map((e) => ({
-          key: e.dataset.key,
-          meta: e.querySelector('.kit-meta')?.textContent,
-          box: !!e.querySelector('.kit-box'),
-        })),
-    );
     check(
-      `the items in the plan say so ("in plan #${jobId}") and can't be selected (${readyRows.map((r) => r.meta).join(', ')})`,
-      readyRows.length === 5 &&
-        readyRows.every((r) => r.meta === `in plan #${jobId}` && !r.box),
+      'its items leave their groups: the plan is a row under "Plans to approve", no group waits',
+      await until(
+        pg,
+        (id) =>
+          [...document.querySelectorAll('.cb-apply-part')]
+            .map((e) => e.dataset.part)
+            .join(',') === 'plans' &&
+          !!document.querySelector(`.cb-apply-list .kit-row[data-job="${id}"]`),
+        jobId,
+      ),
     );
-    const footAfterPlan = await pg.$eval('.cb-apply-foot-sel', (e) => ({
-      n: e.querySelector('.cb-apply-foot-n')?.textContent,
-      btns: [...e.querySelectorAll('.kit-btn')].map((b) => b.textContent),
-    }));
-    check(
-      `nothing is left for "plan all": the foot says "${footAfterPlan.n}" and offers no plan (${footAfterPlan.btns.join(',') || 'none'})`,
-      footAfterPlan.n === '5 decided items in a plan' &&
-        footAfterPlan.btns.length === 0,
+    checkList(
+      "each group of the plan says whether it can be undone, in serve's words",
+      await pg.$$eval('[data-testid="plan-undo"]', (els) =>
+        els.map((e) => e.textContent.trim()),
+      ),
+      planView.groups.map((g) => g.undo),
     );
     // Every step shows serve's exact command, grouped as serve groups them.
     const shown = await pg.$$eval('.cb-plan-group', (gs) =>
@@ -673,14 +1064,15 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
       await pg.click(`.cb-session[data-session="${SESSION}"]`);
       check(
-        'choosing a session marks it, and the primary is "Approve"',
+        'choosing a session marks it, and the primary is "Approve and run"',
         await until(
           pg,
           (id) =>
             document
               .querySelector(`.cb-session[data-session="${id}"]`)
               ?.getAttribute('aria-checked') === 'true' &&
-            document.querySelector('.kit-primary')?.textContent === 'Approve',
+            document.querySelector('.kit-primary')?.textContent ===
+              'Approve and run',
           SESSION,
         ),
       );
@@ -695,7 +1087,7 @@ async function applyScenariosOn(context, t, serveHandle) {
         'with a session chosen the plan offers approve and discard',
         (await pg.$$eval('.cb-approve .kit-btn', (bs) =>
           bs.map((b) => b.textContent).join(','),
-        )) === 'approve,discard',
+        )) === 'approve and run,discard',
       );
       const planTitle = await pg.$eval(
         '.cb-plan .kit-h1',
@@ -724,14 +1116,15 @@ async function applyScenariosOn(context, t, serveHandle) {
         }),
       );
       check(
-        'the job opens in the running view, its primary "Pause job"',
+        'the job opens, listed under Running on top, its primary "Pause job"',
         await until(
           pg,
           (id) =>
             document.querySelector('.cb-job')?.dataset.job === String(id) &&
-            document
-              .querySelector('.kit-chip[data-id="running"]')
-              ?.classList.contains('on') &&
+            document.querySelector('.cb-apply-part')?.dataset.part ===
+              'running' &&
+            document.querySelector('.cb-apply-list .kit-row')?.dataset.job ===
+              String(id) &&
             document.querySelector('.kit-primary')?.textContent === 'Pause job',
           jobId,
           8000,
@@ -917,7 +1310,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- pause and resume --------------------------------------------
-      console.log('\nscenario: to apply — pause and resume');
+      console.log('\nscenario: apply — pause and resume');
       await pg.click('.kit-primary');
       check(
         'primary "Pause job" pauses it (serve) and becomes "Resume"',
@@ -951,7 +1344,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- a burst of live events -----------------------------------------
-      console.log('\nscenario: to apply — a burst of live events');
+      console.log('\nscenario: apply — a burst of live events');
       // Kept: the resume's own reloads settle, so the count below is the
       // burst's alone.
       await pg.waitForTimeout(500);
@@ -995,7 +1388,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- a stale reload never draws over a newer one ------------------
-      console.log('\nscenario: to apply — reloads in order');
+      console.log('\nscenario: apply — reloads in order');
       // Kept: the reloads before this settle, so the one held is the event's.
       await pg.waitForTimeout(500);
       // Hold every /api/job reload: the first (running) is released after
@@ -1038,7 +1431,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- a needs-you card (spec §10) ----------------------------------
-      console.log('\nscenario: to apply — a needs-you card');
+      console.log('\nscenario: apply — a needs-you card');
       await agent.api('POST', '/api/agent/job-step', {
         session: SESSION,
         job: jobId,
@@ -1270,7 +1663,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- undo ----------------------------------------------------------
-      console.log('\nscenario: to apply — undo');
+      console.log('\nscenario: apply — undo');
       jv = await job(jobId);
       const undoable = jv.job.steps.filter((s) => s.undoable).map((s) => s.id);
       const withUndo = await pg.$$eval('.cb-step', (els) =>
@@ -1323,7 +1716,7 @@ async function applyScenariosOn(context, t, serveHandle) {
 
       // ---- sections: context, keys, primary -----------------------------
       console.log(
-        '\nscenario: to apply — only the active section feeds the composer',
+        '\nscenario: apply — only the active section feeds the composer',
       );
       check(
         'the open job is attached to the composer, with its title',
@@ -1412,13 +1805,15 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
       check(
         "on decide the primary isn't apply's",
-        !['Pause job', 'Resume', 'Approve'].includes(await read.primary(pg)),
+        !['Pause job', 'Resume', 'Approve and run'].includes(
+          await read.primary(pg),
+        ),
       );
 
       // An item is in one unfinished job: job #1 is approved (running),
-      // so its five items say "in job #1" and aren't offered again; a
-      // sixth, decided now, is all "Plan all" plans.
-      console.log('\nscenario: to apply — an item is in one unfinished job');
+      // so its five items wait in no group; a sixth, decided now, is the
+      // only one waiting, and its group's button plans it alone.
+      console.log('\nscenario: apply — an item is in one unfinished job');
       await agent.api('POST', '/api/decide', {
         keys: [REPO_C],
         disposition: 'archive',
@@ -1433,55 +1828,30 @@ async function applyScenariosOn(context, t, serveHandle) {
             .querySelector('.kit-ctl[data-id="apply"]')
             ?.classList.contains('on') ?? false,
       );
-      await pg.click('.kit-chip[data-id="ready"]');
       const heldOk = await until(
         pg,
-        ([id, c]) => {
-          const rows = [
-            ...document.querySelectorAll('.cb-apply-list .kit-row[data-key]'),
-          ];
-          return (
-            rows.length === 6 &&
-            rows.every((r) =>
-              r.dataset.key === c
-                ? r.querySelector('.kit-meta')?.textContent === 'archive' &&
-                  !!r.querySelector('.kit-box')
-                : r.querySelector('.kit-meta')?.textContent ===
-                    `in job #${id}` && !r.querySelector('.kit-box'),
-            )
-          );
-        },
-        [jobId, REPO_C],
-      );
-      const heldMetas = await pg.$$eval(
-        '.cb-apply-list .kit-row[data-key] .kit-meta',
-        (els) => els.map((e) => e.textContent),
+        (c) =>
+          [...document.querySelectorAll('.cb-apply-list .kit-row[data-key]')]
+            .map((r) => r.dataset.key)
+            .join(',') === c &&
+          document.querySelector(
+            '.cb-apply-part[data-part="archive|repo"] .cb-group-plan',
+          )?.textContent === 'Archive 1 repo\u2026',
+        REPO_C,
       );
       check(
-        `the running job's five items say "in job #${jobId}" and can't be selected; the new one can (${heldMetas.join(', ')})`,
+        `the running job's five items wait in no group; only the new one does ("Archive 1 repo\u2026")`,
         heldOk,
-      );
-      const heldFoot = await until(
-        pg,
-        () =>
-          document.querySelector('.kit-primary')?.textContent === 'Plan all' &&
-          [...document.querySelectorAll('.cb-apply-foot-btns .kit-btn')]
-            .map((b) => b.textContent)
-            .join(',') === 'plan all 1',
-      );
-      check(
-        'the primary and the foot plan only the item not in a job ("Plan all", "plan all 1")',
-        heldFoot,
       );
       const secondResp = pg.waitForResponse(
         (r) =>
           r.url().includes('/api/apply/plan') &&
           r.request().method() === 'POST',
       );
-      await pg.click('.kit-primary');
+      await pg.click('.cb-apply-part[data-part="archive|repo"] .cb-group-plan');
       const second = await (await secondResp).json();
       checkList(
-        'after a plan is approved, "Plan all" leaves its items out: the new plan is only the new item',
+        'the group plans only the item no job holds',
         (second.job?.steps ?? []).map((st) => st.key),
         [REPO_C],
       );
@@ -1498,7 +1868,9 @@ async function applyScenariosOn(context, t, serveHandle) {
       await pg.click(`.cb-session[data-session="${SESSION}"]`);
       await until(
         pg,
-        () => document.querySelector('.kit-primary')?.textContent === 'Approve',
+        () =>
+          document.querySelector('.kit-primary')?.textContent ===
+          'Approve and run',
       );
       await pg.evaluate(() => {
         location.hash = '#/decide';
@@ -1518,7 +1890,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       );
 
       // ---- discarding a plan ---------------------------------------------
-      console.log('\nscenario: to apply — a plan can be discarded');
+      console.log('\nscenario: apply — a plan can be discarded');
       await pg.evaluate((id) => {
         location.hash = `#/apply/${id}`;
       }, second.job.id);
@@ -1533,11 +1905,22 @@ async function applyScenariosOn(context, t, serveHandle) {
         one === '1 step \u00b7 1 outward. The outward step goes to:',
       );
       check(
-        `the item in it is marked in the ready list ("in plan #${second.job.id}")`,
-        (await pg.$eval(
-          `.cb-apply-list .kit-row[data-key="${REPO_C}"] .kit-meta`,
-          (e) => e.textContent,
-        )) === `in plan #${second.job.id}`,
+        `the item in it left its group; the plan is a row under "Plans to approve" (#${second.job.id})`,
+        await until(
+          pg,
+          ([key, id]) =>
+            !document.querySelector(
+              `.cb-apply-list .kit-row[data-key="${key}"]`,
+            ) &&
+            !document.querySelector(
+              '.cb-apply-part[data-part="archive|repo"]',
+            ) &&
+            !!document.querySelector(
+              `.cb-apply-list .kit-row[data-job="${id}"]`,
+            ) &&
+            !!document.querySelector('.cb-apply-part[data-part="plans"]'),
+          [REPO_C, second.job.id],
+        ),
       );
       const cancelPost = pg
         .waitForResponse((r) => r.url().includes('/api/apply/cancel'))
@@ -1552,20 +1935,17 @@ async function applyScenariosOn(context, t, serveHandle) {
           )),
       );
       check(
-        'the ready list shows again, without the plan, and its item is plannable again',
+        'the list shows again, without the plan, and its item waits in its group again',
         await until(
           pg,
           ([id, key]) =>
             location.hash === '#/apply' &&
-            document
-              .querySelector('.kit-chip[data-id="ready"]')
-              ?.classList.contains('on') &&
             !document.querySelector(
               `.cb-apply-list .kit-row[data-job="${id}"]`,
             ) &&
             document.querySelector(
-              `.cb-apply-list .kit-row[data-key="${key}"] .kit-meta`,
-            )?.textContent === 'archive' &&
+              '.cb-apply-part[data-part="archive|repo"] .cb-group-plan',
+            )?.textContent === 'Archive 1 repo\u2026' &&
             !!document.querySelector(
               `.cb-apply-list .kit-row[data-key="${key}"] .kit-box`,
             ),
@@ -1577,7 +1957,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       // item to one unfinished job (an older database). Approving one holds
       // its items; approving the other is refused, in serve's words.
       console.log(
-        '\nscenario: to apply — approving a plan whose item another job holds',
+        '\nscenario: apply — approving a plan whose item another job holds',
       );
       const third = await agent.api('POST', '/api/apply/plan', {
         keys: [REPO_C],
@@ -1596,20 +1976,25 @@ async function applyScenariosOn(context, t, serveHandle) {
         twin,
       );
       check(
-        `its item says it is in the approved job ("in job #${third.job.id}")`,
+        `its item waits in no group: the approved job #${third.job.id} holds it`,
         await until(
           pg,
           ([key, id]) =>
-            document.querySelector(
-              `.cb-apply-list .kit-row[data-key="${key}"] .kit-meta`,
-            )?.textContent === `in job #${id}`,
+            !document.querySelector(
+              `.cb-apply-list .kit-row[data-key="${key}"]`,
+            ) &&
+            !!document.querySelector(
+              `.cb-apply-list .kit-row[data-job="${id}"]`,
+            ),
           [REPO_C, third.job.id],
         ),
       );
       await pg.click(`.cb-session[data-session="${SESSION}"]`);
       await until(
         pg,
-        () => document.querySelector('.kit-primary')?.textContent === 'Approve',
+        () =>
+          document.querySelector('.kit-primary')?.textContent ===
+          'Approve and run',
       );
       const refusedResp = pg.waitForResponse((r) =>
         r.url().includes('/api/apply/approve'),
@@ -1656,7 +2041,7 @@ async function applyScenariosOn(context, t, serveHandle) {
 async function staleScenario(context, t, serveHandle) {
   const { check, checkList, until, eventually } = t;
   console.log(
-    '\nscenario: to apply — a stale plan is refused in serve\u2019s words, and offers sync first',
+    '\nscenario: apply — a stale plan is refused in serve\u2019s words, and offers sync first',
   );
   const agent = createAgent(serveHandle.base, serveHandle.token);
   const pg = await context.newPage();
@@ -1668,7 +2053,8 @@ async function staleScenario(context, t, serveHandle) {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
-    await pg.click('.kit-chip[data-id="ready"]');
+    const STALE_BUTTON =
+      '.cb-apply-part[data-part="archive|repo"] .cb-group-plan';
     const okC = await cssColor(pg, 'var(--kit-ok)');
     const mutedC = await cssColor(pg, 'var(--kit-muted)');
     // Court decides with the page open (and live): serve rebuilds its index
@@ -1695,7 +2081,9 @@ async function staleScenario(context, t, serveHandle) {
           e?.textContent === 'observations fresh' &&
           e.dataset.state === 'fresh' &&
           getComputedStyle(e).color === ok &&
-          document.querySelector('.kit-primary')?.textContent === 'Plan all'
+          !!document.querySelector(
+            '.cb-apply-part[data-part="archive|repo"] .cb-group-plan',
+          )
         );
       },
       okC,
@@ -1730,7 +2118,7 @@ async function staleScenario(context, t, serveHandle) {
       return Date.now() - Date.parse(s.built_at) > 2300;
     });
     const resp = pg.waitForResponse((r) => r.url().includes('/api/apply/plan'));
-    await pg.click('.kit-primary');
+    await pg.click(STALE_BUTTON);
     const r = await resp;
     const body = await r.json();
     check(`serve refuses the plan (409: ${body.error})`, r.status() === 409);
@@ -1771,12 +2159,9 @@ async function staleScenario(context, t, serveHandle) {
       around.filled.join(',') === 'sync first' &&
         around.primary === 'Sync first',
     );
-    const staleFoot = await pg.$$eval('.cb-apply-foot-btns .kit-btn', (els) =>
-      els.map((b) => b.textContent),
-    );
     check(
-      `while the refusal stands the list's foot offers no plan (${staleFoot.join(', ') || 'none'})`,
-      staleFoot.length === 0,
+      "while the refusal stands the group's button waits",
+      await pg.$eval(STALE_BUTTON, (b) => b.disabled),
     );
     check(
       'no job was made',
@@ -1797,15 +2182,11 @@ async function staleScenario(context, t, serveHandle) {
       pg2,
       () => document.querySelector('.kit-live')?.dataset.state === 'live',
     );
-    await pg2.click('.kit-chip[data-id="ready"]');
-    await until(
-      pg2,
-      () => document.querySelector('.kit-primary')?.textContent === 'Plan all',
-    );
+    await until(pg2, (b) => !!document.querySelector(b), STALE_BUTTON);
     const resp2 = pg2.waitForResponse((x) =>
       x.url().includes('/api/apply/plan'),
     );
-    await pg2.click('.kit-primary');
+    await pg2.click(STALE_BUTTON);
     check(
       'a second tab is refused too',
       (await resp2).status() === 409 &&

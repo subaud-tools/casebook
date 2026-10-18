@@ -277,3 +277,26 @@ func TestChoicesSayWhatTheyDid(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyLabels: apply names a waiting group by what will happen to how
+// many of what.
+func TestApplyLabels(t *testing.T) {
+	for _, c := range []struct {
+		k    Kind
+		d    Disposition
+		n    int
+		want string
+	}{
+		{KindBranch, Delete, 30, "Delete 30 branches"},
+		{KindPR, Close, 5, "Close 5 PRs"},
+		{KindRepo, Archive, 10, "Archive 10 repos"},
+		{KindBranch, Delete, 1, "Delete 1 branch"},
+		{KindWorktree, Delete, 2, "Remove 2 worktrees"},
+		{KindPR, Merge, 3, "Merge 3 PRs"},
+		{KindIssue, Close, 4, "Close 4 issues"},
+	} {
+		if got := ApplyLabel(c.k, c.d, c.n); got != c.want {
+			t.Errorf("ApplyLabel(%s, %s, %d) = %q, want %q", c.k, c.d, c.n, got, c.want)
+		}
+	}
+}

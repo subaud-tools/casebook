@@ -133,10 +133,13 @@ func leftOpenInView(view string, it engine.Item, pending map[string]propose.Prop
 // grouped reports whether view's items are grouped: the Attention views.
 func grouped(view string) bool { return view != ViewToApply && view != ViewTracked }
 
-// groupOf is it's group in view, given the pending proposals: the zero
-// GroupView (no group) in To apply and tracked. The group's Total is left
-// to the caller.
+// groupOf is it's group in view, given the pending proposals: in To apply
+// what will happen to it (applyGroupOf), none in tracked. The group's Total
+// (and a To apply group's Label, which counts) is left to the caller.
 func groupOf(view string, it engine.Item, pending map[string]propose.Proposal) GroupView {
+	if view == ViewToApply {
+		return applyGroupOf(it)
+	}
 	if !grouped(view) {
 		return GroupView{}
 	}
@@ -157,6 +160,45 @@ func groupOf(view string, it engine.Item, pending map[string]propose.Proposal) G
 	}
 	g.ID = g.Source + "|" + g.Disposition + "|" + g.Label
 	return g
+}
+
+// applyGroupOf is a decided item's group in To apply: what will happen to
+// it, ID "<disposition>|<kind>". Its Label is ApplyLabel once counted.
+func applyGroupOf(it engine.Item) GroupView {
+	if it.Decision == nil {
+		return GroupView{}
+	}
+	d := it.Decision.Disposition
+	g := GroupView{ID: string(d) + "|" + string(it.Kind), Disposition: string(d), Outward: true}
+	if c, i := choiceOf(it.Kind, d); i >= 0 {
+		g.Outward, g.Many = c.Outward, c.Many
+	}
+	return g
+}
+
+// kindOrder is the order To apply lists its groups' kinds in.
+var kindOrder = []item.Kind{item.KindRepo, item.KindPR, item.KindIssue, item.KindBranch, item.KindWorktree}
+
+// applyGroupsInOrder labels To apply's groups with their counts and orders
+// them by kind (kindOrder), then by the kind's choice order.
+func applyGroupsInOrder(gs []GroupView) {
+	place := func(g GroupView) (int, int) {
+		d, k, _ := strings.Cut(g.ID, "|")
+		_, c := choiceOf(item.Kind(k), item.Disposition(d))
+		return slices.Index(kindOrder, item.Kind(k)), c
+	}
+	for i := range gs {
+		d, k, _ := strings.Cut(gs[i].ID, "|")
+		gs[i].Label = item.ApplyLabel(item.Kind(k), item.Disposition(d), gs[i].Total)
+	}
+	sort.SliceStable(gs, func(i, j int) bool {
+		ki, ci := place(gs[i])
+		kj, cj := place(gs[j])
+		if ki != kj {
+			return ki < kj
+		}
+		return ci < cj
+	})
 }
 
 // cameBack reports whether it was decided and came back for a decision:
@@ -247,7 +289,9 @@ func matches(q Query, it engine.Item, group string) bool {
 // listed is every item q's view lists (every page), each with its group,
 // and the view's groups in the order it lists them. An Attention view's
 // items are newest first (engine.NewerFirst) after the items that came
-// back, and its groups go by their newest item, "Came back" first; To apply and tracked keep key order. The caller holds x.mu.
+// back, and its groups go by their newest item, "Came back" first; To
+// apply keeps key order and its groups go by kind, then choice
+// (applyGroupsInOrder); tracked keeps key order. The caller holds x.mu.
 func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView, []GroupView) {
 	src := x.res.Items
 	if q.Filtered {
@@ -300,18 +344,21 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 	for _, id := range gs {
 		views = append(views, *groups[id])
 	}
+	if q.View == ViewToApply {
+		applyGroupsInOrder(views)
+	}
 	return out, views
 }
 
 // List returns the page of items in a view and the view's total. An
 // Attention view lists its items group by group (Groups' order), newest
-// first in each; with q.Flat, newest first across its groups. To apply and
-// tracked keep key order.
+// first in each; with q.Flat, newest first across its groups. To apply
+// lists group by group too, in key order in each; tracked keeps key order.
 func (x *Index) List(q Query, pending map[string]propose.Proposal) ([]ItemView, int) {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
 	out, gs := x.listed(q, pending)
-	if grouped(q.View) && !q.Flat {
+	if (grouped(q.View) || q.View == ViewToApply) && !q.Flat {
 		order := make(map[string]int, len(gs))
 		for i, g := range gs {
 			order[g.ID] = i
@@ -321,9 +368,9 @@ func (x *Index) List(q Query, pending map[string]propose.Proposal) ([]ItemView, 
 	return pageOf(out, q)
 }
 
-// Groups is an Attention view's groups with their counts over every page
-// (q's filters apply, a group filter aside; not its Offset and Limit), in
-// the order List lists them. To apply and tracked have none.
+// Groups is an Attention or To apply view's groups with their counts over
+// every page (q's filters apply, a group filter aside; not its Offset and
+// Limit), in the order List lists them. Tracked has none.
 func (x *Index) Groups(q Query, pending map[string]propose.Proposal) []GroupView {
 	x.mu.RLock()
 	defer x.mu.RUnlock()

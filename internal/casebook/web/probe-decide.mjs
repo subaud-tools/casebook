@@ -3838,11 +3838,10 @@ async function itemPageScenario(context, t, s) {
       8000,
     ),
   );
+  const stripHref = (await pg.locator(`${STRIP} a`).getAttribute('href')) ?? '';
   check(
-    'the strip\'s "apply" links to apply',
-    ((await pg.locator(`${STRIP} a`).getAttribute('href')) ?? '').startsWith(
-      '#/apply',
-    ),
+    `the strip's "apply" links to the group it joined (${stripHref})`,
+    stripHref === '#/apply?group=close%7Cissue',
   );
   await pg.screenshot({ path: shotPath('part2-strip') });
   await pg.click(`${STRIP} button`);

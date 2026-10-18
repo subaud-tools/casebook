@@ -1556,3 +1556,23 @@ func TestSettleAlreadyTerminalIsNoop(t *testing.T) {
 		t.Errorf("state = %q; want done", state)
 	}
 }
+
+// TestAJobsStepsSayWhetherTheyCanBeUndone: a job read back carries each
+// step's undo note (UndoNote), so a plan opened later shows it too.
+func TestAJobsStepsSayWhetherTheyCanBeUndone(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore(openTestDB(t))
+	job, err := s.Create(ctx, testPlan(), "macbook-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range append(job.Steps, got.Steps...) {
+		if st.UndoNote == "" || st.UndoNote != UndoNote(st.Action) {
+			t.Errorf("step %s: undo note %q, want %q", st.Action, st.UndoNote, UndoNote(st.Action))
+		}
+	}
+}

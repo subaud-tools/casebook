@@ -318,7 +318,7 @@
 
 /* A group's header, sticky to the top of the list while its rows scroll
  * under it: caret, a checkbox for the whole group, its label (an outward
- * group's "goes to To apply first" under it) and its count; then its
+ * group's "goes to apply first" under it) and its count; then its
  * buttons. Its ground is a step darker than the list's, so it reads as a
  * header over the rows. */
 .cb-group {
@@ -1837,7 +1837,7 @@ button.cb-cond-v.cb-disp:focus-visible {
   display: none;
 }
 
-/* ---- To apply (spec §5; the mock's apply page) --------------------------- */
+/* ---- apply (spec §5; points 17-19) -------------------------------------- */
 
 /* A job's lanes: casebook's own steps (local) and the agent's (outward). */
 .cb-job-row .kit-kicker {
@@ -1882,8 +1882,8 @@ button.cb-cond-v.cb-disp:focus-visible {
 .cb-apply-more .kit-title {
   color: var(--kit-muted);
 }
-/* The foot: the selection and what it plans (ready), and how old the
-   observations are that a plan would be built from. */
+/* The foot: how old the observations are that a plan would be built
+   from. */
 .cb-apply-foot {
   flex: 1;
   display: flex;
@@ -1891,31 +1891,16 @@ button.cb-cond-v.cb-disp:focus-visible {
   gap: 8px;
   min-width: 0;
 }
-.cb-apply-foot-sel,
 .cb-apply-obs {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.cb-apply-foot-sel {
-  justify-content: space-between;
-}
-.cb-apply-foot-sel[hidden],
 .cb-apply-obs[hidden] {
   display: none;
 }
-.kit-foot:has(> .cb-apply-foot > .cb-apply-foot-sel[hidden]):has(
-    > .cb-apply-foot > .cb-apply-obs[hidden]
-  ) {
+.kit-foot:has(> .cb-apply-foot > .cb-apply-obs[hidden]) {
   display: none;
-}
-/* A plain total reads in the text colour; signal is the selection's. */
-.cb-apply-foot-n {
-  color: var(--kit-fg);
-  font-weight: 600;
-}
-.cb-apply-foot-n.cb-sel {
-  color: var(--kit-signal);
 }
 .cb-apply-obs {
   color: var(--kit-muted);
@@ -1934,8 +1919,23 @@ button.cb-cond-v.cb-disp:focus-visible {
   background: var(--kit-ok);
   border-color: var(--kit-ok);
 }
-/* A decided item already in an unapproved plan: listed, not plannable. */
-.cb-in-plan .kit-title {
+/* apply's list is decide's: its parts' heads are decide's group heads
+ * (.cb-group), and its rows sit under them, indented so a row's checkbox
+ * lines up under the head's label. */
+.cb-apply-list .kit-rows {
+  scrollbar-gutter: stable;
+}
+.cb-apply-list .kit-rows > .kit-row {
+  margin-left: 36px;
+}
+/* The group the address opened (#/apply?group=), marked at its edge. */
+.cb-apply-part.cb-focus {
+  box-shadow: inset 3px 0 0 var(--kit-signal);
+}
+/* A plan group's where it runs, then whether it can be undone. */
+.cb-plan-where {
+  margin: 2px 0 6px;
+  font: 12.5px var(--kit-sans);
   color: var(--kit-muted);
 }
 
@@ -2223,8 +2223,10 @@ textarea.cb-needs-edit:focus {
  * count written up it, and the reading column takes the room. The rail (or
  * ») brings the list back.
  */
-/* decide's list names no section: no eyebrow, no view chips. */
+/* decide's and apply's lists name no section (the bar does): no eyebrow,
+ * no view chips. */
 .cb-decide-list .kit-lh > .kit-eyebrow:empty,
+.cb-apply-list .kit-lh > .kit-eyebrow:empty,
 .cb-decide-list .kit-chips[data-group='view']:empty {
   display: none;
 }
@@ -2796,4 +2798,15 @@ button.cb-cond-menu-row[aria-disabled='true'] {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--kit-muted);
+}
+
+/* apply: a waiting group's header is its button. */
+.cb-apply-part .cb-apply-head-acts {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
 }

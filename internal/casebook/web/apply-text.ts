@@ -1,24 +1,54 @@
-// apply-text.ts — the To apply section's words and counts, as pure
+// apply-text.ts — apply's words and counts, as pure
 // functions over serve's jobs (no kit or browser imports, so node --test can
 // load it).
 
 import type { Job, JobStep, NeedsYou, Step } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 
-/** The job's view in the list: running (approved on), ready (a plan), done. */
-export type ApplyView = 'running' | 'ready' | 'done';
-
-export function viewOf(job: Job): ApplyView {
-  switch (job.state) {
-    case 'planned':
-      return 'ready';
-    case 'done':
-    case 'failed':
-    case 'cancelled':
-      return 'done';
-    default:
-      return 'running';
+/**
+ * applyOrder splits the jobs as apply lists them, each part newest first:
+ * running (approved, running, paused) on top, the plans not approved yet
+ * with the waiting groups, and done (done, failed, cancelled) last.
+ */
+export function applyOrder(jobs: Job[]): {
+  running: Job[];
+  plans: Job[];
+  done: Job[];
+} {
+  const out = { running: [] as Job[], plans: [] as Job[], done: [] as Job[] };
+  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
+    if (j.state === 'planned') out.plans.push(j);
+    else if (FINISHED_JOB.has(j.state)) out.done.push(j);
+    else out.running.push(j);
   }
+  return out;
+}
+
+// A job that will not run again.
+const FINISHED_JOB = new Set(['done', 'failed', 'cancelled']);
+
+/** isRunning: approved, running or paused (applyOrder's running). */
+export function isRunning(job: Job): boolean {
+  return job.state !== 'planned' && !FINISHED_JOB.has(job.state);
+}
+
+/** isFinished: done, failed or cancelled (applyOrder's done). */
+export function isFinished(job: Job): boolean {
+  return FINISHED_JOB.has(job.state);
+}
+
+/**
+ * applyLabel names a waiting group of n items by what will happen, in
+ * serve's words: the choice's many ("Delete {n}") with the count and the
+ * kind's noun, "Delete 3 branches".
+ */
+export function applyLabel(
+  many: string,
+  noun: string,
+  nouns: string,
+  n: number,
+): string {
+  return many.replace('{n}', `${n} ${n === 1 ? noun : nouns}`);
 }
 
 const TITLES: Record<string, string> = {
@@ -77,6 +107,8 @@ export function laneLabel(lane: string, agent: string): string {
 export interface StepGroup<S extends Step = Step> {
   action: string;
   lane: string;
+  /** Whether its steps can be undone, in serve's words (Group.undo). */
+  undo: string;
   steps: S[];
 }
 
@@ -84,7 +116,9 @@ export interface StepGroup<S extends Step = Step> {
  * groupSteps groups steps by (action, lane) in first-seen order: what serve's
  * Plan.Groups does, for a job read back from GET /api/job.
  */
-export function groupSteps<S extends Step>(steps: S[]): StepGroup<S>[] {
+export function groupSteps<S extends Step & { undo_note?: string }>(
+  steps: S[],
+): StepGroup<S>[] {
   const out: StepGroup<S>[] = [];
   const at = new Map<string, number>();
   for (const s of steps) {
@@ -92,7 +126,12 @@ export function groupSteps<S extends Step>(steps: S[]): StepGroup<S>[] {
     const i = at.get(k);
     if (i === undefined) {
       at.set(k, out.length);
-      out.push({ action: s.action, lane: s.lane, steps: [s] });
+      out.push({
+        action: s.action,
+        lane: s.lane,
+        undo: s.undo_note ?? '',
+        steps: [s],
+      });
     } else out[i].steps.push(s);
   }
   return out;
@@ -305,38 +344,6 @@ export function plannedKeys(jobs: Job[]): Map<string, Held> {
   return m;
 }
 
-/** heldLabel is a held item's meta: "in plan #3", "in job #1". */
-export function heldLabel(h: Held): string {
-  return `${h.planned ? 'in plan' : 'in job'} #${h.id}`;
-}
-
-/** heldWhere says where held items are: "in a plan", "in a job", or both. */
-export function heldWhere(held: Map<string, Held>): string {
-  const vs = [...held.values()];
-  const plans = vs.some((h) => h.planned);
-  const jobs = vs.some((h) => !h.planned);
-  if (plans && jobs) return 'in a plan or a job';
-  return jobs ? 'in a job' : 'in a plan';
-}
-
-/**
- * plannableCount is how many decided items "plan all" would plan: serve
- * leaves out the ones already in an unfinished job (plannedKeys). total is serve's count
- * of decided items, loaded the keys the page has, all whether it has them
- * all; a planned key the page hasn't loaded is counted as one of the total.
- */
-export function plannableCount(
-  total: number,
-  loaded: string[],
-  planned: Map<string, Held>,
-  all: boolean,
-): number {
-  const have = new Set(loaded);
-  let inPlan = loaded.filter((k) => planned.has(k)).length;
-  if (!all) for (const k of planned.keys()) if (!have.has(k)) inPlan++;
-  return Math.max(0, total - inPlan);
-}
-
 /** ageText: a short age, "40s", "12m", "3h", "2d". */
 export function ageText(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -362,4 +369,40 @@ export function observations(
   if (!intervalMs || age <= intervalMs)
     return { text: 'observations fresh', stale: false };
   return { text: `observations ${ageText(age)} old`, stale: true };
+}
+
+// STEP_DISPOSITION is the decision a step carries out: with its key's kind,
+// the waiting group (serve's to-apply group id) its item was in.
+const STEP_DISPOSITION: Record<string, string> = {
+  'branch-delete-local': 'delete',
+  'branch-delete-remote': 'delete',
+  'worktree-remove': 'delete',
+  'repo-archive': 'archive',
+  'repo-delete': 'delete',
+  'pr-close': 'close',
+  'pr-merge': 'merge',
+  'issue-close': 'close',
+};
+export function stepGroup(s: Step): string {
+  return `${STEP_DISPOSITION[s.action] ?? ''}|${s.key.slice(0, s.key.indexOf(':'))}`;
+}
+
+/**
+ * heldOutside counts the items of waiting group id that an unfinished job
+ * holds and the list hasn't loaded: each item once, however many steps its
+ * job has for it (a branch's local and remote delete).
+ */
+export function heldOutside(
+  jobs: Job[],
+  id: string,
+  loaded: Set<string>,
+): number {
+  const held = new Set<string>();
+  for (const j of jobs) {
+    if (!['planned', 'approved', 'running', 'paused'].includes(j.state))
+      continue;
+    for (const s of j.steps ?? [])
+      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
+  }
+  return held.size;
 }

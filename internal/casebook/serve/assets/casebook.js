@@ -863,6 +863,10 @@ function waitingStrip(w, done) {
   }
   return parts;
 }
+function applyGroupLink(disposition, key) {
+  const kind = key.slice(0, key.indexOf(":"));
+  return `#/apply?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
+}
 
 // decide.ts
 import { sheet, h as h3, noteField as noteField2 } from "/_kit/kit.js";
@@ -1170,17 +1174,24 @@ async function getVocab(ctx) {
 var DANGER_DISPS = /* @__PURE__ */ new Set(["close", "delete", "archive"]);
 
 // apply-text.ts
-function viewOf(job) {
-  switch (job.state) {
-    case "planned":
-      return "ready";
-    case "done":
-    case "failed":
-    case "cancelled":
-      return "done";
-    default:
-      return "running";
+function applyOrder(jobs) {
+  const out = { running: [], plans: [], done: [] };
+  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
+    if (j.state === "planned") out.plans.push(j);
+    else if (FINISHED_JOB.has(j.state)) out.done.push(j);
+    else out.running.push(j);
   }
+  return out;
+}
+var FINISHED_JOB = /* @__PURE__ */ new Set(["done", "failed", "cancelled"]);
+function isRunning(job) {
+  return job.state !== "planned" && !FINISHED_JOB.has(job.state);
+}
+function isFinished(job) {
+  return FINISHED_JOB.has(job.state);
+}
+function applyLabel(many, noun, nouns, n) {
+  return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
 }
 var TITLES = {
   "branch-delete-local": "Delete local branches",
@@ -1229,7 +1240,12 @@ function groupSteps(steps) {
     const i = at2.get(k);
     if (i === void 0) {
       at2.set(k, out.length);
-      out.push({ action: s.action, lane: s.lane, steps: [s] });
+      out.push({
+        action: s.action,
+        lane: s.lane,
+        undo: s.undo_note ?? "",
+        steps: [s]
+      });
     } else out[i].steps.push(s);
   }
   return out;
@@ -1367,24 +1383,6 @@ function plannedKeys(jobs) {
   }
   return m;
 }
-function heldLabel(h15) {
-  return `${h15.planned ? "in plan" : "in job"} #${h15.id}`;
-}
-function heldWhere(held) {
-  const vs = [...held.values()];
-  const plans = vs.some((h15) => h15.planned);
-  const jobs = vs.some((h15) => !h15.planned);
-  if (plans && jobs) return "in a plan or a job";
-  return jobs ? "in a job" : "in a plan";
-}
-function plannableCount(total, loaded, planned, all) {
-  const have = new Set(loaded);
-  let inPlan = loaded.filter((k) => planned.has(k)).length;
-  if (!all) {
-    for (const k of planned.keys()) if (!have.has(k)) inPlan++;
-  }
-  return Math.max(0, total - inPlan);
-}
 function ageText(ms) {
   const s = Math.max(0, Math.floor(ms / 1e3));
   if (s < 60) return `${s}s`;
@@ -1399,6 +1397,29 @@ function observations(builtAt, intervalMs, now) {
   if (!intervalMs || age <= intervalMs)
     return { text: "observations fresh", stale: false };
   return { text: `observations ${ageText(age)} old`, stale: true };
+}
+var STEP_DISPOSITION = {
+  "branch-delete-local": "delete",
+  "branch-delete-remote": "delete",
+  "worktree-remove": "delete",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function stepGroup(s) {
+  return `${STEP_DISPOSITION[s.action] ?? ""}|${s.key.slice(0, s.key.indexOf(":"))}`;
+}
+function heldOutside(jobs, id, loaded) {
+  const held = /* @__PURE__ */ new Set();
+  for (const j of jobs) {
+    if (!["planned", "approved", "running", "paused"].includes(j.state))
+      continue;
+    for (const s of j.steps ?? [])
+      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
+  }
+  return held.size;
 }
 
 // time-utils.ts
@@ -1446,11 +1467,9 @@ function coalesced(load) {
 // apply.ts
 var PAGE = 200;
 var STEPS_PAGE = 200;
-var VIEWS = [
-  { id: "running", label: "running" },
-  { id: "ready", label: "ready" },
-  { id: "done", label: "done" }
-];
+var RUNNING = "running";
+var PLANS = "plans";
+var DONE = "done";
 function message(err) {
   return err instanceof Error ? err.message : String(err);
 }
@@ -1463,7 +1482,7 @@ var planner = null;
 function buildPlan(ctx, what) {
   const body = what === "all" ? { all: true } : { keys: what };
   return ctx.api.post("/apply/plan", body).then((v) => planner?.planned(v)).catch(
-    (err) => err instanceof ApiError && err.status === 422 ? planner?.nothing(message(err)) : planner?.refused(message(err))
+    (err) => err instanceof ApiError && (err.status === 422 || err.status === 409 && !err.message.includes("sync first")) ? planner?.nothing(message(err)) : planner?.refused(message(err))
   );
 }
 function focusKey(el) {
@@ -1505,8 +1524,10 @@ function makeApply(ctx) {
   let sessions = [];
   let items = [];
   let itemsTotal = 0;
-  let machine = "";
-  let view = "running";
+  let groups = [];
+  let vocab2 = null;
+  const collapsed = /* @__PURE__ */ new Set([DONE]);
+  let wantGroup = "";
   let active = false;
   let openId = null;
   let open = null;
@@ -1541,9 +1562,6 @@ function makeApply(ctx) {
     const s = sessions.find((x) => x.id === id);
     return s?.harness || ctx.agentName() || "agent";
   };
-  const footCount = h4("span", { class: "cb-apply-foot-n" });
-  const footBtns = h4("span", { class: "cb-apply-foot-btns" });
-  const footSel = h4("div", { class: "cb-apply-foot-sel" }, footCount, footBtns);
   const obsText = h4("span", { "data-testid": "observations" });
   const obsEl = h4(
     "div",
@@ -1551,17 +1569,32 @@ function makeApply(ctx) {
     h4("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
     obsText
   );
-  const foot = h4("div", { class: "cb-apply-foot" }, footSel, obsEl);
+  const foot = h4("div", { class: "cb-apply-foot" }, obsEl);
   const inPlan = () => plannedKeys(jobs);
-  const plannable = () => plannableCount(
-    itemsTotal,
-    items.map((i) => i.key),
-    inPlan(),
-    itemsTotal <= items.length
-  );
+  const listed = () => jobs.filter((j) => j.state !== "cancelled");
+  const order = () => applyOrder(listed());
+  const kindVocab = (kind) => vocab2?.kinds?.find((k) => k.kind === kind);
+  function labelFor(g, n) {
+    const kind = g.id.slice(g.id.indexOf("|") + 1);
+    const kv = kindVocab(kind);
+    if (!kv || !g.many) return g.label;
+    return applyLabel(g.many, kv.noun, kv.nouns, n);
+  }
+  const waiting = (g) => items.filter((it) => it.group === g.id && !inPlan().has(it.key));
+  function waitingCount(g) {
+    const loaded = new Set(items.map((i) => i.key));
+    let held = items.filter(
+      (it) => it.group === g.id && inPlan().has(it.key)
+    ).length;
+    if (itemsTotal > items.length) held += heldOutside(jobs, g.id, loaded);
+    return Math.max(0, g.total - held);
+  }
+  const tickedIn = (g) => {
+    const sel = new Set(handle.selectedIds());
+    return waiting(g).map((it) => it.key).filter((k) => sel.has(k));
+  };
   const handle = list({
-    label: "to apply",
-    views: VIEWS.map((v) => ({ ...v, on: v.id === view })),
+    label: "",
     openOnMove: false,
     row(r) {
       if (r.t === "more") {
@@ -1573,13 +1606,11 @@ function makeApply(ctx) {
       }
       if (r.t === "item") {
         const it = r.item;
-        const plan2 = inPlan().get(it.key);
         return {
           id: it.key,
           key: `${it.kind} · ${keyWithoutKind(it.key)}`,
           title: it.title ?? keyWithoutKind(it.key),
-          meta: plan2 ? heldLabel(plan2) : it.decision?.disposition ?? "",
-          selectable: !plan2
+          selectable: true
         };
       }
       const j = r.job;
@@ -1590,81 +1621,82 @@ function makeApply(ctx) {
         id: `job:${j.id}`,
         key: planned ? `plan · job #${j.id}` : lanes || `job #${j.id}`,
         title: jobTitle(j),
-        meta: planned ? pluralize(p.total, "step") : p.started || viewOf(j) === "done" ? `${p.finished}/${p.total}` : "queued",
+        meta: planned ? pluralize(p.total, "step") : p.started || isFinished(j) ? `${p.finished}/${p.total}` : "queued",
         sub: needsLine(cardsFor(j.id), p.paused) || void 0
       };
-    },
-    onChip(group, id) {
-      if (group !== "view") return;
-      view = id;
-      paintList();
-      feed();
     },
     onOpen(r, i) {
       if (painting) return;
       if (r.t === "job") ctx.route.go("apply", String(r.job.id));
-      else if (r.t === "item") {
-        const plan2 = inPlan().get(r.item.key);
-        if (plan2) ctx.route.go("apply", String(plan2.id));
-        else handle.toggle(i);
-      } else void loadItems(items.length);
+      else if (r.t === "item") handle.toggle(i);
+      else void loadItems(items.length);
     },
     onSelect() {
-      paintFoot();
-      if (active) ctx.setPrimary(primary());
+      paintHeads();
       if (openId === null) drawOverview();
     },
     foot
   });
   handle.el.classList.add("cb-apply-list");
   const cardsFor = (jobId) => openCardsByJob(cards.filter((c) => c.kind !== "paused")).get(jobId) ?? 0;
-  const selectedKeys = () => {
-    const planned = inPlan();
-    return handle.selectedIds().filter((k) => !k.startsWith("job:") && k !== "more" && !planned.has(k));
-  };
-  const listed = () => jobs.filter((j) => j.state !== "cancelled");
-  function rowsFor(v) {
-    const js = listed().filter((j) => viewOf(j) === v).sort((a, b) => b.id - a.id).map((job) => ({ t: "job", job }));
-    if (v !== "ready") return js;
-    const its = items.map((item) => ({ t: "item", item }));
-    const more = itemsTotal > items.length ? [{ t: "more", left: itemsTotal - items.length }] : [];
-    return [...js, ...its, ...more];
+  function parts() {
+    const o = order();
+    const job = (job2) => ({ t: "job", job: job2 });
+    const ps = [];
+    if (o.running.length)
+      ps.push({
+        id: RUNNING,
+        label: "Running",
+        n: o.running.length,
+        rows: o.running.map(job)
+      });
+    if (o.plans.length)
+      ps.push({
+        id: PLANS,
+        label: "Plans to approve",
+        n: o.plans.length,
+        rows: o.plans.map(job)
+      });
+    for (const g of groups) {
+      const n = waitingCount(g);
+      if (!n) continue;
+      ps.push({
+        id: g.id,
+        label: labelFor(g, n),
+        n,
+        group: g,
+        rows: waiting(g).map((item) => ({ t: "item", item }))
+      });
+    }
+    if (itemsTotal > items.length) {
+      const last = ps.length ? ps[ps.length - 1] : null;
+      if (last?.group)
+        last.rows.push({ t: "more", left: itemsTotal - items.length });
+    }
+    if (o.done.length)
+      ps.push({
+        id: DONE,
+        label: "Done",
+        n: o.done.length,
+        rows: o.done.map(job)
+      });
+    return ps;
   }
-  function counts() {
-    const c = { running: 0, ready: itemsTotal, done: 0 };
-    for (const j of listed()) c[viewOf(j)]++;
-    return c;
-  }
+  let shown = [];
+  let heads = [];
   function paintList() {
-    const c = counts();
-    handle.setChips(
-      "view",
-      VIEWS.map((v) => ({
-        ...v,
-        on: v.id === view,
-        count: c[v.id] || void 0
-      }))
-    );
-    const shown = rowsFor(view);
+    const ps = parts();
+    shown = ps.flatMap((p) => collapsed.has(p.id) ? [] : p.rows);
     handle.setItems(shown);
-    const planned = inPlan();
-    const els = handle.el.querySelectorAll(".kit-row");
+    const els = handle.el.querySelectorAll(".kit-rows > .kit-row");
     els.forEach((rowEl, i) => {
       const r = shown[i];
       if (!r) return;
-      if (r.t !== "job") {
-        if (r.t === "item") {
-          rowEl.dataset.key = r.item.key;
-          const plan2 = planned.get(r.item.key);
-          if (plan2) {
-            rowEl.dataset.plan = String(plan2.id);
-            rowEl.classList.add("cb-in-plan");
-          }
-        } else rowEl.classList.add("cb-apply-more");
-        return;
-      }
-      decorateJobRow(rowEl, r.job);
+      if (r.t === "item") rowEl.dataset.key = r.item.key;
+      else if (r.t === "more") rowEl.classList.add("cb-apply-more");
+      else decorateJobRow(rowEl, r.job);
     });
+    placeHeads(ps, els);
     const openAt = shown.findIndex((r) => r.t === "job" && r.job.id === openId);
     if (openAt >= 0) {
       painting = true;
@@ -1674,7 +1706,195 @@ function makeApply(ctx) {
         painting = false;
       }
     }
-    paintFoot();
+    paintObs();
+    drawOverview();
+    focusGroup();
+  }
+  function placeHeads(ps, els) {
+    const body = handle.el.querySelector(".kit-rows");
+    heads = [];
+    if (!body) return;
+    let at2 = 0;
+    let last = null;
+    for (const p of ps) {
+      const head = partHead(p);
+      heads.push(head);
+      const n = collapsed.has(p.id) ? 0 : p.rows.length;
+      if (n) {
+        els[at2]?.before(head.el);
+        last = els[at2 + n - 1] ?? head.el;
+      } else {
+        if (last) last.after(head.el);
+        else body.prepend(head.el);
+        last = head.el;
+      }
+      at2 += n;
+    }
+  }
+  function partHead(p) {
+    const isOpen = !collapsed.has(p.id);
+    const toggleOpen = () => {
+      if (collapsed.has(p.id)) collapsed.delete(p.id);
+      else collapsed.add(p.id);
+      paintList();
+    };
+    const g = p.group;
+    const box = g ? h4("span", {
+      class: "cb-group-box",
+      role: "checkbox",
+      "aria-checked": "false",
+      "aria-label": p.label,
+      onclick() {
+        const keys = waiting(g).map((it) => it.key);
+        if (tickedIn(g).length === keys.length) handle.deselect(keys);
+        else handle.selectAll(keys);
+      }
+    }) : h4("span", { class: "cb-group-nobox" });
+    const top = h4(
+      "div",
+      { class: "cb-group-top" },
+      h4(
+        "button",
+        {
+          type: "button",
+          class: "cb-group-caret",
+          "aria-expanded": String(isOpen),
+          "aria-label": p.label,
+          onclick: toggleOpen
+        },
+        isOpen ? "▼" : "▶"
+      ),
+      box,
+      // A waiting group's header is its button (planning call): its name
+      // is "Delete 3 branches…", which opens the plan. Other parts' headers
+      // are their name, which folds them.
+      g ? h4("div", { class: "cb-group-acts cb-apply-head-acts" }) : h4(
+        "span",
+        { class: "cb-group-name", onclick: toggleOpen },
+        h4(
+          "span",
+          { class: "cb-group-line" },
+          h4("span", { class: "cb-group-label" }, p.label)
+        )
+      ),
+      h4("span", { class: "cb-group-n" }, String(p.n))
+    );
+    const acts = g ? top.querySelector(".cb-apply-head-acts") : null;
+    const el = h4(
+      "div",
+      {
+        class: "cb-group cb-apply-part" + (isOpen ? "" : " collapsed"),
+        role: "presentation",
+        dataset: { part: p.id }
+      },
+      top
+    );
+    const paint = () => {
+      if (!g || !acts) return;
+      const ticked = tickedIn(g);
+      const all = waiting(g).length;
+      box.setAttribute(
+        "aria-checked",
+        !ticked.length ? "false" : ticked.length === all ? "true" : "mixed"
+      );
+      const n = ticked.length || p.n;
+      const bs = [
+        h4(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn fill cb-group-plan",
+            // Refused as stale, the offer is to sync first: planning again
+            // would be refused again.
+            disabled: planning || !!refusal,
+            onclick() {
+              void planGroup(g, ticked);
+            }
+          },
+          `${labelFor(g, n)}…`
+        )
+      ];
+      if (ticked.length && vocab2?.untick)
+        bs.push(
+          h4(
+            "button",
+            {
+              type: "button",
+              class: "cb-group-untick",
+              onclick() {
+                handle.deselect(ticked);
+              }
+            },
+            vocab2.untick
+          )
+        );
+      acts.replaceChildren(...bs);
+    };
+    paint();
+    return { el, paint };
+  }
+  function paintHeads() {
+    for (const hd of heads) hd.paint();
+  }
+  async function planGroup(g, ticked) {
+    if (planning) return;
+    let keys = ticked;
+    if (!keys.length) {
+      keys = waiting(g).map((it) => it.key);
+      if (itemsTotal > items.length) {
+        try {
+          keys = await groupKeys2(g.id);
+        } catch (err) {
+          refusal = "";
+          nothingNote = message(err);
+          drawOverview();
+          return;
+        }
+      }
+    }
+    if (keys.length) plan(keys);
+  }
+  async function groupKeys2(id) {
+    const held = inPlan();
+    const keys = [];
+    for (let total = Infinity; keys.length < total; ) {
+      const v = await ctx.api.get("/items", {
+        view: "to-apply",
+        group: id,
+        limit: "500",
+        offset: String(keys.length)
+      });
+      const got = v.items ?? [];
+      total = v.total;
+      if (!got.length) break;
+      keys.push(...got.map((i) => i.key));
+    }
+    return keys.filter((k) => !held.has(k));
+  }
+  function focusGroup() {
+    if (!wantGroup || !active) return;
+    const head = handle.el.querySelector(
+      `.cb-apply-part[data-part="${CSS.escape(wantGroup)}"]`
+    );
+    if (!head) return;
+    const id = wantGroup;
+    wantGroup = "";
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+      return focusGroupEl(id);
+    }
+    focusGroupEl(id);
+  }
+  function focusGroupEl(id) {
+    const head = handle.el.querySelector(
+      `.cb-apply-part[data-part="${CSS.escape(id)}"]`
+    );
+    if (!head) return;
+    for (const el of handle.el.querySelectorAll(".cb-apply-part.cb-focus"))
+      el.classList.remove("cb-focus");
+    head.classList.add("cb-focus");
+    head.scrollIntoView({ block: "start" });
   }
   function decorateJobRow(rowEl, j) {
     rowEl.dataset.job = String(j.id);
@@ -1699,7 +1919,7 @@ function makeApply(ctx) {
     const meta = rowEl.querySelector(".kit-meta");
     if (meta?.textContent === "queued") meta.classList.add("cb-queued");
     rowEl.querySelector(".kit-sub")?.classList.add("cb-needs-line");
-    if (j.state !== "planned" && (p.started || viewOf(j) === "done")) {
+    if (j.state !== "planned") {
       const bar2 = h4("div", {
         class: "cb-pb",
         role: "progressbar",
@@ -1719,27 +1939,6 @@ function makeApply(ctx) {
       }
       rowEl.querySelector(".kit-title")?.after(bar2);
     }
-  }
-  function paintFoot() {
-    paintObs();
-    if (view !== "ready" || !itemsTotal) {
-      footCount.textContent = "";
-      footBtns.replaceChildren();
-      footSel.hidden = true;
-      return;
-    }
-    footSel.hidden = false;
-    const n = selectedKeys().length;
-    const can = plannable();
-    const held = itemsTotal - can;
-    footCount.textContent = n ? `${n} selected` : can ? pluralize(can, "decided item") : `${pluralize(held, "decided item")} ${heldWhere(inPlan())}`;
-    footCount.classList.toggle("cb-sel", n > 0);
-    const bs = [];
-    if (n && !refusal)
-      bs.push({ label: `plan ${n}`, run: () => plan(selectedKeys()) });
-    if (can && !refusal)
-      bs.push({ label: `plan all ${can}`, run: () => plan("all") });
-    footBtns.replaceChildren(bs.length ? buttons2(bs) : "");
   }
   function paintObs() {
     const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
@@ -1851,13 +2050,13 @@ function makeApply(ctx) {
       const got = v.items ?? [];
       items = offset ? [...items, ...got] : got;
       itemsTotal = v.total;
+      groups = v.groups ?? [];
       const keep = new Set(items.map((i) => i.key));
-      const gone = selectedKeys().filter((k) => !keep.has(k));
+      const gone = handle.selectedIds().filter((k) => !keep.has(k));
       if (gone.length && offset === 0 && itemsTotal <= items.length) {
         handle.deselect(gone);
       }
       paintList();
-      if (active) ctx.setPrimary(primary());
       if (openId === null) drawOverview();
     } catch {
     }
@@ -1897,7 +2096,6 @@ function makeApply(ctx) {
   async function loadSummary() {
     try {
       const s = await ctx.api.get("/summary");
-      machine = s.machine;
       builtAt = Date.parse(s.built_at) || 0;
       intervalMs = s.sync_interval_ms;
       syncing = s.syncing;
@@ -1920,7 +2118,7 @@ function makeApply(ctx) {
         h4(
           "div",
           { class: "cb-read-empty" },
-          h4("p", { class: "cb-read-empty-section kit-label" }, "to apply"),
+          h4("p", { class: "cb-read-empty-section kit-label" }, "apply"),
           h4("p", { class: "cb-read-empty-prompt" }, message(err))
         )
       );
@@ -1930,7 +2128,8 @@ function makeApply(ctx) {
   function setOpen(v) {
     const first = open?.job.id !== v.job.id;
     open = v;
-    if (v.job.state !== "cancelled") view = viewOf(v.job);
+    if (isFinished(v.job) && v.job.state !== "cancelled")
+      collapsed.delete(DONE);
     patchJob(v);
     for (const id of [...editors.keys()]) {
       if (!(v.needs_you ?? []).some((c) => c.id === id && c.state === "open"))
@@ -1989,6 +2188,7 @@ function makeApply(ctx) {
         groups: (v.groups ?? []).map((g) => ({
           action: g.action,
           lane: g.lane,
+          undo: g.undo,
           steps: g.steps ?? []
         }))
       };
@@ -2000,7 +2200,6 @@ function makeApply(ctx) {
       if (openId === null) drawOverview();
       void loadJobs().then(() => {
         if (openId === null) drawOverview();
-        if (active) ctx.setPrimary(primary());
       });
       void loadItems();
     },
@@ -2008,7 +2207,7 @@ function makeApply(ctx) {
       refusal = msg;
       if (openId === null) {
         drawOverview();
-        paintFoot();
+        paintHeads();
         if (active) ctx.setPrimary(primary());
       } else ctx.route.go("apply");
     }
@@ -2042,7 +2241,7 @@ function makeApply(ctx) {
         plan(what);
       } else if (e.state === "done" && refusal) {
         refusal = "";
-        paintFoot();
+        paintHeads();
       }
     }
     paintObs();
@@ -2087,35 +2286,30 @@ function makeApply(ctx) {
   }
   function drawOverview() {
     if (openId !== null) return;
-    const n = selectedKeys().length;
-    const can = plannable();
+    const o = order();
+    const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
     const doc = h4(
       "article",
       { class: "cb-apply-doc", "data-testid": "apply-overview" },
       h4(
-        "p",
-        { class: "kit-kick" },
-        `to apply${machine ? ` · ${machine}` : ""}`
-      ),
-      h4(
         "h1",
         { class: "kit-h1" },
-        itemsTotal ? `${pluralize(itemsTotal, "decided item")} to apply` : "Nothing decided is waiting to be applied"
+        waitingN ? `${pluralize(waitingN, "decision")} waiting` : "Nothing decided is waiting"
       ),
       facts([
-        ["running", String(counts().running)],
-        ["plans", String(jobs.filter((j) => j.state === "planned").length)],
-        [heldWhere(inPlan()), String(itemsTotal - can)],
-        ["selected", String(n)]
+        ["running", String(o.running.length)],
+        ["plans to approve", String(o.plans.length)],
+        ["waiting", String(waitingN)],
+        ["done", String(o.done.length)]
       ]),
       h4(
         "p",
         null,
-        "A plan shows the exact command for every step before anything runs. This machine applies what is on it; GitHub steps run once, from whichever machine applies them."
+        "A group's button opens its plan here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you approve it. This machine applies what is on it; GitHub steps run once, from whichever machine applies them."
       )
     );
     if (refusal) doc.append(refusalCard());
-    else if (nothingNote && !can && !n)
+    else if (nothingNote)
       doc.append(
         h4(
           "p",
@@ -2127,21 +2321,6 @@ function makeApply(ctx) {
           nothingNote
         )
       );
-    else if (itemsTotal && (n || can)) {
-      const bs = [];
-      if (n)
-        bs.push({
-          label: `plan ${n} selected`,
-          run: () => plan(selectedKeys())
-        });
-      if (can)
-        bs.push({
-          label: `plan all ${can}`,
-          fill: !n,
-          run: () => plan("all")
-        });
-      doc.append(buttons2(bs));
-    }
     const keep = focusSnapshot(readEl);
     readEl.replaceChildren(h4("div", { class: "kit-doc" }, doc));
     focusRestore(readEl, keep);
@@ -2156,7 +2335,7 @@ function makeApply(ctx) {
   }
   function renderPlan(j) {
     const steps = j.steps ?? [];
-    const groups = planGroups?.job === j.id ? planGroups.groups : groupSteps(steps);
+    const groups2 = planGroups?.job === j.id ? planGroups.groups : groupSteps(steps);
     const agent = agentOf(j);
     const discarded = j.state === "cancelled";
     const doc = h4(
@@ -2185,7 +2364,7 @@ function makeApply(ctx) {
       );
       return doc;
     }
-    for (const g of groups) {
+    for (const g of groups2) {
       doc.append(
         h4(
           "h3",
@@ -2196,6 +2375,16 @@ function makeApply(ctx) {
             laneLabel(g.lane, agent)
           ),
           ` · ${actionTitle(g.action)} · ${g.steps.length}`
+        ),
+        h4(
+          "p",
+          { class: "cb-plan-where", "data-testid": "plan-where" },
+          g.lane === "agent" ? `Runs on GitHub, through ${agent}.` : `Runs here, on ${j.machine}.`,
+          g.undo ? h4(
+            "span",
+            { class: "cb-plan-undo", "data-testid": "plan-undo" },
+            ` ${g.undo}`
+          ) : null
         ),
         h4(
           "div",
@@ -2291,7 +2480,12 @@ function makeApply(ctx) {
               `${ps.length} sessions are here and none is chosen yet.`
             )
           );
-        } else bs.push({ label: "approve", fill: true, run: () => approve() });
+        } else
+          bs.push({
+            label: "approve and run",
+            fill: true,
+            run: () => approve()
+          });
       }
     } else {
       el.append(
@@ -2331,7 +2525,6 @@ function makeApply(ctx) {
     try {
       const v = await ctx.api.post("/apply/cancel", { plan_id: id });
       patchJob(v);
-      view = "ready";
       if (openId === id) ctx.route.go("apply");
       else paintList();
     } catch (err) {
@@ -2342,7 +2535,7 @@ function makeApply(ctx) {
     }
   }
   function pauseOrResume() {
-    if (!open || viewOf(open.job) !== "running") return;
+    if (!open || !isRunning(open.job)) return;
     void act(open.job.paused ? "/jobs/resume" : "/jobs/pause", {
       id: open.job.id
     });
@@ -2375,20 +2568,15 @@ function makeApply(ctx) {
     if (open && openId !== null) {
       const j = open.job;
       if (j.state === "planned") {
-        return canApprove() ? { label: "Approve", run: approve } : null;
+        return canApprove() ? { label: "Approve and run", run: approve } : null;
       }
-      if (viewOf(j) === "running") {
+      if (isRunning(j)) {
         return j.paused ? { label: "Resume", run: pauseOrResume } : { label: "Pause job", run: pauseOrResume };
       }
       return null;
     }
     if (openId === null && refusal) {
       return syncing ? null : { label: "Sync first", run: () => void syncFirst() };
-    }
-    if (openId === null && view === "ready" && itemsTotal) {
-      const n = selectedKeys().length;
-      if (n) return { label: `Plan ${n}`, run: () => plan(selectedKeys()) };
-      return plannable() ? { label: "Plan all", run: () => plan("all") } : null;
     }
     return null;
   }
@@ -2437,6 +2625,11 @@ function makeApply(ctx) {
   void loadItems();
   void loadSessions();
   void loadSummary();
+  void getVocab(ctx).then((v) => {
+    vocab2 = v;
+    paintList();
+  }).catch(() => {
+  });
   const jobOf = (type, data) => {
     const d = data ?? {};
     if (type === "job") return d.id ?? null;
@@ -2448,8 +2641,9 @@ function makeApply(ctx) {
     read: readEl,
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => applyKeys,
-    show(sub) {
+    show(sub, query) {
       active = true;
+      wantGroup = new URLSearchParams(query ?? "").get("group") ?? "";
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, "")) : NaN;
       if (!sub || !Number.isFinite(id)) {
         if (openId !== null) close();
@@ -2506,7 +2700,7 @@ function renderJob(_ctx, v, hooks) {
   const open = (v.needs_you ?? []).filter((c) => c.state === "open");
   const stepOf = (id) => steps.find((s) => s.id === id);
   const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
-  const state = j.paused && viewOf(j) === "running" ? "paused" : j.state;
+  const state = j.paused && isRunning(j) ? "paused" : j.state;
   const doc = h4(
     "article",
     { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
@@ -6059,7 +6253,8 @@ function makeDecide(ctx) {
             label: g.label,
             total: g.total,
             ticked
-          })
+          }),
+          applyGroupLink(g.disposition, keys[0] ?? "")
         );
       else hideStrip();
       if (!open || keys.includes(open)) {
@@ -6418,8 +6613,8 @@ function makeDecide(ctx) {
     if (stripTimer) clearTimeout(stripTimer);
     stripTimer = setTimeout(hideStrip, STRIP_MS);
   }
-  function waited(done) {
-    if (done) showStrip(done, "#/apply", () => void undo());
+  function waited(done, link) {
+    if (done) showStrip(done, link, () => void undo());
   }
   function outwardChoice(key, d) {
     const kind = key.slice(0, key.indexOf(":"));
@@ -6517,7 +6712,10 @@ function makeDecide(ctx) {
       selection.deselect([key]);
       remember(key, made, previous);
       if (outwardChoice(key, disposition) && vocab2)
-        waited(doneWords(vocab2, disposition, { key }));
+        waited(
+          doneWords(vocab2, disposition, { key }),
+          applyGroupLink(disposition, key)
+        );
       else hideStrip();
       await moveOn(key, order);
     } catch (err) {

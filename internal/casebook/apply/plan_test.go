@@ -644,3 +644,59 @@ func TestCloseCommentIsTheDecisionsNote(t *testing.T) {
 		})
 	}
 }
+
+// TestEveryPlanGroupSaysWhetherItCanBeUndone: every action the plan builder
+// emits has an undo note, its group carries it, and an action whose restore
+// is automatic (AutoUndoable) says it can be undone; the others say not.
+func TestEveryPlanGroupSaysWhetherItCanBeUndone(t *testing.T) {
+	br := branchItem("schuettc/myrepo", "feat/thing", "m", "/r/myrepo")
+	wk := item.WorktreeKey("m", "/r/myrepo-wt")
+	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply,
+		Decision: decided(item.Delete, ""), Locations: []string{"m:/r/myrepo"}}
+	var items = []engine.Item{br, wt}
+	for i, d := range []item.Disposition{item.Archive, item.Delete} {
+		k := item.RepoKey([]string{"schuettc/a", "schuettc/b"}[i])
+		items = append(items, engine.Item{Key: k, ID: k.String(), Kind: item.KindRepo, Status: item.StatusToApply, Decision: decided(d, "")})
+	}
+	for i, d := range []item.Disposition{item.Close, item.Merge} {
+		k := item.PRKey("schuettc/a", i+1)
+		items = append(items, engine.Item{Key: k, ID: k.String(), Kind: item.KindPR, Status: item.StatusToApply, Decision: decided(d, "")})
+	}
+	ik := item.IssueKey("schuettc/a", 9)
+	items = append(items, engine.Item{Key: ik, ID: ik.String(), Kind: item.KindIssue, Status: item.StatusToApply, Decision: decided(item.Close, "")})
+
+	snap := snapWith("m", []observe.Clone{{
+		Path:      "/r/myrepo",
+		Repo:      "schuettc/myrepo",
+		Remotes:   map[string]string{"origin": "schuettc/myrepo"},
+		Branches:  []observe.Branch{{Name: "feat/thing", Upstream: "origin/feat/thing", Tip: "aaa", RemoteTip: "aaa"}},
+		Worktrees: []observe.Worktree{{Path: "/r/myrepo-wt", Branch: "feat/thing"}},
+	}})
+	plan, err := Build(items, snap, epoch, epoch.Add(-time.Minute), 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"branch-delete-local", "branch-delete-remote", "worktree-remove", "repo-archive", "repo-delete", "pr-close", "pr-merge", "issue-close"}
+	seen := map[string]bool{}
+	for _, g := range plan.Groups() {
+		seen[g.Action] = true
+		if g.Undo == "" || g.Undo != UndoNote(g.Action) {
+			t.Errorf("%s: group undo %q, UndoNote %q", g.Action, g.Undo, UndoNote(g.Action))
+		}
+		restore := ""
+		if rec, ok := RestoreFor(JobStep{Key: g.Steps[0].Key, Action: g.Action, Command: g.Steps[0].Command}, Checked{Tip: "aaa", Branch: "feat/thing"}); ok {
+			restore = rec.RestoreCommand
+		}
+		if can := strings.HasPrefix(g.Undo, "Can be undone"); can != AutoUndoable(restore) {
+			t.Errorf("%s: undo %q, but its restore %q undoable = %v", g.Action, g.Undo, restore, AutoUndoable(restore))
+		}
+	}
+	for _, a := range want {
+		if !seen[a] {
+			t.Errorf("the plan emitted no %s step (%v)", a, seen)
+		}
+	}
+	if UndoNote("something-new") == "" {
+		t.Error("an unknown action has no undo note")
+	}
+}

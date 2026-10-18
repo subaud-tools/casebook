@@ -470,7 +470,8 @@ func decisionVocab() DecisionVocabView {
 		for _, c := range item.Choices(k) {
 			choices = append(choices, ChoiceVocab{Disposition: string(c.Disposition), Label: c.Label, Says: c.Says, Outward: c.Outward, NeedsUntil: c.NeedsUntil, Many: c.Many, Done: c.Done, DoneMany: c.DoneMany})
 		}
-		vocab.Kinds[i] = KindVocab{Kind: string(k), Allowed: strs, NeedsUntil: needsUntil, Question: item.Question(k), Choices: nonNil(choices)}
+		one, many := item.Nouns(k)
+		vocab.Kinds[i] = KindVocab{Kind: string(k), Allowed: strs, NeedsUntil: needsUntil, Question: item.Question(k), Choices: nonNil(choices), Noun: one, Nouns: many}
 	}
 	for _, f := range item.UntilForms() {
 		vocab.UntilForms = append(vocab.UntilForms, UntilForm{Op: f.Op, Syntax: f.Syntax, Example: f.Example})

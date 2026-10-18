@@ -21,6 +21,7 @@ import {
   pastedKeys,
   lookIntoCard,
   decideRoute,
+  applyGroupLink,
   doneWords,
   waitingStrip,
 } from './decide-math.ts';
@@ -605,5 +606,18 @@ describe('lookIntoCard', () => {
       says: "pi \u00b7 a checks its CI and recent activity, finds what's wrong, and comes back with a recommendation. Nothing is decided yet.",
       message: 'Look into pr:o/r#1: check it.',
     });
+  });
+});
+
+describe('applyGroupLink', () => {
+  test("goes to the apply group a decision joined: its disposition and the key's kind", () => {
+    assert.equal(
+      applyGroupLink('delete', 'branch:o/r@feat/x'),
+      '#/apply?group=delete%7Cbranch',
+    );
+    assert.equal(
+      applyGroupLink('close', 'pr:o/r#3'),
+      '#/apply?group=close%7Cpr',
+    );
   });
 });

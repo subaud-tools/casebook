@@ -663,7 +663,6 @@ async function keyboardScenario(shared, t) {
           await overlayKeys(t, pg),
           [...EXPECT.apply].sort(),
         );
-        await pg.click('.kit-chip[data-id="ready"]');
         await until(
           pg,
           () =>
@@ -680,11 +679,17 @@ async function keyboardScenario(shared, t) {
           'x',
         );
         check(
-          `x selects the To apply row under the cursor (${applyRows[firstItem]?.id}): "Plan 1"`,
+          `x ticks the apply row under the cursor (${applyRows[firstItem]?.id}): its group's button names one`,
           await until(
             pg,
-            () =>
-              document.querySelector('.kit-primary')?.textContent === 'Plan 1',
+            (key) =>
+              !!document
+                .querySelector(`.cb-apply-list .kit-row[data-key="${key}"]`)
+                ?.classList.contains('sel') &&
+              [...document.querySelectorAll('.cb-apply-part .cb-group-plan')]
+                .map((b) => b.textContent)
+                .some((t) => / 1 \S+\u2026$/.test(t)),
+            applyRows[firstItem]?.id,
           ),
         );
         const applyCurNow = await curOf(pg);
