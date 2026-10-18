@@ -12,7 +12,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
 	tools "github.com/subaud-tools/tools-common"
 )
 

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/hooks"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/hooks"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 // Check is one doctor finding.

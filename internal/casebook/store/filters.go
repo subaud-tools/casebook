@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/subaud-tools/tackle/internal/casebook/filters"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/filters"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
 )
 
 // FilterFileError is a filters/<id>.toml that can't be read as a filter. It

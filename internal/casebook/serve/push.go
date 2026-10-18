@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/app"
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
 )
 
 // The background push. A decide (POST /api/decide, /api/proposals/accept,

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 // landedRemote makes a clone whose origin (a bare remote) has feat/x at the same

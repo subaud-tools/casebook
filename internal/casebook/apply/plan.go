@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 // Lane identifies which execution lane a step belongs to.

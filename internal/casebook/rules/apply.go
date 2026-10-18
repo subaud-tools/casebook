@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
 )
 
 // EvaluateActive proposes decisions for all items that every rule in active

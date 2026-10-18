@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
 )
 
 // Filter is a saved filter stored at casebook-data/filters/<id>.toml.

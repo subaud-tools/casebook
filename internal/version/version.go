@@ -1,6 +1,5 @@
-// Package version holds the ldflags-stamped build metadata shared by the
-// tackle family binaries (proj, scratch). Each binary is a separate release
-// build, so the release workflow stamps these vars per-tool from its own tag.
+// Package version holds casebook's ldflags-stamped build metadata. The release
+// workflow stamps these vars from the VERSION file on main.
 package version
 
 // These are overridden at release time via `-ldflags -X`.

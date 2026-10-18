@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 )
 
 // mustGit runs a git command in dir, failing the test on error.

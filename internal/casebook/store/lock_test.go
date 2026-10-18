@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 // holdLock takes casebook-data's write lock file the way another process

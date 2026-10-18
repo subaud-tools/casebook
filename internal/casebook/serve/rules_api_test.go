@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 // newRuleRig is newRig plus a ready-to-use rule written to the repo.

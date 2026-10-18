@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apptest"
+	"github.com/subaud-tools/casebook/internal/casebook/apptest"
 	"github.com/subaud-tools/tools-common/localweb"
 )
 

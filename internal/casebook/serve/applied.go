@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apply"
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 // doneUntilObserved is each verified item still to keep out of review: one

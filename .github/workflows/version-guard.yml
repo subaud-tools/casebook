@@ -1,0 +1,19 @@
+# .tools family standard: a PR into the release branch must raise VERSION (or
+# carry the no-release label), or the merge silently releases nothing.
+name: version-guard
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+permissions:
+  contents: read
+  # version-guard reads the PR's current labels from the API
+  pull-requests: read
+jobs:
+  version-guard:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: subaud-tools/tools-actions/version-guard@v0.11.1

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/subaud-tools/tackle/internal/casebook/app"
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
 )
 
 func printSync(out io.Writer, machine string, r app.SyncReport) {

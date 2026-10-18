@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 func TestInitWritesCurrentFormat(t *testing.T) {

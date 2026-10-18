@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
 )
 
 // TestListFiltersByRelationBotAndAge verifies that Query.Relation, Query.Bot

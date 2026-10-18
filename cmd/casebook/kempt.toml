@@ -17,7 +17,7 @@ only = { os = "darwin" }
 
   # The binary, from the family download contract (verified against .sha256).
   [[packages.casebook.download]]
-  site = "tackle.tools"
+  site = "casebook.tools"
   tool = "casebook"
   bin = "casebook"
 

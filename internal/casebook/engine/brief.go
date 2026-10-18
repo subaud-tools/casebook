@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // Brief is the session-start briefing for one repo: its items that need

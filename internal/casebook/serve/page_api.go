@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/app"
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/deliver"
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/filters"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/deliver"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/filters"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
 )
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }

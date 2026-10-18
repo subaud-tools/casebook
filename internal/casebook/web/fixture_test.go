@@ -21,11 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/app"
-	"github.com/subaud-tools/tackle/internal/casebook/apptest"
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/apptest"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 var updateFixture = flag.Bool("update", false, "regenerate testdata/home from a fresh fixture")

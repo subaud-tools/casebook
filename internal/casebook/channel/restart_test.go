@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apptest"
-	"github.com/subaud-tools/tackle/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/apptest"
+	"github.com/subaud-tools/casebook/internal/casebook/serve"
 )
 
 // watchedFind is serve.Running that remembers the StartedAt of every serve

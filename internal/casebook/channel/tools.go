@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/tools-common/channelmcp"
 )
 

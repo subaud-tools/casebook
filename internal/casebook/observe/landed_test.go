@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 // recordRunner captures gh invocations for inspection.

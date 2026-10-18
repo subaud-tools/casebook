@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/db"
+	"github.com/subaud-tools/casebook/internal/casebook/db"
 )
 
 // interruptedView mirrors InterruptedView for the test.

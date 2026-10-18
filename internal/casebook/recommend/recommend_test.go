@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // vocab is the decision vocabulary as serve hands it over: every kind's

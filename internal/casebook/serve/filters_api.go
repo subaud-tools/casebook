@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/subaud-tools/tackle/internal/casebook/filters"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
-	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/filters"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
 )
 
 // filtersView is every saved filter in id order: a file that can't be read

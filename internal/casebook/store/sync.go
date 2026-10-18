@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // ErrOffline means the remote could not be reached; local commits stay queued

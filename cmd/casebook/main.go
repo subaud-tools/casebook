@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/subaud-tools/tackle/internal/casebook/cli"
+	"github.com/subaud-tools/casebook/internal/casebook/cli"
 )
 
 func main() { os.Exit(cli.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }

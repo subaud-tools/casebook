@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
-	"github.com/subaud-tools/tackle/internal/casebook/spool"
-	"github.com/subaud-tools/tackle/internal/casebook/temppath"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/spool"
+	"github.com/subaud-tools/casebook/internal/casebook/temppath"
 	"github.com/subaud-tools/tools-common/harness"
 )
 

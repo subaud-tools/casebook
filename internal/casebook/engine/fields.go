@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // Fields holds every value that a rule Condition can read from one item.

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
-	"github.com/subaud-tools/tackle/internal/casebook/store"
-	"github.com/subaud-tools/tackle/internal/casebook/testgit"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
 // pruneFixture is a journal written before temp folders were skipped: this

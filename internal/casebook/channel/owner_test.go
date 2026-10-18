@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/subaud-tools/tackle/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/serve"
 )
 
 // recorder is a fake serve that keeps every agent request's JSON body.

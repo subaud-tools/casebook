@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
 )
 
 // DefaultRoots are the temp roots: os.TempDir(), $TMPDIR, /tmp, /private/tmp,

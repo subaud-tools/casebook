@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // FieldType classifies what kind of value a field holds.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
 )
 
 // RestoreFor builds the restore record for a destructive casebook-lane step,

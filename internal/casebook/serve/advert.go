@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
 	tools "github.com/subaud-tools/tools-common"
 )
 

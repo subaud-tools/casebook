@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 // staticGh is a test fake that returns a fixed response for every gh call.

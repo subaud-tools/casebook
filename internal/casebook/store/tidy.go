@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
 )
 
 // tidyPolicyMsg is the commit that deletes an older version's policy.toml.

@@ -3,8 +3,8 @@ package engine
 import (
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 // facts answers until conditions from the built items plus individual lookups.

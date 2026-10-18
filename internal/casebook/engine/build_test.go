@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
 var now = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)

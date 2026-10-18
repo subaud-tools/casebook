@@ -1,0 +1,16 @@
+# SDD scratch (progress ledger, local settings)
+.superpowers/
+.claude/settings.local.json
+
+# git worktrees
+.worktrees/
+
+# release build output (written by the release workflow)
+/dist/
+
+# built binaries
+/bin/
+
+# Design docs never live in this public repo: specs and plans are in private tools-ops (docs/<repo>/).
+docs/specs/
+docs/plans/

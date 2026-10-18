@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apptest"
-	"github.com/subaud-tools/tackle/internal/casebook/db"
-	"github.com/subaud-tools/tackle/internal/casebook/deliver"
+	"github.com/subaud-tools/casebook/internal/casebook/apptest"
+	"github.com/subaud-tools/casebook/internal/casebook/db"
+	"github.com/subaud-tools/casebook/internal/casebook/deliver"
 )
 
 // session reads one session from GET /api/sessions, the list the page gets

@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
-	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
 	tools "github.com/subaud-tools/tools-common"
 )
 

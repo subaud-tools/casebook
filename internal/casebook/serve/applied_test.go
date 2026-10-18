@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 )
 
 // TestDoneUntilObserved (Court, 2026-10-17): an item casebook verified done

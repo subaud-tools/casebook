@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apply"
-	"github.com/subaud-tools/tackle/internal/casebook/deliver"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
-	"github.com/subaud-tools/tackle/internal/casebook/recommend"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/deliver"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/recommend"
 )
 
 // source names a session as a proposer or author: "<harness>:<id>".

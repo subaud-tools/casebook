@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
 )
 
 // AllRepos returns a map from lower-cased "owner/name" to RepoObs for all

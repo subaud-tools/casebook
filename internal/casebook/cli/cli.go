@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/subaud-tools/tackle/internal/casebook/app"
-	"github.com/subaud-tools/tackle/internal/casebook/config"
-	"github.com/subaud-tools/tackle/internal/casebook/hooks"
-	"github.com/subaud-tools/tackle/internal/casebook/observe"
-	"github.com/subaud-tools/tackle/internal/version"
+	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/hooks"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
+	"github.com/subaud-tools/casebook/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 )
 
@@ -46,7 +46,7 @@ func Main(args []string, stdin io.Reader, out, errw io.Writer) int {
 	}
 	a := tools.New(tools.Config{
 		Name:    "casebook",
-		Domain:  "tackle.tools",
+		Domain:  "casebook.tools",
 		Version: tools.Version{Number: version.Number(), Commit: version.Commit(), Date: version.Date()},
 		Groups: []tools.Group{
 			{Key: "observe", Heading: "Observe"},

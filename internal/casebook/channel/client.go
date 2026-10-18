@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/tools-common/localweb"
 )
 

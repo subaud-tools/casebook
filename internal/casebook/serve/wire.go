@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apply"
-	"github.com/subaud-tools/tackle/internal/casebook/deliver"
-	"github.com/subaud-tools/tackle/internal/casebook/engine"
-	"github.com/subaud-tools/tackle/internal/casebook/filters"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/journal"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
-	"github.com/subaud-tools/tackle/internal/casebook/store"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/deliver"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/filters"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/store"
 )
 
 // SummaryView is the response body of GET /api/summary.

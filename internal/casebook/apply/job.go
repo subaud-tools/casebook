@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/db"
+	"github.com/subaud-tools/casebook/internal/casebook/db"
 )
 
 // JobState is the lifecycle state of a Job.

@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/db"
-	"github.com/subaud-tools/tackle/internal/casebook/propose"
+	"github.com/subaud-tools/casebook/internal/casebook/db"
+	"github.com/subaud-tools/casebook/internal/casebook/propose"
 )
 
 // Message states.

@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/subaud-tools/tackle/internal/casebook/gitx"
-	"github.com/subaud-tools/tackle/internal/casebook/item"
-	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/casebook/internal/casebook/gitx"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
+	"github.com/subaud-tools/casebook/internal/casebook/rules"
 	tools "github.com/subaud-tools/tools-common"
 )
 

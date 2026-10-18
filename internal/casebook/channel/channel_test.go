@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tackle/internal/casebook/apptest"
-	"github.com/subaud-tools/tackle/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/apptest"
+	"github.com/subaud-tools/casebook/internal/casebook/serve"
 )
 
 // mcp is a test MCP client. resps receives JSON-RPC responses (have "id");
