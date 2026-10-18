@@ -1882,7 +1882,7 @@ function needsCard(
       const bs: Button[] = [];
       if (j.session)
         bs.push({
-          label: `hand to ${agent}`,
+          label: 'hand to agent',
           run: () => answer('hand-to-agent'),
         });
       bs.push({ label: 'skip', run: () => answer('skip') });

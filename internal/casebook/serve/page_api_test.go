@@ -144,8 +144,9 @@ func TestVocabularyGroupWords(t *testing.T) {
 	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
 		t.Fatalf("vocabulary %d", c)
 	}
-	if v.LookMany != "Look into {n}" || v.DiscardMany != "Discard {n}" || v.RecommendThese != "Ask {session} to recommend {n}" || v.DiscardAll != "discard all {n}" {
-		t.Fatalf("group words %q %q %q %q", v.LookMany, v.DiscardMany, v.RecommendThese, v.DiscardAll)
+	// The asks name the agent, never the session (the dock header does).
+	if v.DiscardMany != "Discard {n}" || v.RecommendThese != "ask agent to recommend these" || v.SuggestRules != "ask agent to suggest rules" || v.DiscardAll != "discard all {n}" {
+		t.Fatalf("group words %q %q %q %q", v.DiscardMany, v.RecommendThese, v.SuggestRules, v.DiscardAll)
 	}
 	if v.Summary != (SummaryVocab{ToDecide: "{n} to decide", CameBack: "{n} came back", Group: "{who} \u00b7 {decision} \u00b7 {n}", NotRecommended: "{n} not recommended yet"}) {
 		t.Fatalf("summary %+v", v.Summary)
@@ -204,8 +205,10 @@ func TestVocabularyItemPageWords(t *testing.T) {
 	if c := r.do(t, "GET", "/api/decisions/vocabulary", nil, &v); c != 200 {
 		t.Fatalf("vocabulary %d", c)
 	}
-	if v.Recommends != "{session} recommends" {
-		t.Fatalf("recommends %q", v.Recommends)
+	// An agent's recommendation names the agent, not the session; a
+	// rule's names the rule.
+	if v.Recommends != "agent recommends" || v.RuleRecommends != "{rule} recommends" {
+		t.Fatalf("recommends %q, rule recommends %q", v.Recommends, v.RuleRecommends)
 	}
 	want := NavVocab{
 		Position:  "{pos} of {total} in {group}",
@@ -241,7 +244,7 @@ func TestVocabularyDiscardAndAskedWords(t *testing.T) {
 		"{n} recommendations",
 		"discard",
 		"cancel",
-		"asked {session}",
+		"asked agent",
 	}
 	for i := range want {
 		if got[i] != want[i] {

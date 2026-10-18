@@ -21,6 +21,12 @@
 //   6. Batch tray      — the last card in the message area (progress.ts)
 //   7. Progress line, waiting strip, composer — fixed below the message area,
 //      so the composer stays pinned to the bottom of the rail (Task 7).
+//
+// The pane is a thin strip (the rail gets .cb-dock-strip; its one button
+// says "agent") until there is a conversation in the open thread
+// (dock-state.ts). A click on the strip, a message arriving, or the page
+// asking the agent opens it; the header's › folds it back. A click is
+// kept for the tab (sessionStorage) until a message arrives.
 
 import { h, card } from '/_kit/kit.js';
 import type {
@@ -43,6 +49,7 @@ import { keyWithoutKind, pluralize } from './decide-math.ts';
 import { fmtAge } from './time-utils.ts';
 import { go, ruleHash } from './router.ts';
 import { threadOrder } from './thread.ts';
+import { dockOpen } from './dock-state.ts';
 import { makeComposer } from './composer.ts';
 import { coalesced } from './coalesce.ts';
 import {
@@ -60,6 +67,41 @@ import {
   makeWaitingStrip,
   workedFold,
 } from './progress.ts';
+
+// PANE is where a click on the pane is kept for the tab ('open' or
+// 'closed'; none: as the conversation says).
+const PANE = 'casebook.dock';
+
+function storedPane(): boolean | null {
+  try {
+    const v = sessionStorage.getItem(PANE);
+    return v === 'open' ? true : v === 'closed' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function storePane(v: boolean | null, key = PANE): void {
+  try {
+    if (v === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, v ? 'open' : 'closed');
+  } catch {
+    // no storage: the click holds until the page goes
+  }
+}
+
+// SHOWN is how the pane was last shown in the tab: a reload shows it so
+// until its thread has loaded, so it doesn't fold and open again.
+const SHOWN = 'casebook.dock.shown';
+
+function storedShown(): boolean | null {
+  try {
+    const v = sessionStorage.getItem(SHOWN);
+    return v === 'open' ? true : v === 'closed' ? false : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---- delivery state display -------------------------------------------------
 
@@ -562,6 +604,35 @@ export function makeDock(ctx: Ctx): DockHandle {
   });
   sessionPickerBtn.textContent = 'AGENT ▾';
 
+  // The pane's fold: › in the header, and the strip's one button.
+  const collapseBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'cb-dock-collapse',
+      title: 'collapse the agent pane',
+      'aria-label': 'collapse the agent pane',
+      onclick() {
+        setManual(false);
+      },
+    },
+    '\u203a',
+  );
+  const opener = h(
+    'button',
+    {
+      type: 'button',
+      class: 'cb-dock-opener',
+      title: 'open the agent pane',
+      'aria-label': 'open the agent pane',
+      onclick() {
+        setManual(true);
+      },
+    },
+    h('span', { class: 'cb-dock-opener-dot' }),
+    h('span', { class: 'cb-dock-opener-label' }, 'agent'),
+  );
+
   // leftStatusRow is shown below the top row when the session is left.
   const leftStatusRow = h('div', { class: 'cb-dock-left-row' });
   leftStatusRow.hidden = true;
@@ -574,6 +645,7 @@ export function makeDock(ctx: Ctx): DockHandle {
       { class: 'cb-dock-header-row' },
       h('span', { class: 'cb-dock-who' }, sessionDot, sessionLabelEl),
       sessionPickerBtn,
+      collapseBtn,
     ),
     sessionMetaEl,
     leftStatusRow,
@@ -638,6 +710,7 @@ export function makeDock(ctx: Ctx): DockHandle {
   // fixed, so the composer stays pinned to the bottom of the rail.
   const rail = h('div', { class: 'cb-dock-inner' });
   rail.append(
+    opener,
     sessionHeader,
     chooser,
     threadChips,
@@ -646,6 +719,33 @@ export function makeDock(ctx: Ctx): DockHandle {
     waitStrip.el,
     composer.el,
   );
+
+  // ---- open or a strip ------------------------------------------------------
+
+  // manual is Court's last click on the pane (null: none, or a message
+  // arrived since): kept for the tab.
+  let manual = storedPane();
+  function setManual(v: boolean | null): void {
+    manual = v;
+    storePane(v);
+    paintPane();
+  }
+  // paintPane shows the pane or folds it to the strip (the .kit-rail's
+  // class: casebook.css narrows the rail's column).
+  // loaded: the open thread's messages are in (until then a reload shows
+  // the pane as the tab last showed it).
+  let loaded = false;
+  const shownBefore = storedShown();
+  function paintPane(): void {
+    const focused =
+      document.activeElement === composer.input &&
+      rail.contains(composer.input);
+    let open = dockOpen(messages.length > 0, focused, manual);
+    if (!loaded && manual === null && shownBefore !== null) open = shownBefore;
+    if (loaded) storePane(open, SHOWN);
+    rail.parentElement?.classList.toggle('cb-dock-strip', !open);
+    rail.classList.toggle('cb-dock-folded', !open);
+  }
 
   // agentName is the current session's harness ("pi", "claude").
   function agentName(): string {
@@ -813,6 +913,7 @@ export function makeDock(ctx: Ctx): DockHandle {
     batchTray.el.before(...cards);
     // Auto-scroll to the latest message.
     messageArea.scrollTop = messageArea.scrollHeight;
+    paintPane();
   }
 
   // ---- data fetching --------------------------------------------------------
@@ -900,18 +1001,31 @@ export function makeDock(ctx: Ctx): DockHandle {
     }
   }
 
+  // shownThread is the thread whose messages were last loaded, so a load
+  // with more of them than before is a message arriving, not a new thread.
+  let shownThread = 0;
   async function loadMessages() {
     if (!currentThreadId) {
       messages = [];
+      shownThread = 0;
+      loaded = true;
       renderMessages();
       return;
     }
     try {
+      const thread = currentThreadId;
       const mv = await ctx.api.get<MessagesView>('/messages', {
-        thread: String(currentThreadId),
+        thread: String(thread),
       });
+      if (thread !== currentThreadId) return;
       // A batch's cards show in its batch order (the order it is delivered).
-      messages = threadOrder(mv.messages ?? []);
+      const next = threadOrder(mv.messages ?? []);
+      const arrived = shownThread === thread && next.length > messages.length;
+      messages = next;
+      shownThread = thread;
+      loaded = true;
+      // A message arriving opens a pane Court folded.
+      if (arrived && manual === false) setManual(null);
       renderMessages();
     } catch (err) {
       console.error('[dock] loadMessages:', err);
@@ -1164,6 +1278,7 @@ export function makeDock(ctx: Ctx): DockHandle {
     label: 'focus the composer',
     group: 'agent',
     run() {
+      if (manual !== true) setManual(true);
       composer.focus();
     },
   });
@@ -1182,12 +1297,16 @@ export function makeDock(ctx: Ctx): DockHandle {
   void loadSessions();
 
   // ---- public interface ----------------------------------------------------
+  // The rail is the dock's parent once app.ts has placed it.
+  queueMicrotask(paintPane);
+
   return {
     el: rail,
     setAttached(a: Attached, jobTitle?: string): void {
       composer.setAttached(a, jobTitle);
     },
     focusComposer(): void {
+      if (manual !== true) setManual(true);
       composer.focus();
     },
     currentThread(): number {
@@ -1201,6 +1320,8 @@ export function makeDock(ctx: Ctx): DockHandle {
       attached?: Attached,
       purpose?: string,
     ): Promise<string> {
+      // Asking the agent opens the pane, where the answer will show.
+      if (manual !== true) setManual(true);
       return composer.sendText(body, attached, purpose);
     },
   };

@@ -117,15 +117,29 @@ type Attached struct {
 	Open string   `json:"open,omitempty"` // the open item
 	Rule string   `json:"rule,omitempty"`
 	Job  string   `json:"job,omitempty"`
-	// Section is the page section Court asked from when nothing in it is
-	// open ("rules": asking the agent to draft one). It reads "section rules",
-	// like "rule <id>" and "job <n>".
-	Section string `json:"section,omitempty"`
+	// List is decide's list as it was narrowed when nothing was open or
+	// ticked: its filters, rule and search, not its keys. It reads
+	// "list filters a,b · rule x · search "q" · group none", the words
+	// casebook_attention takes.
+	List *AttachedList `json:"list,omitempty"`
+}
+
+// AttachedList is the narrowed list a message refers to: saved filter ids,
+// a rule id, the search text and one group of it (GroupView.ID: "none" is
+// the not recommended). All empty is the whole list.
+type AttachedList struct {
+	Filters []string `json:"filters,omitempty"`
+	Rule    string   `json:"rule,omitempty"`
+	Q       string   `json:"q,omitempty"`
+	Group   string   `json:"group,omitempty"`
+	// Match is a draft's conditions as JSON, while the page previews one:
+	// the list is then what the draft matches (filters and rule don't apply).
+	Match string `json:"match,omitempty"`
 }
 
 // Empty reports whether nothing is attached.
 func (a Attached) Empty() bool {
-	return len(a.Keys) == 0 && a.Open == "" && a.Rule == "" && a.Job == "" && a.Section == ""
+	return len(a.Keys) == 0 && a.Open == "" && a.Rule == "" && a.Job == "" && a.List == nil
 }
 
 // WorkedView is the progress history carried by a 'worked' message. It holds

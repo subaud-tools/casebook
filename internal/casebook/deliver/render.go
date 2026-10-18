@@ -82,8 +82,28 @@ func describe(a Attached) string {
 	if a.Job != "" {
 		parts = append(parts, "job "+a.Job)
 	}
-	if a.Section != "" && len(parts) == 0 {
-		parts = append(parts, "section "+a.Section)
+	if l := a.List; l != nil {
+		list := []string{"list"}
+		if len(l.Filters) > 0 {
+			list[0] += " filters " + strings.Join(l.Filters, ",")
+		}
+		if l.Match != "" {
+			list[0] += " matching " + l.Match
+		}
+		if l.Rule != "" {
+			list = append(list, "rule "+l.Rule)
+		}
+		if l.Q != "" {
+			list = append(list, fmt.Sprintf("search %q", l.Q))
+		}
+		if l.Group != "" {
+			list = append(list, "group "+l.Group)
+		}
+		if len(list) > 1 && list[0] == "list" {
+			list[1] = "list " + list[1]
+			list = list[1:]
+		}
+		parts = append(parts, strings.Join(list, " · "))
 	}
 	return strings.Join(parts, " · ")
 }

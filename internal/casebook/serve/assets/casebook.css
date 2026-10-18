@@ -667,6 +667,65 @@
 .cb-dock-agent-btn:hover {
   color: var(--kit-fg);
 }
+.kit-app > .kit-rail.cb-dock-strip {
+  width: 40px;
+}
+.kit-app:has(> .kit-rail.cb-dock-strip) > .kit-read {
+  padding-right: 320px;
+}
+.cb-dock-folded > :not(.cb-dock-opener) {
+  display: none;
+}
+.cb-dock-opener {
+  display: none;
+}
+.cb-dock-folded > .cb-dock-opener {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px 0;
+  border: 0;
+  background: transparent;
+  color: var(--kit-muted);
+  font: 10.5px var(--kit-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.cb-dock-opener:hover,
+.cb-dock-opener:focus-visible {
+  color: var(--kit-fg);
+  background: color-mix(in srgb, var(--kit-agent) 6%, transparent);
+}
+.cb-dock-opener-label {
+  writing-mode: vertical-rl;
+}
+.cb-dock-opener-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--kit-agent);
+  flex: none;
+}
+.cb-dock-agent-btn {
+  margin-left: auto;
+}
+.cb-dock-collapse {
+  font: 14px var(--kit-mono);
+  line-height: 1;
+  color: var(--kit-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 2px 2px;
+  flex: none;
+}
+.cb-dock-collapse:hover {
+  color: var(--kit-fg);
+}
 .cb-dock-threads {
   display: flex;
   gap: 6px;

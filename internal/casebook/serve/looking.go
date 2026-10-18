@@ -10,8 +10,8 @@ import (
 // The words of "Look into it", serve's alone: the decision vocabulary
 // hands them to the page (LookIntoVocab), which fills the holes in. The
 // open item's last card is lookIntoLabel and lookIntoSays; it sends
-// lookIntoMessage. The list foot's "look into all N" sends
-// lookIntoMessageMany, one message for the group.
+// lookIntoMessage. The list's "ask agent to recommend these" sends
+// lookIntoMessageMany, one message for the ticked items.
 const (
 	lookIntoLabel       = "Look into it"
 	lookIntoSays        = "{session} checks its CI and recent activity, finds what's wrong, and comes back with a recommendation. Nothing is decided yet."

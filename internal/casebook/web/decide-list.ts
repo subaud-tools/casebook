@@ -37,6 +37,7 @@ import type {
   RuleDetailView,
   RuleRow,
   RulesView,
+  AttachedList,
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
 import { renderItem } from './item.ts';
@@ -47,7 +48,6 @@ import {
   nextInView,
   MORE,
   recommendLine,
-  countWord,
   groupButtons,
   leftOpenMeta,
   lookIntoCard,
@@ -77,15 +77,17 @@ import {
 import { PREVIEW_DEBOUNCE_MS, renderRule, renderRuleList } from './rules.ts';
 import { parseFilterIds, filterLabel } from './filters-text.ts';
 
-// RECOMMEND_THE_REST is what the not-recommended group's "Ask ‹session› to
-// recommend N" sends the dock's session: a normal message, delivered when
-// its turn ends.
 // STRIP_MS is how long the strip after an outward decision ("Closed it ·
 // waiting in apply · undo") shows.
 export const STRIP_MS = 6000;
 
-export const RECOMMEND_THE_REST =
-  'Please recommend the items casebook still needs a recommendation for: call casebook_next until it says done.';
+// SUGGEST_RULES is what the not-recommended group's "ask agent to suggest
+// rules" sends the dock's session, with the list's not recommended group
+// attached (its filters, rule and search): at volume the agent is asked
+// for rules, not item by item (spec point 10). A normal message, delivered
+// when its turn ends.
+export const SUGGEST_RULES =
+  'Please suggest rules for the items in the attached list: look at what they have in common and draft rules (casebook_rule_save) that would recommend a decision for many of them at once. Recommend nothing item by item.';
 
 // PAGE_SIZE is the number of items fetched per page. The kit is tested to 500
 // rendered rows; we paginate at 200 to stay safe.
@@ -301,7 +303,8 @@ export function makeDecide(ctx: Ctx): Section {
   }
 
   // feedAttached tells the composer what goes with the next message: the
-  // selection's keys, or the open item when nothing is selected.
+  // selection's keys; else the open item; else the open rule (its document,
+  // or the editor on it); else the list as it is narrowed (listAttached).
   //
   // Only while Attention is the active section: a live decided/proposals
   // event can change the selection while another section is shown, and that
@@ -312,7 +315,27 @@ export function makeDecide(ctx: Ctx): Section {
     const ids = selection.ids();
     if (ids.length > 0) ctx.setAttached({ keys: ids });
     else if (currentOpenKey) ctx.setAttached({ open: currentOpenKey });
-    else ctx.setAttached({});
+    // A draft previewing is what the list shows: its conditions go (and,
+    // editing a rule, which rule).
+    else if (draft !== null && editing === 'rule' && editingId)
+      ctx.setAttached({ rule: editingId, list: listAttached() });
+    else if (draft === null && !listShown && filters.rule)
+      ctx.setAttached({ rule: filters.rule });
+    else ctx.setAttached({ list: listAttached() });
+  }
+
+  // listAttached is the list as it is narrowed (a draft's conditions, or
+  // its saved filters and rule; its search; group, one group of it), not
+  // its keys: what casebook_attention takes.
+  function listAttached(group = ''): AttachedList {
+    const l: AttachedList = {};
+    // A draft lists what it matches, as buildQuery asks for it.
+    if (draft !== null) l.match = JSON.stringify(draft);
+    else if (filters.filters.length) l.filters = [...filters.filters];
+    if (draft === null && filters.rule) l.rule = filters.rule;
+    if (filters.q) l.q = filters.q;
+    if (group) l.group = group;
+    return l;
   }
 
   // Show the empty reading-column state (replaces any open item detail).
@@ -919,6 +942,9 @@ export function makeDecide(ctx: Ctx): Section {
   async function reloadNow(): Promise<void> {
     reloading = true;
     loads++;
+    // The list's narrowing may have changed (a search, a filter, a rule):
+    // what goes with a message follows it.
+    feedAttached();
     const asked = queryKey();
     const want =
       asked === paintedQuery ? Math.max(offset, PAGE_SIZE) : PAGE_SIZE;
@@ -1477,51 +1503,59 @@ export function makeDecide(ctx: Ctx): Section {
         acts.replaceChildren();
         return;
       }
-      if (g.id === CAME_BACK) {
-        acts.replaceChildren();
-        return;
-      }
-      if (g.id === 'none') {
-        // The not recommended: only the ask, with a session attached. Not
-        // while filtered: the group then holds decided items too, which
-        // casebook_next never hands out.
-        const ask =
-          t && asked !== t.id && !filtered()
-            ? button(
-                'fill cb-group-ask',
-                vocab.recommend_these
-                  .replaceAll('{session}', t.name)
-                  .replaceAll('{n}', countWord(g.total, 0, vocab.count_words)),
-                askTheRest,
-              )
-            : null;
-        const note =
-          t && asked === t.id
+      if (g.id === CAME_BACK || g.id === 'none') {
+        // What needs a recommendation: with a session attached, ticked
+        // items get "ask agent to recommend these" (the look-into message,
+        // naming them). Unticked, the not recommended get "ask agent to
+        // suggest rules", the list's group attached; not while filtered:
+        // the group then holds decided items too, which no rule recommends.
+        let ask: HTMLElement | null = null;
+        let note: HTMLElement | null = null;
+        if (t && n > 0) {
+          // Underway: serve says the row is being looked into, or (a
+          // row not loaded) this page asked this session about it.
+          const rows = loadedItems.filter((it) => it.group === g.id);
+          const looked = ticked.every(
+            (k) =>
+              rows.some((it) => it.key === k && it.looking) ||
+              (!rows.some((it) => it.key === k) &&
+                lookedInto.has(`${t.id}\n${k}`)),
+          );
+          ask = button(
+            'fill cb-group-ask',
+            vocab.recommend_these,
+            () => lookInto(tickedIn(g)),
+            looked,
+          );
+        } else if (t && g.id === 'none' && !filtered()) {
+          if (asked === askedKey(t.id))
+            note = h('span', { class: 'cb-group-note' }, vocab.asked);
+          else ask = button('fill cb-group-ask', vocab.suggest_rules, askRules);
+        }
+        const untick =
+          n > 0
             ? h(
-                'span',
-                { class: 'cb-group-note' },
-                vocab.asked.replaceAll('{session}', t.name),
+                'button',
+                {
+                  type: 'button',
+                  class: 'cb-group-untick',
+                  onclick() {
+                    selection.deselect(tickedIn(g));
+                  },
+                },
+                vocab.untick,
               )
             : null;
-        acts.replaceChildren(...[ask, note].filter((x) => x !== null));
+        acts.replaceChildren(...[ask, note, untick].filter((x) => x !== null));
         return;
       }
       const w = groupButtons(g, n, vocab);
-      const scoped = n > 0 && n < g.total;
-      // Every item it would name is being looked into already.
-      const rows = loadedItems.filter((it) => it.group === g.id);
-      const looked = scoped
-        ? ticked.every((k) => rows.some((it) => it.key === k && it.looking))
-        : rows.length >= g.total && rows.every((it) => !!it.looking);
       acts.replaceChildren(
         ...[
           withSays(
             button('fill cb-group-act', w.act, () => actGroup(g)),
             groupSays(g),
           ),
-          t
-            ? button('cb-group-look', w.look, () => lookGroup(g), looked)
-            : null,
           g.source.startsWith('rule:')
             ? null
             : button('cb-group-discard', w.discard, () => discardGroup(g)),
@@ -1547,10 +1581,10 @@ export function makeDecide(ctx: Ctx): Section {
 
   // leftOpenHead is the left-open group's header (serve's label, its count
   // across pages). Its items need no decision: no checkbox, no choice, no
-  // discard; with a session attached, Look into, naming every left-open
-  // item (every page).
+  // discard, and no ask (spec point 10: at scale the agent is asked for
+  // rules, not to look into every item).
   function leftOpenHead(): { el: HTMLElement; paint(): void } {
-    const { el, acts } = headShell(
+    const { el } = headShell(
       LEFT_OPEN,
       vocab?.left_open ?? '',
       leftOpenTotal,
@@ -1558,51 +1592,7 @@ export function makeDecide(ctx: Ctx): Section {
       null,
       { group: LEFT_OPEN },
     );
-    function paint(): void {
-      if (!vocab || !ctx.dockTarget()) {
-        acts.replaceChildren();
-        return;
-      }
-      const look = vocab.look_many.replaceAll(
-        '{n}',
-        countWord(leftOpenTotal, 0, vocab.count_words),
-      );
-      const looked =
-        leftOpen.length >= leftOpenTotal &&
-        leftOpen.every((it) => !!it.looking);
-      acts.replaceChildren(
-        groupButton(LEFT_OPEN, 'cb-group-look', look, lookLeftOpen, looked),
-      );
-    }
-    paint();
-    return { el, paint };
-  }
-
-  // lookLeftOpen asks the attached session to look into every left-open
-  // item.
-  async function lookLeftOpen(): Promise<void> {
-    try {
-      await lookInto(await leftOpenKeys());
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // leftOpenKeys is every left-open item's key in the view (every page).
-  async function leftOpenKeys(): Promise<string[]> {
-    const out: string[] = [];
-    for (let total = Infinity; out.length < total;) {
-      const data = await ctx.api.get<ItemsView>('/items', {
-        ...viewFilters(),
-        limit: String(PAGE_SIZE),
-        left_offset: String(out.length),
-      });
-      const got = (data.left_open ?? []).map((it) => it.key);
-      out.push(...got);
-      total = data.left_open_total;
-      if (!got.length) break;
-    }
-    return out;
+    return { el, paint() {} };
   }
 
   function paintAll(): void {
@@ -1723,16 +1713,6 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
-  // lookGroup asks the attached session to look into a group's items (or
-  // its ticked ones).
-  async function lookGroup(g: GroupView): Promise<void> {
-    try {
-      await lookInto((await target(g)).keys);
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   // lookInto sends the attached session one message naming keys, all of
   // them attached, with the look-into purpose (serve marks each while it is
   // underway, and the rows say so). It decides nothing.
@@ -1744,11 +1724,13 @@ export function makeDecide(ctx: Ctx): Section {
         '{keys}',
         keys.join(', '),
       );
+      const t = ctx.dockTarget();
       const why = await ctx.askSession(message, { keys }, 'look-into');
       if (why) {
         showReadError(why);
         return;
       }
+      if (t) for (const k of keys) lookedInto.add(`${t.id}\n${k}`);
       await reload();
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
@@ -1823,18 +1805,29 @@ export function makeDecide(ctx: Ctx): Section {
 
   // ---- recommendations: ask, discard ----------------------------------------
 
-  // asked is the session this page asked to recommend the rest: the
-  // not-recommended group's ask gives way to "asked …" for it, so one click
-  // sends one message.
+  // asked is the session this page asked to suggest rules and the list it
+  // asked about: the not-recommended group's ask gives way to "asked
+  // agent" for that list, so one click sends one message; another search
+  // or filter is another list, and the offer is back.
   let asked = '';
+  const askedKey = (session: string): string =>
+    `${session}\n${JSON.stringify(listAttached('none'))}`;
+  // lookedInto is each session\nkey this page asked to recommend: a row
+  // not loaded (past the first pages) still counts as underway.
+  const lookedInto = new Set<string>();
   ctx.onDockTarget(() => paintAll());
 
-  async function askTheRest(): Promise<void> {
+  async function askRules(): Promise<void> {
     const t = ctx.dockTarget();
     if (!t) return;
-    const why = await ctx.askSession(RECOMMEND_THE_REST);
+    const why = await ctx.askSession(SUGGEST_RULES, {
+      list: listAttached('none'),
+    });
     if (why) showReadError(why);
-    else asked = t.id;
+    else {
+      asked = askedKey(t.id);
+      paintAll();
+    }
   }
 
   // viewRecs is the view's agent recommendations (serve's count, every
@@ -1885,6 +1878,13 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
+  // ruleNameOf is a rule source's rule name ('' for an agent's).
+  function ruleNameOf(source: string): string {
+    if (!source.startsWith('rule:')) return '';
+    const id = source.slice(5);
+    return ruleRows.find((r) => r.rule.id === id)?.rule.name || id;
+  }
+
   // paintDetail renders detail (key's) in the reading column.
   function paintDetail(key: string, detail: ItemDetailView): void {
     shownDetail = detail;
@@ -1892,11 +1892,7 @@ export function makeDecide(ctx: Ctx): Section {
       decide: (d, until, note) => void decideOpen(key, d, until, note),
       cardsReady: () => renderAsk(),
       nav: renderNav(key),
-      sourceName: (source) => {
-        if (!source.startsWith('rule:')) return '';
-        const id = source.slice(5);
-        return ruleRows.find((r) => r.rule.id === id)?.rule.name || id;
-      },
+      sourceName: ruleNameOf,
     });
     readEl.replaceChildren(el);
     renderAsk();
@@ -2049,9 +2045,9 @@ export function makeDecide(ctx: Ctx): Section {
           ? recommendLine(
               vocab,
               key,
-              detail.item.recommended_by,
               p.source,
               p.disposition,
+              ruleNameOf(p.source),
             )
           : 'the recommendation changed';
     const show = h(

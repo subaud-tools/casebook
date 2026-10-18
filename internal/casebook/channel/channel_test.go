@@ -931,3 +931,40 @@ func TestOpenOffersNoView(t *testing.T) {
 		}
 	}
 }
+
+// TestAttentionToolTakesRuleAndGroup: casebook_attention takes the list as
+// the page narrows it and attaches it ("list filters … · rule x · group
+// none"): rule lists what a rule matches, group one group of the list
+// (none: not recommended yet), and the reply says which.
+func TestAttentionToolTakesRuleAndGroup(t *testing.T) {
+	for _, tool := range Tools() {
+		if tool.Name == "casebook_attention" {
+			s := string(tool.InputSchema)
+			if !strings.Contains(s, `"rule"`) || !strings.Contains(s, `"group"`) {
+				t.Fatalf("casebook_attention takes no rule or group: %s", s)
+			}
+		}
+	}
+	r := apptest.New(t)
+	c := runServe(t, r)
+	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
+	ch.Retry, ch.Poll = 50*time.Millisecond, time.Second
+	m := start(t, ch)
+	rule := map[string]any{"id": "open-issues", "name": "Open issues", "match": []map[string]string{{"field": "kind", "op": "is", "value": "issue"}}, "propose": map[string]string{"disposition": "keep", "note": "still open"}}
+	if _, err := c.Do(context.Background(), http.MethodPost, "/api/rules/save?create=1", rule, nil); err != nil {
+		t.Fatalf("save rule: %v", err)
+	}
+	if out, isErr := m.tool("casebook_attention", map[string]any{"rule": "open-issues"}); isErr ||
+		!strings.Contains(out, "issue:schuettc/hail#4") || strings.Contains(out, "pr:schuettc/hail#3") || !strings.Contains(out, "rule open-issues") {
+		t.Fatalf("rule %q %v", out, isErr)
+	}
+	if out, isErr := m.tool("casebook_attention", map[string]any{"group": "none"}); isErr ||
+		!strings.Contains(out, "pr:schuettc/hail#3") || strings.Contains(out, "issue:schuettc/hail#4") || !strings.Contains(out, "group none") {
+		t.Fatalf("group none %q %v", out, isErr)
+	}
+	// A draft's conditions (the page previewing one): match.
+	if out, isErr := m.tool("casebook_attention", map[string]any{"match": `[{"field":"kind","op":"is","value":"issue"}]`}); isErr ||
+		!strings.Contains(out, "issue:schuettc/hail#4") || strings.Contains(out, "pr:schuettc/hail#3") || !strings.Contains(out, "matching") {
+		t.Fatalf("match %q %v", out, isErr)
+	}
+}

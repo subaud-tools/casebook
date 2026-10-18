@@ -23,8 +23,8 @@ func Tools() []channelmcp.Tool {
 			InputSchema: schema(`{"type":"object","properties":{}}`)},
 		{Name: "casebook_open", Description: "Open the casebook page in the user's browser, straight at one item (key), or at the front without one. The page opens attached to this session: the user's messages from it come to you. Only when they ask, or when you hand them something to review; never repeatedly.",
 			InputSchema: schema(`{"type":"object","properties":{"key":{"type":"string","description":"an item key: open at that item"}}}`)},
-		{Name: "casebook_attention", Description: "List items needing attention, newest first. view: new (undecided), due (due/drift/conflict), proposed (a proposal is pending), all. The reply ends with the saved filters casebook knows.",
-			InputSchema: schema(`{"type":"object","properties":{"view":{"type":"string","enum":["new","due","proposed","all"]},"filters":{"type":"array","items":{"type":"string"},"description":"saved filter ids: every item matching all of them, whatever its status (view is then ignored)"},"kind":{"type":"string","enum":["repo","pr","issue","branch","worktree"]},"repo":{"type":"string","description":"owner/name or owner"},"q":{"type":"string","description":"substring of key or title"},"offset":{"type":"integer"},"limit":{"type":"integer"}}}`)},
+		{Name: "casebook_attention", Description: "List items needing attention, newest first. view: new (undecided), due (due/drift/conflict), proposed (a proposal is pending), all. A message attached to a list (attached: list filters a,b · rule x · search \"q\" · group none, or list matching [...] while they preview a draft) is the list the user is looking at: pass its filters, rule, q, group and match. The reply ends with the saved filters casebook knows.",
+			InputSchema: schema(`{"type":"object","properties":{"view":{"type":"string","enum":["new","due","proposed","all"]},"filters":{"type":"array","items":{"type":"string"},"description":"saved filter ids: every item matching all of them, whatever its status (view is then ignored)"},"kind":{"type":"string","enum":["repo","pr","issue","branch","worktree"]},"repo":{"type":"string","description":"owner/name or owner"},"q":{"type":"string","description":"substring of key or title"},"rule":{"type":"string","description":"a rule id: only the items it matches"},"group":{"type":"string","description":"one group of the list: none (not recommended yet), came-back, or a group id"},"match":{"type":"string","description":"a draft's conditions as JSON (attached: list matching ...): what it matches, whatever its status"},"offset":{"type":"integer"},"limit":{"type":"integer"}}}`)},
 		{Name: "casebook_show", Description: "One item: its observation, decision, pending proposal, evidence and recent history.",
 			InputSchema: schema(`{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}`)},
 		{Name: "casebook_history", Description: "Every journaled action and decision commit for an item.",
@@ -78,6 +78,11 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		Question    string   `json:"question"`
 		FromNext    bool     `json:"from_next"`
 		Filters     []string `json:"filters"`
+		Rule        string   `json:"rule"`
+		Group       string   `json:"group"`
+		// Match: casebook_attention's draft conditions (a JSON string,
+		// or the array itself); casebook_rule_save reads its own match.
+		Match json.RawMessage `json:"match"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
@@ -136,7 +141,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		}
 		return "opened the casebook page" + note, nil
 	case "casebook_attention":
-		return ch.attention(ctx, serve.Query{View: a.View, Kind: a.Kind, Repo: a.Repo, Text: a.Q, Offset: a.Offset, Limit: a.Limit}, a.Filters)
+		return ch.attention(ctx, serve.Query{View: a.View, Kind: a.Kind, Repo: a.Repo, Text: a.Q, Rule: a.Rule, Group: a.Group, Offset: a.Offset, Limit: a.Limit}, a.Filters, matchArg(a.Match))
 	case "casebook_show":
 		return ch.show(ctx, a.Key)
 	case "casebook_history":
@@ -313,7 +318,20 @@ func line(it serve.ItemView) string {
 
 // attention lists qy's view, or with filters every item matching all the
 // saved filters they name, and ends with the saved filters serve knows.
-func (ch *Channel) attention(ctx context.Context, qy serve.Query, filters []string) (string, error) {
+// matchArg is casebook_attention's match as the JSON /api/items takes: a
+// string as it is, an array as written.
+func matchArg(m json.RawMessage) string {
+	var s string
+	if json.Unmarshal(m, &s) == nil {
+		return s
+	}
+	if len(m) == 0 || string(m) == "null" {
+		return ""
+	}
+	return string(m)
+}
+
+func (ch *Channel) attention(ctx context.Context, qy serve.Query, filters []string, match string) (string, error) {
 	if qy.View == "" {
 		qy.View = serve.ViewAll
 	}
@@ -322,15 +340,25 @@ func (ch *Channel) attention(ctx context.Context, qy serve.Query, filters []stri
 		Items []serve.ItemView `json:"items"`
 	}
 	_, err := ch.Client.Do(ctx, http.MethodGet, "/api/items?"+q("view", qy.View, "kind", qy.Kind, "repo", qy.Repo, "q", qy.Text,
+		"rule", qy.Rule, "group", qy.Group, "match", match,
 		"filters", strings.Join(filters, ","), "offset", strconv.Itoa(qy.Offset), "limit", strconv.Itoa(qy.Limit)), nil, &out)
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	if len(filters) > 0 {
+	switch {
+	case match != "":
+		fmt.Fprintf(&b, "%d item(s) matching %s", out.Total, match)
+	case len(filters) > 0:
 		fmt.Fprintf(&b, "%d item(s) matching filters %s", out.Total, strings.Join(filters, ", "))
-	} else {
+	default:
 		fmt.Fprintf(&b, "%d item(s) in %s", out.Total, qy.View)
+	}
+	if qy.Rule != "" {
+		b.WriteString(" · rule " + qy.Rule)
+	}
+	if qy.Group != "" {
+		b.WriteString(" · group " + qy.Group)
 	}
 	if len(out.Items) < out.Total {
 		fmt.Fprintf(&b, " (showing %d from offset %d)", len(out.Items), qy.Offset)

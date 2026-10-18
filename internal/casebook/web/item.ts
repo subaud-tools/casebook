@@ -19,9 +19,9 @@ import type { ItemDetailView, Evidence, Event, LogEntry } from './wire.d.ts';
 import type { Ctx } from './app.ts';
 import { getVocab } from './decide.ts';
 import { renderChoices, asNotNow } from './choices.ts';
-import { keyWithoutKind, stripOwnKey } from './decide-math.ts';
+import { keyWithoutKind, recommendsWho, stripOwnKey } from './decide-math.ts';
 import type { DecisionVocabView } from './wire.d.ts';
-import { lookingLine, sessionName } from './sessions.ts';
+import { lookingLine } from './sessions.ts';
 
 // Body is capped at 600 chars per the spec; anything longer is folded.
 const BODY_CAP = 600;
@@ -185,7 +185,7 @@ function renderDecideRow(
 }
 
 // renderRec is the pending recommendation, first in the reading: who
-// recommends it ("‹session› recommends", a rule by its name), the choice,
+// recommends it ("agent recommends", a rule by its name), the choice,
 // its reason and its until. None when nothing is recommended.
 function renderRec(
   ctx: Ctx,
@@ -212,9 +212,11 @@ function renderRec(
     const rec = asNotNow(p.disposition);
     label.textContent =
       kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
-    const name =
-      hooks.sourceName?.(p.source) || sessionName(it.recommended_by, p.source);
-    who.textContent = vocab.recommends.replaceAll('{session}', name);
+    who.textContent = recommendsWho(
+      vocab,
+      p.source,
+      hooks.sourceName?.(p.source) ?? '',
+    );
   });
   return el;
 }

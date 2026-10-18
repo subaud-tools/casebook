@@ -177,7 +177,8 @@ const VOCAB: DecisionVocabView = {
   until_forms: null,
   not_now: FORMS,
   // Serve's words (decisionVocab) the helpers below fill in.
-  recommends: '{session} recommends',
+  recommends: 'agent recommends',
+  rule_recommends: '{rule} recommends',
   discard_confirm:
     'Discard {count} in {view}? Their items go back to the agent to recommend again. Nothing is decided or rejected.',
   discard_one: '1 recommendation',
@@ -240,41 +241,28 @@ describe('fillLabel', () => {
 });
 
 describe('recommendLine', () => {
-  // A session serve knows, named as the rows and the recommendation box
-  // name it.
-  const by = {
-    id: 'abc',
-    harness: 'pi',
-    label: '',
-    cwd: '/home/court/tools-workspace',
-    pid: 1,
-    first_seen: '',
-    last_seen: '',
-    busy: false,
-    queued: 0,
-    name: 'tools-workspace/casebook',
-    worker: false,
-    eligible: true,
-  };
-
-  test("the session that recommends, by name, and serve's label for its kind", () => {
+  test("an agent's recommendation names the agent, not its session, then serve's label for its kind", () => {
     assert.equal(
-      recommendLine(VOCAB, 'issue:o/r#1', by, 'pi:abc', 'close'),
-      'tools-workspace/casebook recommends Close it',
+      recommendLine(VOCAB, 'issue:o/r#1', 'pi:abc', 'close'),
+      'agent recommends Close it',
     );
   });
 
-  test("no session known: the source's agent", () => {
+  test("a rule's names the rule (its name when given, else its id)", () => {
     assert.equal(
-      recommendLine(VOCAB, 'branch:o/r@x', undefined, 'rule:stale', 'delete'),
-      'rule recommends Delete it',
+      recommendLine(VOCAB, 'branch:o/r@x', 'rule:stale', 'delete'),
+      'stale recommends Delete it',
+    );
+    assert.equal(
+      recommendLine(VOCAB, 'branch:o/r@x', 'rule:stale', 'delete', 'Stale'),
+      'Stale recommends Delete it',
     );
   });
 
   test('watch reads as Not now', () => {
     assert.equal(
-      recommendLine(VOCAB, 'issue:o/r#1', by, 'pi:abc', 'watch'),
-      'tools-workspace/casebook recommends Not now',
+      recommendLine(VOCAB, 'issue:o/r#1', 'pi:abc', 'watch'),
+      'agent recommends Not now',
     );
   });
 });
@@ -282,7 +270,6 @@ describe('recommendLine', () => {
 // The group buttons' words as serve sends them (the vocabulary).
 const WORDS = { one: 'it', two: 'both', all: 'all {n}', some: '{n}' };
 const GROUP_VOCAB = {
-  look_many: 'Look into {n}',
   discard_many: 'Discard {n}',
   count_words: WORDS,
 };
@@ -313,7 +300,6 @@ describe('groupButtons', () => {
   test('nothing ticked: the whole group', () => {
     assert.deepEqual(groupButtons(close, 0, GROUP_VOCAB), {
       act: 'Close all 27',
-      look: 'Look into all 27',
       discard: 'Discard all 27',
     });
   });
@@ -321,7 +307,6 @@ describe('groupButtons', () => {
   test('some ticked: those', () => {
     assert.deepEqual(groupButtons(close, 3, GROUP_VOCAB), {
       act: 'Close 3',
-      look: 'Look into 3',
       discard: 'Discard 3',
     });
   });

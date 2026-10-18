@@ -1480,8 +1480,13 @@ async function composerScenariosOn(context, serveHandle) {
         items.length,
       );
       check(
-        'nothing selected or open: "attached: nothing"',
-        (await value()).text === 'nothing',
+        `nothing selected or open: the list as it is narrowed, "attached: list · search t7-attached" (${(await value()).text})`,
+        await until(
+          pg,
+          () =>
+            document.querySelector('[data-testid="composer-attached"]')
+              ?.textContent === 'list \u00b7 search t7-attached',
+        ),
       );
 
       // Pick four rows of one kind from the rendered list.
@@ -1810,6 +1815,86 @@ async function composerScenariosOn(context, serveHandle) {
       }
     } finally {
       stopPresent();
+      await pg.close();
+    }
+  }
+
+  // ---- scenario: the attached line follows what is shown ----------------
+  console.log(
+    '\nscenario: the attached line names the narrowed list, the open rule, never a section',
+  );
+  {
+    const fx = await dockFixture(serveHandle, 'context');
+    const agent = fx.agent;
+    await agent.api('POST', '/api/rules/save?create=1', {
+      id: 't7-context',
+      name: 'T7 context',
+      match: [{ field: 'kind', op: 'is', value: 'issue' }],
+      propose: { disposition: 'keep', note: 'context' },
+    });
+    const pg = await openDock(context, serveHandle, fx, {
+      search: '&q=t7',
+      hash: '#/decide?filters=incoming,quiet-14d',
+    });
+    const line = () =>
+      pg.$eval('[data-testid="composer-attached"]', (e) => e.textContent);
+    try {
+      const want = 'list \u00b7 2 filters \u00b7 search t7';
+      check(
+        `two filters and a search: "attached: ${want}" (${await line()})`,
+        await until(
+          pg,
+          (w) =>
+            document.querySelector('[data-testid="composer-attached"]')
+              ?.textContent === w,
+          want,
+        ),
+      );
+      await compose(pg, 'what is in this list?');
+      const d = await fx.agent.wait(fx.sid);
+      const m = (d?.delivery?.messages ?? []).find(
+        (x) => x.body === 'what is in this list?',
+      );
+      if (d) await fx.agent.settled(fx.sid, [d.delivery.id]);
+      check(
+        `the message carries the list, not its keys (${JSON.stringify(m?.attached ?? null)})`,
+        JSON.stringify(m?.attached ?? null) ===
+          JSON.stringify({
+            list: { filters: ['incoming', 'quiet-14d'], q: 't7' },
+          }),
+      );
+      await pg.evaluate(() => {
+        location.hash = '#/decide?rule=t7-context';
+      });
+      check(
+        `a rule open in the middle pane: "attached: rule t7-context" (${await line()})`,
+        await until(
+          pg,
+          () =>
+            document.querySelector('[data-testid="composer-attached"]')
+              ?.textContent === 'rule t7-context',
+        ),
+      );
+      check(
+        'the line never names a section',
+        !(await line()).startsWith('section'),
+      );
+      // A new rule's draft previewing (review 2026-10-17): the list shown
+      // is the draft's, and so is what goes with a message.
+      await pg.evaluate(() => {
+        location.hash = '#/decide';
+      });
+      await pg.click('[data-testid="new-rule"]');
+      check(
+        `a draft previewing: "attached: list \u00b7 draft \u2026" (${await line()})`,
+        await until(pg, () =>
+          (
+            document.querySelector('[data-testid="composer-attached"]')
+              ?.textContent ?? ''
+          ).startsWith('list \u00b7 draft'),
+        ),
+      );
+    } finally {
       await pg.close();
     }
   }
@@ -2579,7 +2664,7 @@ const applyHelpers = { check, checkList, until, eventually };
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 893;
+const MIN_CHECKS = 908;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -2675,8 +2760,21 @@ async function run() {
   // many times (CDP Emulation.setCPUThrottlingRate), as a busy CI runner
   // does: the stress the probe's races are checked under.
   const newContext = browser.newContext.bind(browser);
+  // newPlainContext is a context without the probe's marks: the pane
+  // scenario's, which sees the agent pane as a first visit does.
+  browser.newPlainContext = newContext;
   browser.newContext = async (...args) => {
     const c = await newContext(...args);
+    // The agent pane opens on a click; every other scenario finds it open,
+    // as a tab where Court opened it does (dock.ts keeps that in
+    // sessionStorage).
+    await c.addInitScript(() => {
+      try {
+        sessionStorage.setItem('casebook.dock', 'open');
+      } catch {
+        // a page with no storage (about:blank) has no pane either
+      }
+    });
     c.on('console', (msg) => {
       if (msg.type() === 'error' && msg.text().includes('key clash')) {
         keyClashes.push(msg.text());
@@ -3524,10 +3622,8 @@ async function run() {
           rec.shown,
         );
         check(
-          `it reads "‹session› recommends" ("${rec.who}"), the choice's label under it ("${rec.label}")`,
-          rec.who.endsWith(' recommends') &&
-            !rec.who.includes('proposes') &&
-            rec.label !== '',
+          `it reads "agent recommends" ("${rec.who}"), the choice's label under it ("${rec.label}")`,
+          rec.who === 'agent recommends' && rec.label !== '',
         );
         // The session serve names as the recommender: its name, else its
         // folder, else its harness, else its id (sessions.ts).
@@ -3545,8 +3641,8 @@ async function run() {
             by.id
           : '';
         check(
-          `it names the recommending session serve names ("${who}"), not a hardcoded string`,
-          who !== '' && rec.who === `${who} recommends`,
+          `it names the agent, not the recommending session serve names ("${who}")`,
+          who !== '' && !rec.who.includes(who),
         );
         check(
           `it sits under the decide row, in the reading document (${rec.rowBottom} <= ${rec.top})`,

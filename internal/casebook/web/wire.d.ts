@@ -232,9 +232,9 @@ export interface DecisionVocabView {
   until_forms: UntilForm[] | null;
   not_now: NotNowForm[] | null;
   look_into: LookIntoVocab;
-  look_many: string;
   discard_many: string;
   recommend_these: string;
+  suggest_rules: string;
   discard_all: string;
   summary: SummaryVocab;
   count_words: CountWords;
@@ -245,6 +245,7 @@ export interface DecisionVocabView {
   came_back_fact: string;
   waiting: WaitingVocab;
   recommends: string;
+  rule_recommends: string;
   nav: NavVocab;
   hide_list: string;
   show_list: string;
@@ -695,7 +696,7 @@ export interface Attached {
   open?: string;
   rule?: string;
   job?: string;
-  section?: string;
+  list?: AttachedList;
 }
 
 export interface WorkedView {
@@ -758,6 +759,14 @@ export interface Conflict {
   until?: string;
   decided_by: string;
   decided_at: string;
+}
+
+export interface AttachedList {
+  filters?: string[];
+  rule?: string;
+  q?: string;
+  group?: string;
+  match?: string;
 }
 
 export interface ProgressLine {

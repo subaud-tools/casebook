@@ -462,14 +462,16 @@ type DecisionVocabView struct {
 	// NotNow is Not now's conditions, in the order the page offers them.
 	NotNow []NotNowForm `json:"not_now"`
 	// LookInto is "Look into it": the card's label and sentence, and the
-	// messages it and "look into all N" send.
+	// messages it and "ask agent to recommend these" send.
 	LookInto LookIntoVocab `json:"look_into"`
-	// The group buttons beside each choice's Many, {n} the count word:
-	// look into the group, discard its recommendations, ask the attached
-	// session ({session}: its name) to recommend the not recommended.
-	LookMany       string `json:"look_many"`
-	DiscardMany    string `json:"discard_many"`
+	// DiscardMany is a group's button beside its choice's Many ({n}: the
+	// count word): discard its recommendations.
+	DiscardMany string `json:"discard_many"`
+	// The asks that hand the list to the agent, named "agent", never the
+	// session: RecommendThese on ticked items that need a recommendation,
+	// SuggestRules on the not recommended group, nothing ticked.
 	RecommendThese string `json:"recommend_these"`
+	SuggestRules   string `json:"suggest_rules"`
 	// DiscardAll is the summary's button ({n}: the number of items),
 	// Summary its lines.
 	DiscardAll string       `json:"discard_all"`
@@ -489,9 +491,11 @@ type DecisionVocabView struct {
 	CameBackFact string `json:"came_back_fact"`
 	// Waiting is the strip after an outward decision.
 	Waiting WaitingVocab `json:"waiting"`
-	// Recommends is the open item's recommendation box's kicker
-	// ({session}: who recommends).
-	Recommends string `json:"recommends"`
+	// Recommends is the open item's recommendation box's kicker for an
+	// agent's recommendation; RuleRecommends for a rule's ({rule}: its
+	// name).
+	Recommends     string `json:"recommends"`
+	RuleRecommends string `json:"rule_recommends"`
 	// Nav is the open item's « ‹ › » row.
 	Nav NavVocab `json:"nav"`
 	// HideList and ShowList are Attention's list's collapse control.

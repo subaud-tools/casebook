@@ -55,9 +55,9 @@
 //
 //   groups: headers in serve's order, with counts; each group's rows under
 //     its header, giving the recommendation's reason in agent colour
-//   each group's buttons: its choice (the primary), Discard; Look into with
-//     a session attached; the not recommended only "Ask ‹session› to
-//     recommend N"
+//   each group's buttons: its choice (the primary), Discard; no Look into;
+//     the not recommended only "ask agent to suggest rules", its message
+//     with the list's not recommended group attached
 //   the summary in the middle pane: N to decide, a line per group, discard all
 //   the group's checkbox ticks all of it; untick; collapse and expand
 //   groups: ticks scope per group: 3 ticked in Close and Merge's one give
@@ -122,8 +122,9 @@
 //     be clicked
 //   the agent's evidence and recommendation show on the open item with no
 //     reload; its reply clears the marker
-//   the group's "Look into all 3" sends one message naming the group's 3
-//     keys, all attached, and all three rows show the marker
+//   no group offers "Look into all N"; in the not recommended, ticked items
+//     get "ask agent to recommend these": one message naming them, all
+//     attached, and their rows show the marker; no button names the session
 //
 // And discarding recommendations, on a serve and repo of their own, every
 // item recommended:
@@ -139,8 +140,8 @@
 // And the steady list, on a serve and repo of their own:
 //
 //   no filter chips; the left-open group last, collapsed, no checkbox,
-//     expanding on a click; Look into on every group (left open's naming
-//     every left-open key) once a session is attached after load, nothing
+//     expanding on a click; no Look into on any group, left open none
+//     either, once a session is attached after load, nothing
 //     ticked; rows indented under their header's label; every row one
 //     height, a long reason cut at two lines; the list's scrollbar room
 //     kept (measured with a classic 15px scrollbar); a group's button line
@@ -1193,8 +1194,8 @@ async function decideScenario(context, t, s) {
 const LIST = '.kit-app > .kit-list:not([hidden])';
 // PANE is decide's middle pane (its summary with nothing open).
 const PANE = '.kit-app > .kit-read:not([hidden])';
-const RECOMMEND_THE_REST =
-  'Please recommend the items casebook still needs a recommendation for: call casebook_next until it says done.';
+const SUGGEST_RULES =
+  'Please suggest rules for the items in the attached list: look at what they have in common and draft rules (casebook_rule_save) that would recommend a decision for many of them at once. Recommend nothing item by item.';
 
 // groupHeads reads the shown list's group headers: label, the "goes to To
 // apply first" hint, count, and the texts of its button line (buttons,
@@ -1703,12 +1704,12 @@ async function groupsScenario(context, t, s) {
     );
     const heads = await groupHeads(pg);
     checkList(
-      `with ${aName} attached, the not recommended offer the ask and the others Look into`,
+      `with ${aName} attached, the not recommended offer "ask agent to suggest rules" and no group offers Look into`,
       heads.map((g) => `${g.label}: ${g.acts.join(' / ')}`),
       [
-        'Close it without merging: Close it / Look into it / Discard it',
-        'Leave it open: Leave all 3 open / Look into all 3 / Discard all 3',
-        `Not recommended yet: Ask ${aName} to recommend all 3`,
+        'Close it without merging: Close it / Discard it',
+        'Leave it open: Leave all 3 open / Discard all 3',
+        'Not recommended yet: ask agent to suggest rules',
       ],
     );
     check('(the ask showed)', ok);
@@ -1726,13 +1727,30 @@ async function groupsScenario(context, t, s) {
     }
     return out;
   };
+  const attachedOf = async (session) => {
+    const tv = await api(
+      'GET',
+      `/api/threads?session=${encodeURIComponent(session)}`,
+    );
+    const out = [];
+    for (const th of tv.threads ?? []) {
+      const mv = await agent.messages(th.id);
+      for (const m of mv.messages ?? []) out.push(m);
+    }
+    return out;
+  };
   await beat();
   await pg.click(`${groupSel('')} .cb-group-ask`);
   check(
-    "groups: none group asks: the exact message reaches the attached session's thread, once",
+    "groups: none group asks: the exact message reaches the attached session's thread, once, with the not recommended group of the list attached",
     await eventually(async () => {
-      const a = await bodiesOf(A);
-      return a.filter((b) => b === RECOMMEND_THE_REST).length === 1;
+      const a = await attachedOf(A);
+      const mine = a.filter((m) => m.body === SUGGEST_RULES);
+      return (
+        mine.length === 1 &&
+        JSON.stringify(mine[0].attached) ===
+          JSON.stringify({ list: { group: 'none' } })
+      );
     }),
   );
   {
@@ -1740,17 +1758,27 @@ async function groupsScenario(context, t, s) {
     const bt = (await agent.messages(bThread.id)).messages ?? [];
     check(
       `and nothing in any other session's thread (B has ${b.length} messages)`,
-      !b.includes(RECOMMEND_THE_REST) &&
-        bt.every((m) => m.body !== RECOMMEND_THE_REST),
+      !b.includes(SUGGEST_RULES) && bt.every((m) => m.body !== SUGGEST_RULES),
     );
   }
   check(
-    `the ask gives way to "asked ${aName}"`,
+    'the ask gives way to "asked agent"',
     await until(
       pg,
       ({ sel, w }) =>
         document.querySelector(`${sel} .cb-group-acts`)?.textContent === w,
-      { sel: groupSel(''), w: `asked ${aName}` },
+      { sel: groupSel(''), w: 'asked agent' },
+    ),
+  );
+  // Another search is another list (review 2026-10-17): the agent wasn't
+  // asked about it, so the offer is back.
+  await pg.fill('.kit-search', 'schuettc');
+  check(
+    'searching narrows to another list, and its not recommended offer "ask agent to suggest rules" again',
+    await until(
+      pg,
+      (sel) => !!document.querySelector(`${sel} .cb-group-ask`),
+      groupSel(''),
     ),
   );
   clearInterval(beating);
@@ -1971,7 +1999,7 @@ async function discardScenario(context, t, s) {
       ok &&
         heads.length === 1 &&
         headLine(heads[0]) === 'Not recommended yet |  | 5' &&
-        heads[0].acts.join(' / ') === `Ask ${aName} to recommend all 5` &&
+        heads[0].acts.join(' / ') === 'ask agent to suggest rules' &&
         got.text === '5 to decide | 5 not recommended yet' &&
         got.discard === '',
     );
@@ -3480,7 +3508,7 @@ async function openRecScenario(context, t, s) {
     const line = ok ? ((await pg.textContent(LINE)) ?? '') : '';
     check(
       `with the closing comment typed, the line shows instead ("${line}")`,
-      ok && line === 'openrec recommends Leave it open \u00b7 show',
+      ok && line === 'agent recommends Leave it open \u00b7 show',
     );
     const st = await pg.evaluate((sel) => {
       const f = document.querySelector(sel);
@@ -3542,7 +3570,7 @@ async function openRecScenario(context, t, s) {
       ok &&
         picker &&
         (await tagged()) &&
-        line === 'openrec recommends Close it \u00b7 show',
+        line === 'agent recommends Close it \u00b7 show',
     );
   }
   check('still no reload', await noReload());
@@ -3560,8 +3588,8 @@ async function openRecScenario(context, t, s) {
       .textContent({ timeout: 8000 })
       .catch(() => '');
     check(
-      `the recommendation names the session, "openrec recommends" ("${head}"), then "Close it without merging" ("${label}")`,
-      head === 'openrec recommends' && label === 'Close it without merging',
+      `the recommendation names the agent, not the session: "agent recommends" ("${head}"), then "Close it without merging" ("${label}")`,
+      head === 'agent recommends' && label === 'Close it without merging',
     );
   }
   await pg.close();
@@ -3892,8 +3920,15 @@ async function itemPageScenario(context, t, s) {
     (sel) => !document.querySelector(sel)?.checkVisibility(),
     STRIP,
   );
+  const left = gone
+    ? ''
+    : await pg.evaluate(
+        (sel) =>
+          `${document.querySelectorAll(sel).length} strip(s): ${[...document.querySelectorAll(sel)].map((e) => `${e.hidden ? 'hidden' : 'shown'} "${e.textContent}"`).join(', ')}`,
+        STRIP,
+      );
   check(
-    `the strip shows for 6 s (at 5.5 s: ${still}), then goes (${gone})`,
+    `the strip shows for 6 s (at 5.5 s: ${still}), then goes (${gone}${left ? `; ${left}` : ''})`,
     still && gone,
   );
 
@@ -4539,87 +4574,85 @@ async function lookIntoScenario(context, t, s) {
   }
   await inThemes(t, pg, 'look-into', ['light']);
 
-  // ---- look into all 3: one message, every row marked ---------------------
+  // ---- no group looks into its items; the asks name the agent ------------
   {
+    const NONE_HEAD = '.kit-app > .kit-list:not([hidden]) .cb-group[data-d=""]';
     const ok = await until(
       pg,
-      (sel) => !!document.querySelector(sel)?.checkVisibility(),
-      LOOK_ALL,
+      (sel) => !!document.querySelector(`${sel} .cb-group-acts button`),
+      GROUP_HEAD,
       8000,
     );
-    const txt = ok ? ((await pg.textContent(LOOK_ALL)) ?? '') : '';
-    check(
-      `with ${aName} attached, the group offers "${txt}" beside "Stop tracking all 3"`,
-      ok &&
-        txt === 'Look into all 3' &&
-        (await pg.textContent(`${GROUP_HEAD} .cb-group-act`)) ===
-          'Stop tracking all 3',
+    const acts = await pg.$$eval(`${GROUP_HEAD} .cb-group-acts button`, (bs) =>
+      bs.map((b) => b.textContent ?? ''),
     );
-    // The header still reads: its label on one line, and its three buttons
-    // shown inside the list column.
-    const geo = await pg.evaluate((head) => {
-      const el = document.querySelector(head);
-      const list = document.querySelector('.kit-app > .kit-list:not([hidden])');
-      const label = el?.querySelector('.cb-group-label');
-      const lh = label ? parseFloat(getComputedStyle(label).lineHeight) : 0;
-      const lr = list?.getBoundingClientRect();
-      const btns = [...(el?.querySelectorAll('.cb-group-acts button') ?? [])];
-      return {
-        labelH: Math.round(label?.getBoundingClientRect().height ?? 0),
-        line: Math.round(Number.isFinite(lh) ? lh : 19),
-        inside:
-          !!lr &&
-          btns.length === 3 &&
-          btns.every((b) => {
-            const r = b.getBoundingClientRect();
-            return (
-              b.checkVisibility() &&
-              r.width > 0 &&
-              r.left >= lr.left &&
-              r.right <= lr.right
-            );
-          }),
-      };
-    }, GROUP_HEAD);
     check(
-      `the group's header reads: its label ${geo.labelH}px high (line ${geo.line}px), all three buttons (stop tracking, look into, discard) shown inside the list column (${geo.inside})`,
-      geo.labelH > 0 && geo.labelH <= geo.line * 1.2 && geo.inside,
+      `with ${aName} attached, the group offers its decision and discard, no "Look into all 3" (${JSON.stringify(acts)})`,
+      ok &&
+        JSON.stringify(acts) ===
+          JSON.stringify(['Stop tracking all 3', 'Discard all 3']) &&
+        (await pg.locator(LOOK_ALL).count()) === 0,
+    );
+    const named = await pg.evaluate(
+      (name) =>
+        [...document.querySelectorAll('button')]
+          .map((b) => b.textContent ?? '')
+          .filter((t) => t.includes(name)),
+      aName,
+    );
+    check(
+      `no button's text names the session "${aName}" (${JSON.stringify(named)})`,
+      named.length === 0,
+    );
+    // Ticked items in the not recommended: "ask agent to recommend these".
+    const THESE = [KISSUE(2), KPR(7)];
+    await agent.presence(A, 'pi \u00b7 look-a', '/home/court/look-a', 'pi');
+    for (const k of THESE) await row(pg, k).locator('.kit-box').click();
+    const askOk = await until(
+      pg,
+      (sel) =>
+        document.querySelector(`${sel} .cb-group-ask`)?.textContent ===
+        'ask agent to recommend these',
+      NONE_HEAD,
+      8000,
+    );
+    check(
+      'two ticked in "Not recommended yet": its ask reads "ask agent to recommend these"',
+      askOk,
     );
     if (SHOTS) {
       await setTheme(pg, 'light');
       await pg.evaluate(() => document.activeElement?.blur());
       await pg.screenshot({ path: `${SHOTS}-foot.png` });
     }
-  }
-  const before = (await msgsOf(A)).length;
-  await pg.click(LOOK_ALL);
-  check(
-    "it puts one message naming the 3 keys (serve's words), all 3 attached, with the look-into purpose, in the attached session's thread",
-    await eventually(async () => {
-      const ms = await msgsOf(A);
-      const mine = ms.filter((m) => m.body.startsWith('Look into these items'));
-      const all = mine[0] ?? null;
-      const keys = all?.attached?.keys ?? [];
-      return (
-        ms.length === before + 1 &&
-        mine.length === 1 &&
-        keys.length === 3 &&
-        [...keys].sort().join(' ') === [...GROUP].sort().join(' ') &&
-        all.body === LOOK_INTO_ALL(keys) &&
-        all.purpose === 'look-into'
-      );
-    }),
-  );
-  {
+    const before = (await msgsOf(A)).length;
+    await pg.click(`${NONE_HEAD} .cb-group-ask`);
+    check(
+      "it puts one message naming the 2 ticked keys (serve's words), both attached, with the look-into purpose, in the attached session's thread",
+      await eventually(async () => {
+        const ms = await msgsOf(A);
+        const mine = ms.filter((m) =>
+          m.body.startsWith('Look into these items'),
+        );
+        const m = mine[0] ?? null;
+        const keys = m?.attached?.keys ?? [];
+        return (
+          ms.length === before + 1 &&
+          mine.length === 1 &&
+          [...keys].sort().join(' ') === [...THESE].sort().join(' ') &&
+          Object.keys(m.attached).join() === 'keys' &&
+          m.body === LOOK_INTO_ALL(keys) &&
+          m.purpose === 'look-into'
+        );
+      }),
+    );
     const b = await msgsOf(B);
     check(
       `and nothing in any other session's thread (B has ${b.length} messages)`,
       b.every((m) => !m.body.startsWith('Look into')),
     );
-  }
-  {
     const LOOKING = `${aName} is looking into it`;
-    const ok = await until(
+    const marked = await until(
       pg,
       ([ks, want]) =>
         ks.every((k) =>
@@ -4633,33 +4666,25 @@ async function lookIntoScenario(context, t, s) {
               x.querySelector('.cb-row-looking')?.textContent === want,
           ),
         ),
-      [GROUP.map(kicker), LOOKING],
+      [THESE.map(kicker), LOOKING],
       8000,
     );
-    const rows = await pg.evaluate(
-      (ks) =>
-        ks.map(
-          (k) =>
-            [
-              ...document.querySelectorAll(
-                '.kit-app > .kit-list:not([hidden]) .kit-row',
-              ),
-            ]
-              .find((x) => x.querySelector('.kit-kicker')?.textContent === k)
-              ?.querySelector('.cb-row-looking')?.textContent ?? '',
-        ),
-      GROUP.map(kicker),
-    );
-    check(
-      `all three rows say so: ${JSON.stringify(rows)}`,
-      ok && rows.every((r) => r === LOOKING),
+    check('both rows say they are being looked into', marked);
+    // A is here (serve counts a session left after 3 s without a beat):
+    // its ask shows, and waits while both are looked into.
+    await agent.presence(A, 'pi \u00b7 look-a', '/home/court/look-a', 'pi');
+    await until(
+      pg,
+      (sel) => !!document.querySelector(`${sel} .cb-group-ask`),
+      NONE_HEAD,
+      4000,
     );
     const dis = await pg.evaluate(
-      (sel) => document.querySelector(sel)?.disabled,
-      LOOK_ALL,
+      (sel) => document.querySelector(`${sel} .cb-group-ask`)?.disabled,
+      NONE_HEAD,
     );
     check(
-      `while all three are looked into, "Look into all 3" can't be clicked again (disabled ${dis})`,
+      `while both are looked into, the ask can't be clicked again (disabled ${dis})`,
       dis === true,
     );
     if (SHOTS) {
@@ -4713,7 +4738,7 @@ function steadySeed() {
 }
 
 async function steadyScenario(context, t, s) {
-  const { check, checkList, until, eventually } = t;
+  const { check, checkList, until } = t;
   console.log('\nscenario: the steady list');
   const agent = createAgent(s.base, s.token);
   const api = (m, p, b) => agent.api(m, p, b);
@@ -4964,15 +4989,9 @@ async function steadyScenario(context, t, s) {
       LIST,
     );
     checkList(
-      `look into on every group: with ${aName} attached after load and nothing ticked (${ticked}), every recommended group and left open show Look into (${looks.join('; ')})`,
+      `no look into on any group: with ${aName} attached after load and nothing ticked (${ticked}), no group and not left open shows Look into (${looks.join('; ')})`,
       [...looks].sort(),
-      [
-        ': -',
-        'close: Look into both',
-        'keep: Look into both',
-        'left open: Look into both',
-        'merge: Look into it',
-      ],
+      [': -', 'close: -', 'keep: -', 'left open: -', 'merge: -'],
     );
   }
   {
@@ -4999,33 +5018,12 @@ async function steadyScenario(context, t, s) {
     await pg.click(`${groupSel('close')} .cb-group-untick`);
   }
   {
-    const msgsOf = async () => {
-      const tv = await api(
-        'GET',
-        `/api/threads?session=${encodeURIComponent(A)}`,
-      );
-      const out = [];
-      for (const th of tv.threads ?? []) {
-        const mv = await agent.messages(th.id);
-        for (const m of mv.messages ?? []) out.push(m);
-      }
-      return out;
-    };
-    await pg.click(`${leftSel} .cb-group-look`);
+    const btns = await pg.$$eval(`${leftSel} .cb-group-acts button`, (bs) =>
+      bs.map((b) => b.textContent ?? ''),
+    );
     check(
-      "left open's Look into both sends one message naming both left-open keys, both attached",
-      await eventually(async () => {
-        const mine = (await msgsOf()).filter((m) =>
-          m.body.startsWith('Look into these items'),
-        );
-        const keys = [...(mine[0]?.attached?.keys ?? [])].sort();
-        return (
-          mine.length === 1 &&
-          keys.join(' ') === [...LEFT].sort().join(' ') &&
-          mine[0].body === LOOK_INTO_ALL(mine[0].attached.keys) &&
-          mine[0].purpose === 'look-into'
-        );
-      }),
+      `left open offers no "Look into all N" (${JSON.stringify(btns)})`,
+      btns.length === 0,
     );
   }
   await pg.close();
@@ -5207,8 +5205,9 @@ async function navScenario(context, t, s) {
   await pg.click(`.cb-dock-chooser .cb-dock-pick-item[data-session="${A}"]`);
   await until(
     pg,
-    (sel) => !!document.querySelector(sel),
-    `${groupSel('ignore')} .cb-group-look`,
+    () =>
+      document.querySelector('.cb-dock-header')?.getAttribute('data-attach') ===
+      'here',
   );
   // lineOf reads group d's button line: its texts, whether it is one line
   // (every child shares one band: each starts above where every other
@@ -5264,10 +5263,8 @@ async function navScenario(context, t, s) {
     const close = await lineOf('close');
     check(
       `group buttons one line: "${stop.texts.join(' · ')}" (${stop.h}px, inside ${stop.inside}, whole ${stop.whole}, text/box ${stop.widths}) and "${close.texts.join(' · ')}" (${close.h}px)`,
-      stop.texts.join(' · ') ===
-        'Stop tracking all 12 · Look into all 12 · Discard all 12' &&
-        close.texts.join(' · ') ===
-          'Close all 6 · Look into all 6 · Discard all 6' &&
+      stop.texts.join(' · ') === 'Stop tracking all 12 · Discard all 12' &&
+        close.texts.join(' · ') === 'Close all 6 · Discard all 6' &&
         oneLine(stop) &&
         oneLine(close),
     );
@@ -5282,10 +5279,8 @@ async function navScenario(context, t, s) {
     const close3 = await lineOf('close');
     check(
       `group buttons one line, 3 ticked: "${stop3.texts.join(' · ')}" (${stop3.h}px, inside ${stop3.inside}, whole ${stop3.whole}, text/box ${stop3.widths}) and "${close3.texts.join(' · ')}" (${close3.h}px), the same height as untouched`,
-      stop3.texts.join(' · ') ===
-        'Stop tracking 3 · Look into 3 · Discard 3 · untick' &&
-        close3.texts.join(' · ') ===
-          'Close 3 · Look into 3 · Discard 3 · untick' &&
+      stop3.texts.join(' · ') === 'Stop tracking 3 · Discard 3 · untick' &&
+        close3.texts.join(' · ') === 'Close 3 · Discard 3 · untick' &&
         oneLine(stop3) &&
         oneLine(close3) &&
         stop3.h === stop.h &&
@@ -5393,8 +5388,7 @@ async function navScenario(context, t, s) {
       shut === 0 &&
         !got.collapsed &&
         got.caret === 'true' &&
-        got.btns.join(' · ') ===
-          'Close all 6 · Look into all 6 · Discard all 6' &&
+        got.btns.join(' · ') === 'Close all 6 · Discard all 6' &&
         got.rows === 6,
     );
     await pg.click(`${groupSel('close')} .cb-group-untick`);
@@ -5580,7 +5574,7 @@ async function navScenario(context, t, s) {
     const agentColor = await cssColor(pg, 'var(--kit-agent)');
     check(
       `the recommendation under the decide row: "${a.who}" in agent colour (${a.whoColor}), then "${a.label}", then "${a.note}" (row ${a.row?.top}+${a.row?.h}, recommendation ${a.rec?.top})`,
-      a.who === 'nav-a recommends' &&
+      a.who === 'agent recommends' &&
         a.whoColor === agentColor &&
         a.label === 'Stop tracking it' &&
         a.note === 'spam' &&

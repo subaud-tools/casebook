@@ -758,6 +758,165 @@ export async function ownerScenarios(context, t) {
         await pg.close();
       }
     }
+    // ---- the agent pane: a strip until there's a conversation -------------
+    console.log(
+      '\nscenario: the agent pane is a thin strip until there is a conversation',
+    );
+    {
+      const P = `probe-owner-pane-${ts}`;
+      const cwdP = '/home/court/pane';
+      stops.push(keepHere(agent, [[P, cwdP, 'pi']]));
+      await sessionInfo(agent, P, 'tools-workspace/pane', cwdP);
+      const threadP = await agent.newThread(P, 'pane');
+      // A context without the probe's "pane open" marker (probe.mjs).
+      const plain = await context.browser().newPlainContext();
+      const pg = await lightPage(plain);
+      const errors = [];
+      pg.on('console', (m) => {
+        if (m.type() === 'error') errors.push(m.text());
+      });
+      pg.on('pageerror', (e) => errors.push(e.message));
+      const geo = () =>
+        pg.evaluate(() => {
+          const box = (sel) => {
+            const r = document.querySelector(sel)?.getBoundingClientRect();
+            return r
+              ? { left: r.left, right: r.right, width: r.width, top: r.top }
+              : null;
+          };
+          const rail = document.querySelector('.kit-rail');
+          const comp = document.querySelector('[data-testid="composer"]');
+          return {
+            rail: box('.kit-rail'),
+            list: box('.kit-app > .kit-list:not([hidden])'),
+            read: box('.kit-app > .kit-read:not([hidden])'),
+            bar: box('.kit-bar'),
+            strip: !!rail?.classList.contains('cb-dock-strip'),
+            composer: !!comp?.checkVisibility(),
+            opener: (() => {
+              const o = document.querySelector('.cb-dock-opener');
+              return o?.checkVisibility() ? (o.textContent ?? '') : null;
+            })(),
+          };
+        });
+      try {
+        await pg.goto(`${s.url}&session=${encodeURIComponent(P)}#/decide`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 15000,
+        });
+        await until(
+          pg,
+          () =>
+            document.querySelector('[data-testid="dock-session-name"]')
+              ?.textContent === 'tools-workspace/pane' &&
+            !!document.querySelector('.kit-app > .kit-list .kit-row'),
+          undefined,
+          10000,
+        );
+        const g0 = await geo();
+        check(
+          `with no messages the pane is a strip: ${g0.rail?.width}px wide (<= 48), its composer hidden, the reading column up to it (read right ${g0.read?.right}, rail left ${g0.rail?.left})`,
+          !!g0.rail &&
+            g0.rail.width <= 48 &&
+            g0.strip &&
+            !g0.composer &&
+            !!g0.read &&
+            Math.abs(g0.read.right - g0.rail.left) < 1,
+        );
+        check(
+          `the strip's button says "agent", not the session ("${g0.opener}")`,
+          g0.opener !== null &&
+            g0.opener.includes('agent') &&
+            !g0.opener.includes('tools-workspace/pane'),
+        );
+        // An item is open while it arrives (review 2026-10-17): the item
+        // keeps its width and its decide row its height.
+        const itemBox = () =>
+          pg.evaluate(() => {
+            const r = (q) => {
+              const b = document.querySelector(q)?.getBoundingClientRect();
+              return b ? `${b.left}+${b.width} h${b.height}` : 'none';
+            };
+            return `item ${r('.cb-item')} row ${r('.cb-decide-row')}`;
+          });
+        await pg.click('.kit-app > .kit-list .kit-rows > .kit-row');
+        await pg.waitForSelector('.cb-item .cb-decide-row', { timeout: 8000 });
+        const item0 = await itemBox();
+        // A message arrives (from another tab): the pane opens to its full
+        // width, and nothing left of the reading column moves.
+        await agent.postMessage(threadP.id, 'from another tab');
+        const opened = await until(
+          pg,
+          () => {
+            const r = document.querySelector('.kit-rail');
+            return (
+              !!r &&
+              !r.classList.contains('cb-dock-strip') &&
+              Math.abs(r.getBoundingClientRect().width - 360) < 1.5 &&
+              !!document
+                .querySelector('[data-testid="composer"]')
+                ?.checkVisibility()
+            );
+          },
+          undefined,
+          8000,
+        );
+        const g1 = await geo();
+        check(
+          `the first message opens it to the full width (${g1.rail?.width}px), its composer shown`,
+          opened,
+        );
+        check(
+          `and the list and the bar stay where they were (list ${g0.list?.left}+${g0.list?.width} then ${g1.list?.left}+${g1.list?.width}; reading column left ${g0.read?.left} then ${g1.read?.left})`,
+          !!g0.list &&
+            !!g1.list &&
+            g0.list.left === g1.list.left &&
+            g0.list.width === g1.list.width &&
+            g0.read.left === g1.read.left &&
+            g0.bar.top === g1.bar.top &&
+            g0.bar.width === g1.bar.width,
+        );
+        {
+          const item1 = await itemBox();
+          check(
+            `the open item doesn't move or rewrap when the pane opens (${item0} then ${item1})`,
+            item0 === item1,
+          );
+        }
+        await pg.click('.cb-dock-collapse');
+        const shut = await until(
+          pg,
+          () =>
+            document
+              .querySelector('.kit-rail')
+              ?.classList.contains('cb-dock-strip') &&
+            document.querySelector('.kit-rail').getBoundingClientRect().width <=
+              48,
+        );
+        check('its collapse button folds it back to the strip', shut);
+        await pg.click('.cb-dock-opener');
+        check(
+          'a click on the strip opens it again',
+          await until(
+            pg,
+            () =>
+              !document
+                .querySelector('.kit-rail')
+                ?.classList.contains('cb-dock-strip') &&
+              !!document
+                .querySelector('[data-testid="composer"]')
+                ?.checkVisibility(),
+          ),
+        );
+        check(
+          `no console errors (${errors.join(' | ') || 'none'})`,
+          errors.length === 0,
+        );
+      } finally {
+        await pg.close();
+        await plain.close();
+      }
+    }
   } finally {
     for (const stop of stops) stop();
     s.stop();

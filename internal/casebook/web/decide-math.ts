@@ -16,7 +16,6 @@ import type {
   LookIntoVocab,
   NotNowForm,
   RuleRow,
-  Session,
 } from './wire.d.ts';
 import { sessionName } from './sessions.ts';
 
@@ -270,19 +269,35 @@ export function choiceLabel(
 
 /**
  * recommendLine is the line for an item's pending proposal, in serve's
- * words: the session that recommends (by, named as the rows name it; the
- * source's agent when serve knows none), then the choice ("‹session›
- * recommends Close it").
+ * words: who recommends (recommendsWho), then the choice ("agent recommends
+ * Close it", "Stale questions recommends Close it").
  */
 export function recommendLine(
   vocab: DecisionVocabView,
   key: string,
-  by: Session | undefined,
   source: string,
   disposition: string,
+  ruleName = '',
 ): string {
-  const who = vocab.recommends.replaceAll('{session}', sessionName(by, source));
+  const who = recommendsWho(vocab, source, ruleName);
   return `${who} ${choiceLabel(vocab, key, disposition)}`;
+}
+
+/**
+ * recommendsWho is who recommends, in serve's words: a rule by its name
+ * (ruleName, else its id), an agent as "agent", never its session's name.
+ */
+export function recommendsWho(
+  vocab: Pick<DecisionVocabView, 'recommends' | 'rule_recommends'>,
+  source: string,
+  ruleName = '',
+): string {
+  if (source.startsWith('rule:'))
+    return vocab.rule_recommends.replaceAll(
+      '{rule}',
+      ruleName || source.slice(5),
+    );
+  return vocab.recommends;
 }
 
 /** CAME_BACK is the id of decide's "Came back" group (serve's). */
@@ -373,21 +388,19 @@ export function countWord(
 }
 
 /**
- * groupButtons is a group's three buttons in serve's words, for the whole
+ * groupButtons is a group's two buttons in serve's words, for the whole
  * group (ticked 0) or the ticked items of it: its choice for several items
- * ("Close all 27", "Close 3"), look into them, and discard their
- * recommendations.
+ * ("Close all 27", "Close 3"), and discard their recommendations.
  */
 export function groupButtons(
   g: GroupView,
   ticked: number,
-  vocab: Pick<DecisionVocabView, 'look_many' | 'discard_many' | 'count_words'>,
-): { act: string; look: string; discard: string } {
+  vocab: Pick<DecisionVocabView, 'discard_many' | 'count_words'>,
+): { act: string; discard: string } {
   const n = countWord(g.total, ticked, vocab.count_words);
   const fill = (s: string): string => s.replaceAll('{n}', n);
   return {
     act: fill(g.many || g.label),
-    look: fill(vocab.look_many),
     discard: fill(vocab.discard_many),
   };
 }

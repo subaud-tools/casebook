@@ -417,9 +417,9 @@ func decisionVocab() DecisionVocabView {
 		Kinds:          make([]KindVocab, len(kinds)),
 		UntilForms:     nil,
 		LookInto:       LookIntoVocab{Label: lookIntoLabel, Says: lookIntoSays, Message: lookIntoMessage, MessageMany: lookIntoMessageMany},
-		LookMany:       "Look into {n}",
 		DiscardMany:    "Discard {n}",
-		RecommendThese: "Ask {session} to recommend {n}",
+		RecommendThese: "ask agent to recommend these",
+		SuggestRules:   "ask agent to suggest rules",
 		DiscardAll:     "discard all {n}",
 		Summary:        SummaryVocab{ToDecide: "{n} to decide", CameBack: "{n} came back", Group: "{who} \u00b7 {decision} \u00b7 {n}", NotRecommended: "{n} not recommended yet"},
 		CountWords:     countWords,
@@ -431,9 +431,10 @@ func decisionVocab() DecisionVocabView {
 			string(item.StatusDrift):    "it changed on GitHub since you decided",
 			string(item.StatusConflict): "two decisions for it disagree",
 		},
-		CameBackFact: "came back \u00b7 {reason}",
-		Waiting:      WaitingVocab{Text: "{done} \u00b7 waiting in {apply} \u00b7 {undo}", Apply: "apply", Undo: "undo"},
-		Recommends:   "{session} recommends",
+		CameBackFact:   "came back \u00b7 {reason}",
+		Waiting:        WaitingVocab{Text: "{done} \u00b7 waiting in {apply} \u00b7 {undo}", Apply: "apply", Undo: "undo"},
+		Recommends:     "agent recommends",
+		RuleRecommends: "{rule} recommends",
 		Nav: NavVocab{
 			Position:  "{pos} of {total} in {group}",
 			PrevItem:  "Previous item: {target} (k)",
@@ -451,7 +452,7 @@ func decisionVocab() DecisionVocabView {
 		DiscardSome:    "{n} recommendations",
 		DiscardButton:  "discard",
 		DiscardCancel:  "cancel",
-		Asked:          "asked {session}",
+		Asked:          "asked agent",
 	}
 	for i, k := range kinds {
 		allowed := item.Allowed(k)
