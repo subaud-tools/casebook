@@ -309,3 +309,16 @@ func TestConcurrentDecidesCommitOneEach(t *testing.T) {
 		}
 	}
 }
+
+// TestInitPointsAtFormatInCasebook: casebook.toml names where its format is
+// documented, the casebook repo.
+func TestInitPointsAtFormatInCasebook(t *testing.T) {
+	r, _ := newStore(t)
+	b, err := os.ReadFile(filepath.Join(r.Dir, "casebook.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\n"; !strings.HasPrefix(string(b), want) {
+		t.Fatalf("casebook.toml starts %q, want %q", strings.SplitN(string(b), "\n", 2)[0], want)
+	}
+}

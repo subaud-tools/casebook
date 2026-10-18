@@ -45,7 +45,7 @@ func TestDecodeEncodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(b), "# casebook saved filter. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.\n") {
+	if !strings.HasPrefix(string(b), "# casebook saved filter. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\n") {
 		t.Errorf("header missing: %q", b)
 	}
 	back, err := Decode(b)

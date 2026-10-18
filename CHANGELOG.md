@@ -10,6 +10,7 @@ name, as they were there. The format follows
 
 ### Changed
 - casebook lives in its own repository, github.com/subaud-tools/casebook, and downloads from casebook.tools. A casebook installed before 0.15.0 updates from tackle.tools and stays at 0.14.0: run `kempt update` or the casebook.tools installer once to move to casebook.tools.
+- New `casebook.toml`, rule and filter files say their format is documented in subaud-tools/casebook. Files an older casebook wrote keep their old comment until casebook next rewrites them; nothing reads it.
 
 ## [casebook 0.14.0] - 2026-10-17
 
