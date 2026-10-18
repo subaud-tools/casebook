@@ -69,3 +69,4 @@ jobs:
           dl-tool: casebook
           dl-role-arn: ${{ vars.CASEBOOK_RELEASE_ROLE_ARN }}
           dl-bucket: ${{ vars.CASEBOOK_DOWNLOADS_BUCKET }}
+          dl-distribution-id: ${{ vars.CASEBOOK_DISTRIBUTION_ID }}
