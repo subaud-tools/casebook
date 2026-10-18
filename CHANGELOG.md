@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.15.1
+
+- The release moves casebook.tools/dl/casebook/latest, so `casebook update`, `kempt update` and the installer find the newest version.
+
 ## 0.15.0
 
 ### Changed
