@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -398,6 +399,40 @@ func TestRelationNeverMatchesARepo(t *testing.T) {
 	wt := engine.Item{ID: "worktree:m:/w", Kind: item.KindWorktree}
 	if ms, _ := r.MatchAll(engine.Result{Items: []engine.Item{wt}}, testNow); len(ms) != 0 {
 		t.Errorf("a clean worktree matched worktree is dirty: %v", ms)
+	}
+}
+
+// TestOwnershipMatchesRepos: ownership picks a repo by whose it is; a pull
+// request has none, so only the negative ops match it (as on every field
+// limited to some kinds; rules pair it with kind is repo).
+func TestOwnershipMatchesRepos(t *testing.T) {
+	mine := engine.Item{ID: "repo:me/a", Kind: item.KindRepo, Repo: "me/a", Relation: "owned"}
+	org := engine.Item{ID: "repo:org/b", Kind: item.KindRepo, Repo: "org/b", Relation: "org"}
+	fork := engine.Item{ID: "repo:me/c", Kind: item.KindRepo, Repo: "me/c", Relation: "fork-of:up/c"}
+	pr := engine.Item{ID: "pr:me/a#1", Kind: item.KindPR, Repo: "me/a", Relation: "own"}
+	res := engine.Result{Items: []engine.Item{mine, org, fork, pr}}
+	for _, c := range []struct {
+		op, value string
+		want      []string
+	}{
+		{"is", "yours", []string{mine.ID}},
+		{"is", "org", []string{org.ID}},
+		{"is", "fork", []string{fork.ID}},
+		{"not-in", "org", []string{pr.ID, mine.ID, fork.ID}},
+	} {
+		r := Rule{ID: "x", Match: []Condition{{Field: "ownership", Op: c.op, Value: c.value}}}
+		ms, err := r.MatchAll(res, testNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, m := range ms {
+			got = append(got, m.Key)
+		}
+		sort.Strings(got)
+		if !slices.Equal(got, c.want) {
+			t.Errorf("ownership %s %s matched %v, want %v", c.op, c.value, got, c.want)
+		}
 	}
 }
 

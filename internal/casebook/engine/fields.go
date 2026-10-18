@@ -15,7 +15,7 @@ type Fields struct {
 	Kind     string
 	Repo     string // "owner/name"
 	Owner    string // first segment of Repo
-	Relation string // PR/issue: "outgoing", "incoming", "own"; empty on every other kind (repos match with Fork)
+	Relation string // PR/issue: "outgoing", "incoming", "own"; empty on every other kind (repos match with Ownership)
 	Status   string // item.Status string value
 	Author   string
 	Title    string
@@ -40,7 +40,7 @@ type Fields struct {
 
 	// Repository attributes (set on repo items)
 	Archived   bool
-	Fork       bool
+	Ownership  string // repo: "yours", "org" or "fork"; empty on every other kind
 	OpenPRs    int
 	OpenIssues int
 }
@@ -65,8 +65,18 @@ func (it Item) Fields(now time.Time) Fields {
 	// No suffix check — GitHub Bot accounts may not carry the [bot] login suffix.
 	bot := it.AuthorIsBot
 
-	// Fork: repo items whose Relation starts with "fork-of:".
-	fork := strings.HasPrefix(it.Relation, "fork-of:")
+	// Ownership: a repo's relation, owned, org or fork-of:<parent>.
+	ownership := ""
+	if it.Kind == item.KindRepo {
+		switch {
+		case it.Relation == "owned":
+			ownership = "yours"
+		case it.Relation == "org":
+			ownership = "org"
+		case strings.HasPrefix(it.Relation, "fork-of:"):
+			ownership = "fork"
+		}
+	}
 
 	// Worktree state: a worktree item's own; a branch's worktree's, or
 	// "none". Other kinds have none to read.
@@ -84,7 +94,7 @@ func (it Item) Fields(now time.Time) Fields {
 	}
 
 	// Relation is a PR's or issue's; a repo's org/owned/fork-of is not
-	// matchable as relation (repos match with fork).
+	// matchable as relation (repos match with ownership).
 	relation := ""
 	if it.Kind == item.KindPR || it.Kind == item.KindIssue {
 		relation = it.Relation
@@ -122,7 +132,7 @@ func (it Item) Fields(now time.Time) Fields {
 		Unpushed:     !it.oldestUnpushed.IsZero(),
 		Worktree:     worktree,
 		Archived:     it.Observed.Archived,
-		Fork:         fork,
+		Ownership:    ownership,
 		OpenPRs:      it.openPRs,
 		OpenIssues:   it.openIssues,
 	}

@@ -171,7 +171,7 @@ A field may appear in one condition only (several values of one field are one `i
 | `kind` | enum | all | `repo` \| `pr` \| `issue` \| `branch` \| `worktree` |
 | `repo` | text | all | `owner/name` |
 | `owner` | text | all | GitHub login |
-| `relation` | enum | pr, issue | `outgoing` \| `incoming` \| `own`; pull requests and issues only (never matches a repo: use `fork`) |
+| `relation` | enum | pr, issue | `outgoing` \| `incoming` \| `own`; pull requests and issues only (never matches a repo: use `ownership`) |
 | `status` | enum | all | `new` \| `to-apply` \| `waiting` \| `due` \| `done` \| `drift` \| `conflict` |
 | `author` | text | pr, issue | GitHub login |
 | `bot` | bool | pr, issue | `true` \| `false` |
@@ -185,7 +185,7 @@ A field may appear in one condition only (several values of one field are one `i
 | `unpushed` | bool | branch, worktree | has local-only commits |
 | `worktree` | enum | branch, worktree | `dirty` \| `clean` \| `none`; a worktree's own state, or a branch's worktree's (`none` when it has none) |
 | `archived` | bool | repo | repo is archived on GitHub |
-| `fork` | bool | repo | repo is a fork |
+| `ownership` | enum | repo | `yours` \| `org` \| `fork`; a repo under your account, under an org (forks included), or a fork under your account |
 | `open-prs` | count | repo | number of open PRs; use `is`, `is-not`, `gt`, `gte`, `lt`, `lte` with a whole number, 0 or more |
 | `open-issues` | count | repo | number of open issues; same operators and values as `open-prs` |
 

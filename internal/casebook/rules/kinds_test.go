@@ -81,8 +81,8 @@ func fieldIsZero(t *testing.T, f engine.Fields, name string) bool {
 		return f.Worktree == ""
 	case "archived":
 		return !f.Archived
-	case "fork":
-		return !f.Fork
+	case "ownership":
+		return f.Ownership == ""
 	case "open-prs":
 		return f.OpenPRs == 0
 	case "open-issues":
@@ -125,7 +125,7 @@ func TestFieldKinds(t *testing.T) {
 		"label": {"pr", "issue"}, "title": {"pr", "issue", "worktree"}, "age": {"pr", "issue"},
 		"landed": {"branch"}, "landed-how": {"branch"}, "gone-upstream": {"branch"},
 		"unpushed": {"branch", "worktree"}, "worktree": {"branch", "worktree"},
-		"archived": {"repo"}, "fork": {"repo"}, "open-prs": {"repo"}, "open-issues": {"repo"},
+		"archived": {"repo"}, "ownership": {"repo"}, "open-prs": {"repo"}, "open-issues": {"repo"},
 	}
 	for _, f := range Vocabulary() {
 		if w, ok := want[f.Name]; !ok || !slices.Equal(f.Kinds, w) {

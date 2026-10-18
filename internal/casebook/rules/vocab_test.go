@@ -103,6 +103,8 @@ func TestCountAndBoolFieldsValidateValue(t *testing.T) {
 		{Field: "open-issues", Op: "is", Value: ""},
 		{Field: "bot", Op: "is", Value: "yes"},
 		{Field: "archived", Op: "is-not", Value: ""},
+		{Field: "ownership", Op: "is", Value: "mine"},
+		{Field: "fork", Op: "is", Value: "true"},
 	}
 	for _, c := range bad {
 		if err := ValidateCondition(c); err == nil {
@@ -113,7 +115,8 @@ func TestCountAndBoolFieldsValidateValue(t *testing.T) {
 		{Field: "open-prs", Op: "gt", Value: "0"},
 		{Field: "open-issues", Op: "lte", Value: " 12 "},
 		{Field: "bot", Op: "is", Value: "true"},
-		{Field: "fork", Op: "is-not", Value: "false"},
+		{Field: "ownership", Op: "is-not", Value: "fork"},
+		{Field: "ownership", Op: "in", Value: "yours, org"},
 	}
 	for _, c := range good {
 		if err := ValidateCondition(c); err != nil {
@@ -172,9 +175,10 @@ func TestVocabularyLabels(t *testing.T) {
 		}
 	}
 	for field, want := range map[string]map[string]string{
-		"kind":     {"repo": "repository", "pr": "pull request", "issue": "issue"},
-		"relation": {"outgoing": "you, elsewhere", "incoming": "someone else", "own": "you, in your repo"},
-		"worktree": {"dirty": "uncommitted changes", "clean": "clean", "none": "no worktree"},
+		"kind":      {"repo": "repository", "pr": "pull request", "issue": "issue"},
+		"relation":  {"outgoing": "you, elsewhere", "incoming": "someone else", "own": "you, in your repo"},
+		"worktree":  {"dirty": "uncommitted changes", "clean": "clean", "none": "no worktree"},
+		"ownership": {"yours": "yours", "org": "an org's", "fork": "a fork"},
 	} {
 		for v, l := range want {
 			if got := by[field].ValueLabels[v]; got != l {

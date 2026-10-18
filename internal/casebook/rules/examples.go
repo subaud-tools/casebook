@@ -26,13 +26,25 @@ func Examples() []Rule {
 			Propose: RuleAction{Disposition: "close", Note: "a bot's PR with no activity for 30 days"},
 		},
 		{
-			ID:   "dormant-repos",
-			Name: "Repos not pushed in a year",
+			ID:   "your-old-repos",
+			Name: "Your old repos",
 			Match: []Condition{
 				{Field: "kind", Op: "is", Value: "repo"},
+				{Field: "ownership", Op: "is", Value: "yours"},
+				{Field: "archived", Op: "is", Value: "false"},
 				{Field: "updated", Op: "older-than", Value: "52w"},
 			},
-			Propose: RuleAction{Disposition: "ignore", Note: "not pushed in a year"},
+			Propose: RuleAction{Disposition: "archive", Note: "yours, not pushed in a year"},
+		},
+		{
+			ID:   "your-old-forks",
+			Name: "Your old forks",
+			Match: []Condition{
+				{Field: "kind", Op: "is", Value: "repo"},
+				{Field: "ownership", Op: "is", Value: "fork"},
+				{Field: "updated", Op: "older-than", Value: "52w"},
+			},
+			Propose: RuleAction{Disposition: "delete", Note: "a fork, not pushed in a year"},
 		},
 	}
 	for i := range out {
@@ -40,4 +52,21 @@ func Examples() []Rule {
 		out[i].CreatedBy = "casebook"
 	}
 	return out
+}
+
+// ShippedDormantRepos is the starter rule casebook 0.10 and 0.11 seeded in
+// place of your-old-repos and your-old-forks; casebook-data that still has
+// it unedited has it replaced by them once.
+func ShippedDormantRepos() Rule {
+	return Rule{
+		ID:        "dormant-repos",
+		Name:      "Repos not pushed in a year",
+		Status:    StatusActive,
+		CreatedBy: "casebook",
+		Match: []Condition{
+			{Field: "kind", Op: "is", Value: "repo"},
+			{Field: "updated", Op: "older-than", Value: "52w"},
+		},
+		Propose: RuleAction{Disposition: "ignore", Note: "not pushed in a year"},
+	}
 }

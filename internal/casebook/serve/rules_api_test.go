@@ -10,6 +10,7 @@ import (
 	"github.com/subaud-tools/tackle/internal/casebook/engine"
 	"github.com/subaud-tools/tackle/internal/casebook/item"
 	"github.com/subaud-tools/tackle/internal/casebook/rules"
+	"github.com/subaud-tools/tackle/internal/casebook/testgit"
 )
 
 // newRuleRig is newRig plus a ready-to-use rule written to the repo.
@@ -751,5 +752,70 @@ func TestEditingARuleWithdrawsWhatItNoLongerRecommends(t *testing.T) {
 		if p, _ := r.s.Props.Get(ctx, id); p.Disposition != "keep" {
 			t.Fatalf("%s is recommended %s, want keep", key, p.Disposition)
 		}
+	}
+}
+
+// TestDeletedRulesRecommendationsAreWithdrawn: as on Court's casebook-data,
+// an unedited shipped dormant-repos with a pending recommendation; the next
+// write replaces it with your-old-repos and your-old-forks, and the rebuild
+// withdraws what the deleted rule recommended while the new one recommends.
+func TestDeletedRulesRecommendationsAreWithdrawn(t *testing.T) {
+	r := newRig(t)
+	dir := r.App.Repo.Dir
+	testgit.Git(t, dir, "rm", "-q", "rules/your-old-repos.toml", "rules/your-old-forks.toml")
+	testgit.Git(t, dir, "commit", "-q", "-m", "an older casebook's rules")
+	testgit.Commit(t, dir, "rules/dormant-repos.toml", `# casebook standing rule. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.
+id = "dormant-repos"
+name = "Repos not pushed in a year"
+status = "active"
+created_by = "casebook"
+created_at = 2026-10-17T18:39:46.001425Z
+edited_at = 2026-10-17T18:39:46.001425Z
+
+[[match]]
+  field = "kind"
+  op = "is"
+  value = "repo"
+
+[[match]]
+  field = "updated"
+  op = "older-than"
+  value = "52w"
+
+[propose]
+  disposition = "ignore"
+  note = "not pushed in a year"
+`)
+	// A year on, schuettc/hail (yours, pushed 2026-09-20) is a year quiet.
+	r.s.Now = func() time.Time { return time.Date(2027, 10, 1, 12, 0, 0, 0, time.UTC) }
+	if err := r.s.rebuild(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := r.ruleProposals(t, "dormant-repos")
+	if _, ok := old["repo:schuettc/hail"]; !ok || len(old) != 1 {
+		t.Fatalf("dormant-repos recommends %v, want repo:schuettc/hail", old)
+	}
+	head, _ := r.s.Bus.Head(ctx)
+	if c := r.do(t, "POST", "/api/decide", map[string]any{"keys": []string{"issue:schuettc/hail#4"}, "disposition": "keep"}, nil); c != 200 {
+		t.Fatalf("decide %d", c)
+	}
+	if err := r.s.rebuild(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ru, _ := r.App.Repo.ReadRule("dormant-repos"); ru != nil {
+		t.Fatal("dormant-repos was not replaced")
+	}
+	if left := r.ruleProposals(t, "dormant-repos"); len(left) != 0 {
+		t.Fatalf("still pending from the deleted rule: %v", left)
+	}
+	if p, _ := r.s.Props.Get(ctx, old["repo:schuettc/hail"]); p.State != "withdrawn" {
+		t.Fatalf("the deleted rule's recommendation is %s, want withdrawn", p.State)
+	}
+	if ev := r.lastProposals(t, head, "withdrawn"); !slices.Contains(ev.IDs, old["repo:schuettc/hail"]) {
+		t.Fatalf("withdrawn event %+v", ev)
+	}
+	now := r.ruleProposals(t, "your-old-repos")
+	if p, _ := r.s.Props.Get(ctx, now["repo:schuettc/hail"]); p.Disposition != "archive" {
+		t.Fatalf("your-old-repos recommends %v (%+v), want hail archived", now, p)
 	}
 }

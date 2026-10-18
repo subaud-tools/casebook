@@ -3631,7 +3631,9 @@ function itemPageSeed() {
       },
       ...[1, 2, 3].map((n) => ({
         repo: `schuettc/rd-old-${n}`,
-        pushed_at: '2019-01-01T00:00:00Z',
+        // Pushed lately: a starter rule (your-old-repos) would otherwise
+        // recommend them too, and the later rule by id supersedes.
+        pushed_at: '2026-09-20T00:00:00Z',
         default_branch: 'main',
         prs: [],
         issues: [],

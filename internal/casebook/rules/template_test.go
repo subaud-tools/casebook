@@ -109,7 +109,7 @@ func TestFieldsMethodDerivesBotFromAuthor(t *testing.T) {
 	}
 }
 
-func TestFieldsMethodDerivesFork(t *testing.T) {
+func TestFieldsMethodDerivesOwnership(t *testing.T) {
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	it := engine.Item{
 		ID:       "repo:schuettc/pi-extensions",
@@ -118,8 +118,8 @@ func TestFieldsMethodDerivesFork(t *testing.T) {
 		Relation: "fork-of:schuettc/galley",
 	}
 	f := it.Fields(now)
-	if !f.Fork {
-		t.Errorf("Fork = false, want true for relation %q", it.Relation)
+	if f.Ownership != "fork" {
+		t.Errorf("Ownership = %q, want fork for relation %q", f.Ownership, it.Relation)
 	}
 }
 

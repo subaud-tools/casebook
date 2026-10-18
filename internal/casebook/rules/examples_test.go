@@ -18,7 +18,7 @@ func TestExamplesAreValidAndOn(t *testing.T) {
 			t.Errorf("%s: %v", r.ID, err)
 		}
 	}
-	if want := []string{"landed-branches", "quiet-bot-prs", "dormant-repos"}; !slices.Equal(ids, want) {
+	if want := []string{"landed-branches", "quiet-bot-prs", "your-old-repos", "your-old-forks"}; !slices.Equal(ids, want) {
 		t.Fatalf("examples %v, want %v", ids, want)
 	}
 }

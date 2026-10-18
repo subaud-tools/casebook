@@ -138,8 +138,10 @@ var vocab = []Field{
 
 	// Repository attributes
 	{Name: "archived", Kinds: repoOnly, Label: "archived", Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
-	{Name: "fork", Kinds: repoOnly, Label: "fork", Help: "the repository is a fork",
-		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
+	{Name: "ownership", Kinds: repoOnly, Label: "ownership", Help: "whose repository it is: yours, an org's, or a fork",
+		Type: FieldTypeEnum, Ops: enumOps,
+		Values:      []string{"yours", "org", "fork"},
+		ValueLabels: map[string]string{"yours": "yours", "org": "an org's", "fork": "a fork"}},
 	{Name: "open-prs", Kinds: repoOnly, Label: "open PRs", Type: FieldTypeCount, Ops: countOps},
 	{Name: "open-issues", Kinds: repoOnly, Label: "open issues", Type: FieldTypeCount, Ops: countOps},
 }

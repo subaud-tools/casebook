@@ -92,8 +92,8 @@ func (c Condition) Eval(f engine.Fields) (bool, error) {
 		return evalString(c.Op, f.Worktree, c.Value)
 	case "archived":
 		return evalBool(c.Op, f.Archived, c.Value)
-	case "fork":
-		return evalBool(c.Op, f.Fork, c.Value)
+	case "ownership":
+		return evalString(c.Op, f.Ownership, c.Value)
 	case "open-prs":
 		return evalCount(c.Op, f.OpenPRs, c.Value)
 	case "open-issues":

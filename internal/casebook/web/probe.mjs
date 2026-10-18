@@ -2260,11 +2260,11 @@ async function ruleGroupsScenariosOn(context, serveHandle) {
       head.button === 'Delete all 6',
     );
     checkList('nothing visible says "attention"', await attentionWords(pg), []);
-    // The starter rules (store/tidy.go seeds 3) and these 2.
+    // The starter rules (store/tidy.go seeds 4) and these 2.
     check(
-      'the rule row under the filters: "+ rule" and "rules 5" (the one turned off too)',
+      'the rule row under the filters: "+ rule" and "rules 6" (the one turned off too)',
       (await pg.$eval(`${LIST} .cb-rule-row`, (e) => e.textContent)) ===
-        '+ rulerules 5',
+        '+ rulerules 6',
     );
 
     // ⋯ edit: the editor in the middle pane, the list its preview.
