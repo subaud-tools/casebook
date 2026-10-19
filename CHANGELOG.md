@@ -6,6 +6,15 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.17.0
+
+- Each item says what stands in the way of its decision: a branch in use by a worktree or checked out in its clone, a long-lived branch, an archived repo, a merge GitHub would refuse, a local copy only on the other Mac. Decide, review, run, `casebook show` and the agent all say it the same way.
+- Rules no longer recommend closing a PR or issue in an archived repo, or deleting a long-lived branch.
+- A branch's GitHub copy is deleted through GitHub's API, so it runs from either Mac; it is refused if it moved or hasn't landed, and undo makes it again at the same commit.
+- Review removes a clean worktree decided Remove it before deleting its branch, keeps held items in a Held section, and lists the local copies that wait for the other Mac. An item is done when every copy is gone.
+- Review tags what can't be undone, what is undone on GitHub, and every step that posts a public comment (with its text), and ticking several groups makes one review.
+- `casebook sync` also records each clone's current branch and each open PR's merge status.
+
 ## 0.16.3
 
 - A run's steps table puts why a step stopped on its own line, and a branch's repo above it: a long reason (a worktree path) had squeezed the key to one character wide.

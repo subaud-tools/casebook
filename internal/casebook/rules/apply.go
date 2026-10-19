@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
 )
 
@@ -107,7 +108,7 @@ func ProposeOnce(ctx context.Context, r Rule, res engine.Result, now time.Time, 
 // Stale returns the ids of the pending rule proposals (pending, each from
 // "rule:<id>") that their rule no longer makes: the rule is missing from
 // all, not active, no longer matches the item, or now proposes another
-// disposition or until. Rebuilding withdraws them, so turning a rule off,
+// disposition or until, or a hold now stops its disposition. Rebuilding withdraws them, so turning a rule off,
 // editing it or deleting it takes its old recommendations with it.
 func Stale(all []Rule, res engine.Result, now time.Time, pending []propose.Proposal) []int64 {
 	byID := make(map[string]Rule, len(all))
@@ -137,6 +138,10 @@ func Stale(all []Rule, res engine.Result, now time.Time, pending []propose.Propo
 			matched[id] = keys
 		}
 		if !keys[p.Key] {
+			out = append(out, p.ID)
+			continue
+		}
+		if it, ok := res.Find(p.Key); ok && it.Stopped(item.Disposition(p.Disposition)) {
 			out = append(out, p.ID)
 		}
 	}

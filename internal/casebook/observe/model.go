@@ -42,7 +42,10 @@ type PRObs struct {
 	LastCommentAt     time.Time `json:"last_comment_at,omitzero"`
 	URL               string    `json:"url,omitempty"`
 	Labels            []string  `json:"labels,omitempty"`
-	Body              string    `json:"body,omitempty"` // first 600 chars of GitHub bodyText
+	Body              string    `json:"body,omitempty"`        // first 600 chars of GitHub bodyText
+	MergeState        string    `json:"merge_state,omitempty"` // GitHub's mergeStateStatus verbatim (BEHIND, BLOCKED, CLEAN, DIRTY, ...)
+	HeadRef           string    `json:"head_ref,omitempty"`    // the PR's branch
+	HeadRepo          string    `json:"head_repo,omitempty"`   // the repo that branch is in, lower case owner/name ("" when GitHub has none)
 }
 
 // Owner is one account's or org's observation. A failed or blocked fetch
@@ -64,6 +67,8 @@ type Ref struct {
 	Archived      bool      `json:"archived,omitempty"` // repo
 	LatestRelease time.Time `json:"latest_release,omitzero"`
 	UpdatedAt     time.Time `json:"updated_at,omitzero"`
+	Tip           string    `json:"tip,omitempty"`     // branch: the ref's commit on GitHub
+	RepoID        string    `json:"repo_id,omitempty"` // branch: the repository's GraphQL node id
 }
 
 // MergedPR is one merged pull request as reported by gh pr list.
@@ -109,6 +114,7 @@ type Clone struct {
 	Repo           string            `json:"repo,omitempty"`    // lower-case owner/name of the identifying GitHub remote
 	Remotes        map[string]string `json:"remotes,omitempty"` // name → owner/name, or "url:<redacted url>" for non-GitHub
 	Bare           bool              `json:"bare,omitempty"`
+	Head           string            `json:"head,omitempty"` // the checked-out branch; "" when detached or bare
 	Dirty          bool              `json:"dirty,omitempty"`
 	Stashes        int               `json:"stashes,omitempty"`
 	LocalHooksPath string            `json:"local_hooks_path,omitempty"` // set: global hooks don't run here

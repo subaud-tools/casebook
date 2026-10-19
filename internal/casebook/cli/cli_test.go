@@ -333,3 +333,47 @@ func TestAttentionNewestFirst(t *testing.T) {
 		t.Fatalf("attention prints\n%s\nwant %s before %s", out, want[0], want[1])
 	}
 }
+
+func setupDev(t *testing.T) *env {
+	t.Helper()
+	e := setup(t)
+	testgit.Git(t, e.clone, "branch", "dev")
+	e.ok("init", e.remote, "--machine", "mbp", "--user", "schuettc", "--root", e.root)
+	e.ok("sync")
+	return e
+}
+
+func TestShowPrintsHolds(t *testing.T) {
+	e := setupDev(t)
+	if out := e.ok("show", "branch:schuettc/hail@dev"); !strings.Contains(out, "  held: dev is a long-lived branch: casebook never deletes it\n") {
+		t.Errorf("show prints\n%s", out)
+	}
+}
+
+func TestShowJSONCarriesHolds(t *testing.T) {
+	e := setupDev(t)
+	var shown struct {
+		Item struct {
+			Holds []struct {
+				Kind string `json:"kind"`
+			} `json:"holds"`
+		} `json:"item"`
+	}
+	out := e.ok("show", "branch:schuettc/hail@dev", "--json")
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || len(shown.Item.Holds) == 0 || shown.Item.Holds[0].Kind != "long-lived" {
+		t.Errorf("show --json %v\n%s", err, out)
+	}
+}
+
+func TestAttentionMarksHeldItems(t *testing.T) {
+	e := setupDev(t)
+	for _, line := range strings.Split(e.ok("attention"), "\n") {
+		if strings.Contains(line, "branch:schuettc/hail@dev") {
+			if !strings.HasSuffix(strings.TrimRight(line, " "), " · held") {
+				t.Errorf("row %q does not end in ' · held'", line)
+			}
+			return
+		}
+	}
+	t.Error("dev not in attention")
+}

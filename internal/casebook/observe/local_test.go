@@ -152,3 +152,27 @@ func TestScanMissingRootIsReported(t *testing.T) {
 		t.Fatalf("errs %v", errs)
 	}
 }
+
+func TestScanRecordsTheClonesCurrentBranch(t *testing.T) {
+	testgit.Env(t)
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	a := filepath.Join(root, "a")
+	_ = os.MkdirAll(a, 0o755)
+	testgit.Git(t, a, "init", "-q", "-b", "main")
+	testgit.Commit(t, a, "one", "x")
+	testgit.Git(t, a, "branch", "feat/y")
+	testgit.Git(t, a, "checkout", "-q", "-b", "feat/x")
+	testgit.Git(t, a, "worktree", "add", "-q", filepath.Join(root, "a-wt"), "feat/y")
+	snap, errs := Scan(ctx, []string{root}, "mbp")
+	if len(errs) != 0 || len(snap.Clones) != 1 {
+		t.Fatalf("clones %+v errs %v", snap.Clones, errs)
+	}
+	if c := snap.Clones[0]; c.Head != "feat/x" || len(c.Worktrees) != 1 || c.Worktrees[0].Branch != "feat/y" {
+		t.Errorf("clone %+v, want Head feat/x and a worktree on feat/y", c)
+	}
+	testgit.Git(t, a, "checkout", "-q", "--detach")
+	snap, _ = Scan(ctx, []string{root}, "mbp")
+	if c := snap.Clones[0]; c.Head != "" {
+		t.Errorf("detached clone Head = %q, want empty", c.Head)
+	}
+}

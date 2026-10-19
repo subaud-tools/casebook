@@ -1,12 +1,14 @@
 package serve
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/rules"
 )
 
@@ -266,5 +268,52 @@ func TestRebuildNoticesAtomic(t *testing.T) {
 	}
 	if !hasNotice {
 		t.Errorf("expected rule error notice after rebuild; got %v", notices)
+	}
+}
+
+// okGh answers every gh call with an empty object and records it.
+type okGh struct{ ghLog }
+
+func (g *okGh) Gh(_ context.Context, args ...string) ([]byte, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls = append(g.calls, strings.Join(args, " "))
+	return []byte("{}"), nil
+}
+
+// TestUndoOfAGitHubDeleteRunsThroughGh: the undo of a GitHub branch delete
+// makes the branch again through gh, at the same commit.
+func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
+	r := newRig(t)
+	gh := &okGh{}
+	r.App.Gh = gh
+	tip := "1111111111111111111111111111111111111111"
+	del := "gh api graphql -f query='mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='" + tip + "' -f a='0000000000000000000000000000000000000000'"
+	restore := "gh api graphql -f query='mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='0000000000000000000000000000000000000000' -f a='" + tip + "'"
+	job, err := r.s.Apply.Create(ctx, apply.Plan{BuiltAt: time.Now(), Steps: []apply.Step{{
+		Key: "branch:schuettc/hail@feat/x", Action: "branch-delete-remote", Lane: apply.LaneCasebook, Command: del, ExpectedTip: tip,
+	}}}, "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Apply.Approve(ctx, job.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	step := job.Steps[0]
+	for _, st := range []apply.StepState{apply.StepRunning, apply.StepReported, apply.StepVerified} {
+		if err := r.s.Apply.SetStepState(ctx, step.ID, st, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.s.Apply.SetStepRestore(ctx, step.ID, restore); err != nil {
+		t.Fatal(err)
+	}
+	var out UndoResult
+	if code := r.do(t, "POST", "/api/jobs/undo", map[string]any{"step": step.ID}, &out); code != 200 {
+		t.Fatalf("undo: %d", code)
+	}
+	want := "api graphql -f query=mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}} -f r=R_1 -f n=refs/heads/feat/x -f b=0000000000000000000000000000000000000000 -f a=" + tip
+	if len(gh.calls) != 1 || gh.calls[0] != want {
+		t.Fatalf("gh calls %q, want %q", gh.calls, want)
 	}
 }

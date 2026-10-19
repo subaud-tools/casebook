@@ -2030,6 +2030,137 @@ code.cb-cmd {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* review's tags: what can't be undone (red), what posts a public comment
+ * (amber), what is undone on GitHub, not here (grey). */
+.cb-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font: 11.5px var(--kit-mono);
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: 1px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+}
+.cb-tag-permanent {
+  color: var(--kit-danger);
+}
+.cb-tag-posts {
+  color: var(--kit-agent);
+}
+.cb-tag-github-undo {
+  color: var(--kit-muted);
+}
+/* The item page: what a decision button can't undo, under the row. */
+.cb-choice-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--kit-muted);
+}
+.cb-choice-tags[hidden] {
+  display: none;
+}
+.cb-close-comment .cb-tag {
+  align-self: center;
+}
+
+/* The item page: what is in the way (amber edge), then where it is. */
+.cb-hold {
+  margin: 0 0 22px;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid var(--kit-agent);
+}
+.cb-hold-who {
+  margin: 0 0 4px;
+  font: 12px var(--kit-mono);
+  color: var(--kit-agent);
+}
+.cb-hold-line {
+  margin: 0;
+  color: var(--kit-fg);
+}
+.cb-hold-line .cb-link {
+  margin-left: 6px;
+}
+.cb-hold-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--kit-muted);
+}
+.cb-where {
+  margin: 0 0 22px;
+}
+.cb-wrow {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 12px;
+  padding: 3px 0;
+  font: 13px var(--kit-mono);
+  color: var(--kit-fg);
+}
+.cb-wrow > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cb-wm,
+.cb-wno span:last-child {
+  color: var(--kit-muted);
+}
+
+/* A plan group's heading wraps its tags, never cuts them off. */
+.cb-plan .cb-group-label {
+  white-space: normal;
+  overflow: visible;
+}
+.cb-tags-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.cb-tags-line .cb-tag {
+  margin-left: 0;
+}
+/* A posting step's comment, as it posts. */
+.cb-publine {
+  grid-column: 1/-1;
+  display: block;
+  margin-top: 2px;
+  font: 12px var(--kit-mono);
+  color: var(--kit-agent);
+}
+.cb-cmd-if {
+  color: var(--kit-muted);
+}
+/* What waits for the other Mac (muted), and what is held (amber). */
+.cb-wait-h,
+.cb-waits .cb-step-k,
+.cb-waits .cb-cmd {
+  color: var(--kit-muted);
+}
+.cb-waits .cb-cmd {
+  display: block;
+  margin-top: 2px;
+  font: 12.5px/1.55 var(--kit-mono);
+  overflow-wrap: anywhere;
+}
+.cb-held-h {
+  color: var(--kit-agent);
+}
+.cb-held .cb-step-k {
+  color: var(--kit-fg);
+}
+.cb-held-why {
+  display: block;
+  margin-top: 2px;
+  font: 12px var(--kit-mono);
+  color: var(--kit-agent);
+  overflow-wrap: anywhere;
+}
 .cb-approve {
   margin-top: 8px;
 }

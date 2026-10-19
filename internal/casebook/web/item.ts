@@ -6,7 +6,8 @@
 //     ("came back · ‹reason›" first when it came back)
 //   decide: one fixed-height row of short decision buttons (choices.ts),
 //     the recommended one marked, "Look into it" last
-//   the reading (.cb-reading): who is looking into it, the recommendation's
+//   the reading (.cb-reading): who is looking into it, what is in the way
+//     (its holds) and where it is (a branch's copies), the recommendation's
 //     reason and source, the description, evidence beside history
 //
 // Everything above the row keeps its size from item to item, so moving
@@ -22,6 +23,9 @@ import { renderChoices, asNotNow } from './choices.ts';
 import { keyWithoutKind, recommendsWho, stripOwnKey } from './decide-math.ts';
 import type { DecisionVocabView } from './wire.d.ts';
 import { lookingLine } from './sessions.ts';
+import { tagText } from './apply-text.ts';
+import { choiceTags, copyRow } from './holds-text.ts';
+import { pathEscape } from './router-helpers.ts';
 
 // Body is capped at 600 chars per the spec; anything longer is folded.
 const BODY_CAP = 600;
@@ -164,6 +168,8 @@ function renderDecideRow(
   const section = h('section', { class: 'cb-decide', role: 'group' });
   const pending =
     it.proposal && it.proposal.state === 'pending' ? it.proposal : null;
+  const tag = (kind: string, text: string): HTMLElement =>
+    h('span', { class: `cb-tag cb-tag-${kind}` }, text);
   const cards = renderChoices(ctx, it.kind, {
     recommended: pending?.disposition,
     chosen: it.decision?.disposition,
@@ -171,11 +177,43 @@ function renderDecideRow(
     onPick(d, until, note) {
       hooks.decide?.(d, until, note);
     },
-    onCards() {
+    onCards(grid) {
+      // What a choice can't undo, or undoes only on GitHub: one line under
+      // the row, each tag after its button's label (inside the buttons they
+      // widened the row past its fixed height).
+      const tagged: Node[] = [];
+      for (const card of grid.querySelectorAll<HTMLElement>(
+        '.cb-choice[data-d]',
+      )) {
+        const kinds = choiceTags(it.kind, card.dataset.d ?? '');
+        if (!kinds.length) continue;
+        tagged.push(
+          h(
+            'span',
+            { class: 'cb-choice-tagged' },
+            card.querySelector('.cb-choice-label')?.textContent ?? '',
+            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1))),
+          ),
+        );
+      }
+      if (tagged.length) tagsLine.replaceChildren(...tagged);
+      tagsLine.hidden = !tagged.length;
       hooks.cardsReady?.();
     },
   });
+  const tagsLine = h('p', { class: 'cb-choice-tags', hidden: true });
   cards.querySelector('.cb-choices')?.classList.add('cb-decide-row');
+  cards.querySelector('.cb-choices')?.after(tagsLine);
+  // A closing comment posts publicly, and anyone can read it on a public
+  // repo.
+  cards
+    .querySelector('.cb-close-comment .kit-btn.fill')
+    ?.after(
+      tag(
+        'posts',
+        `posts a public comment${it.public ? ' \u00b7 on a public repo' : ''}`,
+      ),
+    );
   section.append(cards);
   void getVocab(ctx).then((vocab: DecisionVocabView) => {
     const kv = (vocab.kinds ?? []).find((k) => k.kind === it.kind);
@@ -219,6 +257,54 @@ function renderRec(
     );
   });
   return el;
+}
+
+// renderHolds is "in the way": each hold, a link to the item that causes
+// it, and what to do about it. None when nothing holds the item.
+function renderHolds(detail: ItemDetailView): HTMLElement | null {
+  const holds = detail.item.holds ?? [];
+  if (!holds.length) return null;
+  return h(
+    'section',
+    { class: 'cb-hold' },
+    h('p', { class: 'cb-hold-who' }, 'in the way'),
+    ...holds.flatMap((hd) => [
+      h(
+        'p',
+        { class: 'cb-hold-line' },
+        hd.text,
+        hd.by
+          ? h(
+              'a',
+              { class: 'cb-link', href: `#/decide/${pathEscape(hd.by)}` },
+              keyWithoutKind(hd.by),
+            )
+          : null,
+      ),
+      hd.fix ? h('p', { class: 'cb-hold-sub' }, hd.fix) : null,
+    ]),
+  );
+}
+
+// renderWhere is "where it is": each Mac's copy of a branch, then
+// GitHub's. None for an item with no copies.
+function renderWhere(detail: ItemDetailView): HTMLElement | null {
+  const copies = detail.item.copies ?? [];
+  if (!copies.length) return null;
+  return h(
+    'section',
+    { class: 'cb-where' },
+    h('h3', { class: 'kit-label' }, 'where it is'),
+    ...copies.map((c) => {
+      const [label, text] = copyRow(c);
+      return h(
+        'div',
+        { class: c.absent ? 'cb-wrow cb-wno' : 'cb-wrow' },
+        h('span', { class: 'cb-wm' }, label),
+        h('span', null, text),
+      );
+    }),
+  );
 }
 
 // cameBack is why the item came back for a decision (its due reason, or
@@ -310,6 +396,8 @@ export function renderItem(
     'div',
     { class: 'cb-reading' },
     h('p', { class: 'cb-looking', hidden: !looking }, looking),
+    renderHolds(detail),
+    renderWhere(detail),
     renderRec(ctx, detail, hooks),
   );
   if (it.body) {

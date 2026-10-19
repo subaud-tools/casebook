@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
 	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
@@ -26,6 +27,12 @@ type Index struct {
 	// sets it): such an item has left To apply before a sync sees it gone.
 	// decided is when an item's current decision was made.
 	Applied func(since time.Time, decided func(key string) time.Time) map[string]bool
+	// Machine is this Mac: an item with a copy on another Mac isn't done
+	// until that copy is gone, whatever ran here.
+	Machine string
+	// Verified is a key's verified steps that weren't undone, from every
+	// job: a branch is done only when each of its copies is gone.
+	Verified func(key string) []apply.JobStep
 }
 
 func (x *Index) set(r engine.Result, head string, at time.Time) {
@@ -125,12 +132,26 @@ func (x *Index) applied() map[string]bool {
 	if x.Applied == nil {
 		return nil
 	}
-	return x.Applied(x.builtAt, func(key string) time.Time {
+	done := x.Applied(x.builtAt, func(key string) time.Time {
 		if it, ok := x.byKey[key]; ok && it.Decision != nil {
 			return it.Decision.DecidedAt
 		}
 		return time.Time{}
 	})
+	for key := range done {
+		it, ok := x.byKey[key]
+		if !ok {
+			continue
+		}
+		var steps []apply.JobStep
+		if x.Verified != nil && it.Kind == item.KindBranch {
+			steps = x.Verified(key)
+		}
+		if !copiesGone(it, x.Machine, steps) {
+			delete(done, key)
+		}
+	}
+	return done
 }
 
 // leftOpenInView reports whether an item left open belongs to an Attention

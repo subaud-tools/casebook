@@ -71,11 +71,12 @@ func TestLongLivedBranchIsNeverDeleted(t *testing.T) {
 		Key:          "branch:schuettc/hail@dev",
 		Action:       "branch-delete-remote",
 		Lane:         LaneCasebook,
-		Command:      branchDeleteRemoteCmd(clone, "origin", "dev", tip),
-		Precondition: "remote-tip-unchanged-and-landed",
+		Command:      branchDeleteGitHubCmd("R_1", "dev", tip),
+		Precondition: PreconditionGitHubTip,
 		ExpectedTip:  tip,
 	}
-	chk, err := Check(ctx, remote, Env{RunGit: newSpy().run})
+	gh := &ghScript{t: t, reply: map[string]ghReply{"api repos/schuettc/hail --jq " + repoJq: {out: "main"}}}
+	chk, err := Check(ctx, remote, Env{Gh: gh})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,20 +102,6 @@ func TestPlanHasNoDeleteOfALongLivedBranch(t *testing.T) {
 		if len(plan.Steps) != 0 {
 			t.Errorf("%s: plan has %d steps, want none", b, len(plan.Steps))
 		}
-	}
-}
-
-// A remote delete skips the repo's pre-push hooks: they test the code being
-// pushed, and a delete pushes none (a lefthook pre-push failed every delete
-// in applied-ai-research, 2026-10-18).
-func TestRemoteDeleteSkipsPushHooks(t *testing.T) {
-	cmd := branchDeleteRemoteCmd("/r", "origin", "feat/x", "abc")
-	if !strings.Contains(cmd, " --no-verify ") {
-		t.Fatalf("command %q has no --no-verify", cmd)
-	}
-	dir, remote, branch, err := parseRemoteDelete(cmd)
-	if err != nil || dir != "/r" || remote != "origin" || branch != "feat/x" {
-		t.Fatalf("parse = %q %q %q %v", dir, remote, branch, err)
 	}
 }
 

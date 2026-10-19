@@ -148,37 +148,6 @@ func TestLocalRestoreRestoresBranch(t *testing.T) {
 	}
 }
 
-func TestRemoteRestoreRestoresBranch(t *testing.T) {
-	testgit.Env(t)
-	ctx := context.Background()
-	clone, _, tip := landedRemote(t)
-	spy := newSpy()
-	cb := casebookRepo(t)
-	r := Runner{Repo: cb, RunGit: spy.run, Now: func() time.Time { return time.Unix(0, 0) }}
-	step := JobStep{
-		Key:          "branch:schuettc/hail@feat/x",
-		Action:       "branch-delete-remote",
-		Command:      branchDeleteRemoteCmd(clone, "origin", "feat/x", tip),
-		Precondition: "remote-tip-unchanged-and-landed",
-		ExpectedTip:  tip,
-	}
-	res, err := r.RunStep(ctx, step, Env{RunGit: spy.run})
-	if err != nil || res.State != StepReported {
-		t.Fatalf("RunStep = %+v, %v", res, err)
-	}
-	if remoteHas(t, clone, "origin", "feat/x") {
-		t.Fatal("remote branch should be deleted before restore")
-	}
-	runRestore(t, res.Restore)
-	if !remoteHas(t, clone, "origin", "feat/x") {
-		t.Fatal("remote branch was not restored")
-	}
-	back := strings.Fields(testgit.Git(t, clone, "ls-remote", "origin", "refs/heads/feat/x"))[0]
-	if back != tip {
-		t.Errorf("restored remote tip = %q, want %q", back, tip)
-	}
-}
-
 func TestWorktreeRestoreRestoresWorktree(t *testing.T) {
 	testgit.Env(t)
 	ctx := context.Background()

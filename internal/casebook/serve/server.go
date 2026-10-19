@@ -219,6 +219,11 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 	// What casebook verified done since the index's observation leaves To
 	// apply at once (the next sync sees it gone).
 	s.Index.Applied = s.applied
+	s.Index.Machine = a.Cfg.Machine
+	s.Index.Verified = func(key string) []apply.JobStep {
+		steps, _ := s.Apply.VerifiedSteps(context.Background(), key)
+		return steps
+	}
 	// Record the serve lifetime context now so lanes started during New (a
 	// restart resume) are cancelled when serve stops. Run passes the same
 	// cancelable context and re-records it alongside s.stop.

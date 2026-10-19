@@ -37,6 +37,12 @@ func branchItem(repo, branch, machine, clonePath string) engine.Item {
 	}
 }
 
+// onGitHub gives it a looked-up GitHub copy at tip in repository R_1.
+func onGitHub(it engine.Item, tip string) engine.Item {
+	it.Copies = append(it.Copies, engine.Copy{Tip: tip, RepoID: "R_1"})
+	return it
+}
+
 func TestPlanGroupsByActionAndLane(t *testing.T) {
 	builtAt := epoch.Add(-10 * time.Minute)
 
@@ -66,7 +72,7 @@ func TestPlanGroupsByActionAndLane(t *testing.T) {
 		Remotes:  map[string]string{"origin": "schuettc/myrepo"},
 		Branches: []observe.Branch{{Name: "feat/thing", Upstream: "origin/x", Tip: "aaa", RemoteTip: "aaa"}},
 	}})
-	plan, err := Build([]engine.Item{br, rp}, snap, epoch, builtAt, 30*time.Minute)
+	plan, err := Build([]engine.Item{onGitHub(br, "aaa"), rp}, snap, epoch, builtAt, 30*time.Minute)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -89,9 +95,9 @@ func TestPlanGroupsByActionAndLane(t *testing.T) {
 		}
 	}
 
-	// Groups should preserve first-seen order.
-	if groups[0].Action != "branch-delete-local" {
-		t.Errorf("groups[0].Action = %q, want branch-delete-local", groups[0].Action)
+	// A branch's GitHub copy goes first, then its local copies.
+	if groups[0].Action != "branch-delete-remote" || groups[1].Action != "branch-delete-local" {
+		t.Errorf("groups %q %q, want branch-delete-remote, branch-delete-local", groups[0].Action, groups[1].Action)
 	}
 }
 
@@ -115,7 +121,7 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 		Remotes:  map[string]string{"origin": "schuettc/myrepo"},
 		Branches: []observe.Branch{{Name: "feat/my-branch", Upstream: "origin/x", Tip: "tip123", RemoteTip: "tip123"}},
 	}})
-	plan, err := Build([]engine.Item{it}, snap, epoch, builtAt, 30*time.Minute)
+	plan, err := Build([]engine.Item{onGitHub(it, "tip123")}, snap, epoch, builtAt, 30*time.Minute)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -123,9 +129,9 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 		t.Fatalf("want 2 steps (local + remote), got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	local := plan.Steps[0]
+	local := plan.Steps[1]
 	if local.Action != "branch-delete-local" {
-		t.Errorf("Steps[0].Action = %q, want branch-delete-local", local.Action)
+		t.Errorf("Steps[1].Action = %q, want branch-delete-local", local.Action)
 	}
 	if local.Lane != LaneCasebook {
 		t.Errorf("Steps[0].Lane = %q, want %q", local.Lane, LaneCasebook)
@@ -144,19 +150,19 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 		t.Error("Steps[0].Posts should be false for local branch delete")
 	}
 
-	remote := plan.Steps[1]
+	remote := plan.Steps[0]
 	if remote.Action != "branch-delete-remote" {
-		t.Errorf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
+		t.Errorf("Steps[0].Action = %q, want branch-delete-remote", remote.Action)
 	}
 	if remote.Lane != LaneCasebook {
 		t.Errorf("Steps[1].Lane = %q, want %q", remote.Lane, LaneCasebook)
 	}
-	wantRemote := "git -C '/Users/me/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/my-branch:tip123' 'origin' ':refs/heads/feat/my-branch'"
+	wantRemote := branchDeleteGitHubCmd("R_1", "feat/my-branch", "tip123")
 	if remote.Command != wantRemote {
 		t.Errorf("Steps[1].Command =\n  %q\nwant\n  %q", remote.Command, wantRemote)
 	}
-	if remote.Precondition != "remote-tip-unchanged-and-landed" {
-		t.Errorf("Steps[1].Precondition = %q, want remote-tip-unchanged-and-landed", remote.Precondition)
+	if remote.Precondition != PreconditionGitHubTip || remote.ExpectedTip != "tip123" {
+		t.Errorf("Steps[1] = %+v, want precondition %s and tip tip123", remote, PreconditionGitHubTip)
 	}
 }
 
@@ -293,7 +299,7 @@ func TestLocalStepsOnlyForThisMachine(t *testing.T) {
 		Remotes:  map[string]string{"origin": "schuettc/myrepo"},
 		Branches: []observe.Branch{{Name: "feat/shared", Upstream: "origin/x", Tip: "tipA", RemoteTip: "tipA"}},
 	}})
-	plan, err := Build([]engine.Item{branch, worktree}, snapA, epoch, builtAt, 30*time.Minute)
+	plan, err := Build([]engine.Item{onGitHub(branch, "tipA"), worktree}, snapA, epoch, builtAt, 30*time.Minute)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -304,20 +310,20 @@ func TestLocalStepsOnlyForThisMachine(t *testing.T) {
 		t.Fatalf("want 2 steps, got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	local := plan.Steps[0]
+	local := plan.Steps[1]
 	if local.Action != "branch-delete-local" {
-		t.Errorf("Steps[0].Action = %q, want branch-delete-local", local.Action)
+		t.Errorf("Steps[1].Action = %q, want branch-delete-local", local.Action)
 	}
 	wantLocal := "git -C '/Users/A/repos/myrepo' update-ref -d 'refs/heads/feat/shared' tipA"
 	if local.Command != wantLocal {
 		t.Errorf("Steps[0].Command =\n  %q\nwant\n  %q", local.Command, wantLocal)
 	}
 
-	remote := plan.Steps[1]
+	remote := plan.Steps[0]
 	if remote.Action != "branch-delete-remote" {
-		t.Errorf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
+		t.Errorf("Steps[0].Action = %q, want branch-delete-remote", remote.Action)
 	}
-	wantRemote := "git -C '/Users/A/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/shared:tipA' 'origin' ':refs/heads/feat/shared'"
+	wantRemote := branchDeleteGitHubCmd("R_1", "feat/shared", "tipA")
 	if remote.Command != wantRemote {
 		t.Errorf("Steps[1].Command =\n  %q\nwant\n  %q", remote.Command, wantRemote)
 	}
@@ -341,99 +347,8 @@ func snapWith(machine string, clones []observe.Clone) observe.Snapshot {
 	}
 }
 
-// TestRemoteNameFromSnapshotUpstream checks fix 1: when the clone's Remotes
-// map names the GitHub remote "upstream" (not "origin"), the push command
-// uses "upstream".
-func TestRemoteNameFromSnapshotUpstream(t *testing.T) {
-	builtAt := epoch.Add(-5 * time.Minute)
-
-	k := item.BranchKey("schuettc/myrepo", "feat/my-branch")
-	it := engine.Item{
-		Key:       k,
-		ID:        k.String(),
-		Kind:      item.KindBranch,
-		Status:    item.StatusToApply,
-		Decision:  decided(item.Delete, ""),
-		Landed:    "all-machines",
-		Locations: []string{"mymachine:/Users/me/repos/myrepo"},
-	}
-
-	snap := snapWith("mymachine", []observe.Clone{{
-		Path: "/Users/me/repos/myrepo",
-		Repo: "schuettc/myrepo",
-		Remotes: map[string]string{
-			"upstream": "schuettc/myrepo",
-		},
-		Branches: []observe.Branch{{
-			Name:      "feat/my-branch",
-			Upstream:  "upstream/feat/my-branch",
-			Tip:       "abc1234deadbeef",
-			RemoteTip: "abc1234deadbeef",
-		}},
-	}})
-
-	plan, err := Build([]engine.Item{it}, snap, epoch, builtAt, 30*time.Minute)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if len(plan.Steps) != 2 {
-		t.Fatalf("want 2 steps (local+remote), got %d: %v", len(plan.Steps), plan.Steps)
-	}
-
-	remote := plan.Steps[1]
-	if remote.Action != "branch-delete-remote" {
-		t.Fatalf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
-	}
-	wantCmd := "git -C '/Users/me/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/my-branch:abc1234deadbeef' 'upstream' ':refs/heads/feat/my-branch'"
-	if remote.Command != wantCmd {
-		t.Errorf("remote Command =\n  %q\nwant\n  %q", remote.Command, wantCmd)
-	}
-}
-
-// TestNoRemoteStepWhenNoMatchingRemote checks fix 1: if no clone has a remote
-// whose value equals the item's repo, no remote-delete step is planned.
-func TestNoRemoteStepWhenNoMatchingRemote(t *testing.T) {
-	builtAt := epoch.Add(-5 * time.Minute)
-
-	k := item.BranchKey("schuettc/myrepo", "feat/my-branch")
-	it := engine.Item{
-		Key:       k,
-		ID:        k.String(),
-		Kind:      item.KindBranch,
-		Status:    item.StatusToApply,
-		Decision:  decided(item.Delete, ""),
-		Landed:    "all-machines",
-		Locations: []string{"mymachine:/Users/me/repos/myrepo"},
-	}
-
-	// Clone has no remote matching the item's repo.
-	snap := snapWith("mymachine", []observe.Clone{{
-		Path: "/Users/me/repos/myrepo",
-		Repo: "schuettc/myrepo",
-		Remotes: map[string]string{
-			"origin": "schuettc/DIFFERENT",
-		},
-		Branches: []observe.Branch{{
-			Name: "feat/my-branch",
-			Tip:  "abc1234",
-		}},
-	}})
-
-	plan, err := Build([]engine.Item{it}, snap, epoch, builtAt, 30*time.Minute)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	// Only 1 local-delete step; no remote step.
-	if len(plan.Steps) != 1 {
-		t.Fatalf("want 1 step (local only), got %d: %v", len(plan.Steps), plan.Steps)
-	}
-	if plan.Steps[0].Action != "branch-delete-local" {
-		t.Errorf("Steps[0].Action = %q, want branch-delete-local", plan.Steps[0].Action)
-	}
-}
-
 // TestBranchStepsHaveExpectedTips checks fix 2: local-delete steps carry the
-// snapshot branch tip; remote-delete step carries that same tip.
+// snapshot branch tip; the GitHub-delete step carries the GitHub copy's tip.
 func TestBranchStepsHaveExpectedTips(t *testing.T) {
 	builtAt := epoch.Add(-5 * time.Minute)
 
@@ -463,7 +378,7 @@ func TestBranchStepsHaveExpectedTips(t *testing.T) {
 		}},
 	}})
 
-	plan, err := Build([]engine.Item{it}, snap, epoch, builtAt, 30*time.Minute)
+	plan, err := Build([]engine.Item{onGitHub(it, wantTip)}, snap, epoch, builtAt, 30*time.Minute)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -471,11 +386,45 @@ func TestBranchStepsHaveExpectedTips(t *testing.T) {
 		t.Fatalf("want 2 steps, got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	if got := plan.Steps[0].ExpectedTip; got != wantTip {
+	if got := plan.Steps[1].ExpectedTip; got != wantTip {
 		t.Errorf("local step ExpectedTip = %q, want %q", got, wantTip)
 	}
-	if got := plan.Steps[1].ExpectedTip; got != wantTip {
+	if got := plan.Steps[0].ExpectedTip; got != wantTip {
 		t.Errorf("remote step ExpectedTip = %q, want %q", got, wantTip)
+	}
+}
+
+// TestNoGitHubStepWithoutALookedUpCopy: the GitHub delete needs the branch's
+// commit and repository id on GitHub; without both, no GitHub step.
+func TestNoGitHubStepWithoutALookedUpCopy(t *testing.T) {
+	snap := snapWith("m", []observe.Clone{{Path: "/src/repo", Repo: "schuettc/repo", Branches: []observe.Branch{{Name: "feat", Tip: "abc123"}}}})
+	for name, copies := range map[string][]engine.Copy{
+		"no copies":      nil,
+		"gone on GitHub": {{Absent: true}},
+		"not looked up":  {{Tip: "abc123"}},
+		"looked up":      {{Tip: "abc123", RepoID: "R_1"}},
+	} {
+		it := branchItem("schuettc/repo", "feat", "m", "/src/repo")
+		it.Copies = copies
+		p, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got *Step
+		for i := range p.Steps {
+			if p.Steps[i].Action == "branch-delete-remote" {
+				got = &p.Steps[i]
+			}
+		}
+		if name != "looked up" {
+			if got != nil {
+				t.Errorf("%s: GitHub step %+v", name, got)
+			}
+			continue
+		}
+		if got == nil || got.ExpectedTip != "abc123" || got.Command != branchDeleteGitHubCmd("R_1", "feat", "abc123") {
+			t.Errorf("%s: GitHub step %+v", name, got)
+		}
 	}
 }
 
@@ -518,80 +467,6 @@ func TestWorktreeStepUsesSnapshotClone(t *testing.T) {
 	if step.Command != wantCmd {
 		t.Errorf("worktree step Command =\n  %q\nwant\n  %q", step.Command, wantCmd)
 	}
-}
-
-func TestNoRemoteStepForABranchWithNoRemoteTip(t *testing.T) {
-	now := time.Now()
-	// No upstream: the snapshot records no RemoteTip, so no remote step.
-	it, snap := remoteFixture(t, "never-pushed", "", false)
-	p, err := Build([]engine.Item{it}, snap, now, now, 30*time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range p.Steps {
-		if s.Action == "branch-delete-remote" {
-			t.Fatalf("remote step planned for a branch with no remote tip: %+v", s)
-		}
-	}
-}
-
-// TestRemoteStepUsesRemoteTip: the remote step is planned only when the
-// snapshot recorded RemoteTip, and its ExpectedTip is exactly that RemoteTip
-// (replacing the earlier "tip only when nothing is unpushed" rule).
-func TestRemoteStepUsesRemoteTip(t *testing.T) {
-	now := time.Now()
-	for _, c := range []struct {
-		name     string
-		upstream string
-		gone     bool
-		want     string // "" means no remote step
-	}{
-		{"has upstream", "origin/feat", false, "abc123"},
-		{"upstream gone", "origin/feat", true, ""},
-		{"no upstream", "", false, ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			it, snap := remoteFixture(t, "feat", c.upstream, c.gone)
-			p, err := Build([]engine.Item{it}, snap, now, now, 30*time.Minute)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got *Step
-			for i := range p.Steps {
-				if p.Steps[i].Action == "branch-delete-remote" {
-					got = &p.Steps[i]
-				}
-			}
-			if c.want == "" {
-				if got != nil {
-					t.Fatalf("unexpected remote step %+v", got)
-				}
-				return
-			}
-			if got == nil || got.ExpectedTip != c.want {
-				t.Fatalf("remote step %+v, want ExpectedTip %q", got, c.want)
-			}
-		})
-	}
-}
-
-// remoteFixture is a landed branch in one clone on machine "m" with the given
-// upstream and gone flag; its tip is "abc123". RemoteTip mirrors what observe
-// records: the tip when an upstream exists and is not gone, else empty.
-func remoteFixture(t *testing.T, branch, upstream string, gone bool) (engine.Item, observe.Snapshot) {
-	t.Helper()
-	it := branchItem("schuettc/repo", branch, "m", "/src/repo")
-	rt := ""
-	if upstream != "" && !gone {
-		rt = "abc123"
-	}
-	snap := snapWith("m", []observe.Clone{{
-		Path:     "/src/repo",
-		Repo:     "schuettc/repo",
-		Remotes:  map[string]string{"origin": "schuettc/repo"},
-		Branches: []observe.Branch{{Name: branch, Tip: "abc123", Upstream: upstream, Gone: gone, RemoteTip: rt}},
-	}})
-	return it, snap
 }
 
 // TestCloseCommentIsTheDecisionsNote: a close posts the decision's note as
@@ -649,7 +524,7 @@ func TestCloseCommentIsTheDecisionsNote(t *testing.T) {
 // emits has an undo note, its group carries it, and an action whose restore
 // is automatic (AutoUndoable) says it can be undone; the others say not.
 func TestEveryPlanGroupSaysWhetherItCanBeUndone(t *testing.T) {
-	br := branchItem("schuettc/myrepo", "feat/thing", "m", "/r/myrepo")
+	br := onGitHub(branchItem("schuettc/myrepo", "feat/thing", "m", "/r/myrepo"), "aaa")
 	wk := item.WorktreeKey("m", "/r/myrepo-wt")
 	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply,
 		Decision: decided(item.Delete, ""), Locations: []string{"m:/r/myrepo"}}
@@ -713,5 +588,145 @@ func TestPermanentIsWhatCannotBeUndone(t *testing.T) {
 	}
 	if !Permanent("repo-delete") || Permanent("repo-archive") {
 		t.Fatal("repo-delete is permanent, repo-archive is not")
+	}
+}
+
+func actions(p Plan) []string {
+	var out []string
+	for _, s := range p.Steps {
+		out = append(out, s.Action)
+	}
+	return out
+}
+
+func TestGitHubDeleteNeedsNoClone(t *testing.T) {
+	it := branchItem("o/r", "feat/x", "pro-2", "/p")
+	it.Copies = []engine.Copy{{Machine: "pro-2", Path: "/p", Tip: "abc"}, {Machine: "work", Absent: true}, {Tip: "abc", RepoID: "R_1"}}
+	it.Holds = []engine.Hold{{Kind: engine.HoldOtherMac, Text: "its local copy is only on pro-2", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "pro-2"}}
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 1 || plan.Steps[0].Action != "branch-delete-remote" || plan.Steps[0].Command != branchDeleteGitHubCmd("R_1", "feat/x", "abc") || plan.Steps[0].ExpectedTip != "abc" {
+		t.Fatalf("steps %+v", plan.Steps)
+	}
+	if len(plan.Waiting) != 1 || plan.Waiting[0] != (Waiting{Key: it.ID, Machine: "pro-2", Path: "/p"}) {
+		t.Errorf("waiting %+v", plan.Waiting)
+	}
+	if len(plan.HeldBack) != 0 {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestWorktreeRemovedBeforeItsBranch(t *testing.T) {
+	br := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	br.Needs = []string{"worktree:work:/r/.worktrees/faqux"}
+	wk := item.WorktreeKey("work", "/r/.worktrees/faqux")
+	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply, Decision: decided(item.Delete, ""), Locations: []string{"work:/r"}}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}},
+		Worktrees: []observe.Worktree{{Path: "/r/.worktrees/faqux", Branch: "feat/x"}}}})
+	plan, err := Build([]engine.Item{br, wt}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "worktree-remove branch-delete-remote branch-delete-local" {
+		t.Fatalf("order %s", got)
+	}
+}
+
+func TestHeldItemHasNoStep(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "dev", "work", "/r"), "abc")
+	it.Holds = []engine.Hold{{Kind: engine.HoldLongLived, Text: "dev is a long-lived branch: casebook never deletes it", Stops: []item.Disposition{item.Delete}}}
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.HeldBack) != 1 || plan.HeldBack[0].Key != it.ID || plan.HeldBack[0].Holds[0].Kind != engine.HoldLongLived {
+		t.Fatalf("steps %+v held %+v", plan.Steps, plan.HeldBack)
+	}
+}
+
+func TestWorktreeHoldStopsOnlyTheLocalDelete(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	hold := engine.Hold{Kind: engine.HoldWorktree, Text: "in use by worktree ops on work, which has uncommitted changes", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "work"}
+	it.Holds = []engine.Hold{hold}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}}}})
+	plan, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "branch-delete-remote" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != hold.Text {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestOpenPRHoldStopsOnlyTheGitHubDelete(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	hold := engine.Hold{Kind: engine.HoldOpenPR, Text: "open PR #12 uses this branch: deleting it on GitHub closes that PR", By: "pr:o/r#12", Stops: []item.Disposition{item.Delete}, Remote: true}
+	it.Holds = []engine.Hold{hold}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}}}})
+	plan, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "branch-delete-local" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Kind != engine.HoldOpenPR {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestOtherMacCopyWaits(t *testing.T) {
+	wk := item.WorktreeKey("pro-2", "/p/.worktrees/w")
+	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply, Decision: decided(item.Delete, ""), Locations: []string{"pro-2:/p"},
+		Holds: []engine.Hold{{Kind: engine.HoldOtherMac, Text: "its local copy is only on pro-2", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "pro-2"}}}
+	plan, err := Build([]engine.Item{wt}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.Waiting) != 1 || plan.Waiting[0].Machine != "pro-2" || plan.Waiting[0].Path != "/p" || len(plan.HeldBack) != 0 {
+		t.Fatalf("steps %+v waiting %+v held %+v", plan.Steps, plan.Waiting, plan.HeldBack)
+	}
+}
+
+func TestItemWithNothingToRunSaysSo(t *testing.T) {
+	it := branchItem("o/r", "feat/x", "work", "/gone")
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != "nothing to run for it from this Mac" ||
+		plan.HeldBack[0].Holds[0].Kind != engine.HoldNothingHere {
+		t.Fatalf("steps %+v held %+v", plan.Steps, plan.HeldBack)
+	}
+	// A GitHub copy that wasn't looked up says so.
+	it.Copies = []engine.Copy{{Tip: "abc"}}
+	plan, _ = Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != "GitHub copy not looked up yet: sync first" {
+		t.Fatalf("held %+v", plan.HeldBack)
+	}
+}
+
+func TestCloseStepCarriesItsCommentAndPublic(t *testing.T) {
+	pk := item.PRKey("o/r", 3)
+	pr := engine.Item{Key: pk, ID: pk.String(), Kind: item.KindPR, Status: item.StatusToApply, Decision: decided(item.Close, "stale"), Public: true}
+	plan, _ := Build([]engine.Item{pr}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "stale" || !s.Public || !s.Posts {
+		t.Errorf("step %+v", s)
+	}
+	pr.Decision = decided(item.Close, "")
+	plan, _ = Build([]engine.Item{pr}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "" || s.Public || s.Posts {
+		t.Errorf("step %+v", s)
+	}
+	ik := item.IssueKey("o/r", 4)
+	is := engine.Item{Key: ik, ID: ik.String(), Kind: item.KindIssue, Status: item.StatusToApply, Decision: decided(item.Close, "done"), Public: true}
+	plan, _ = Build([]engine.Item{is}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "done" || !s.Public {
+		t.Errorf("issue step %+v", s)
 	}
 }

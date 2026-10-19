@@ -52,6 +52,9 @@ func printItems(out io.Writer, items []engine.Item, notices []string) {
 		if it.Stale {
 			why += " (stale)"
 		}
+		if len(it.Holds) > 0 {
+			why += " · held"
+		}
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", it.Status, it.ID, why)
 	}
 	_ = tw.Flush()
@@ -95,6 +98,13 @@ func printItem(out io.Writer, it engine.Item, hist []journal.Event) {
 		obs += " (stale)"
 	}
 	_, _ = fmt.Fprintf(out, "  observed: %s\n", obs)
+	for _, h := range it.Holds {
+		if h.By != "" {
+			_, _ = fmt.Fprintf(out, "  held: %s (%s)\n", h.Text, h.By)
+		} else {
+			_, _ = fmt.Fprintf(out, "  held: %s\n", h.Text)
+		}
+	}
 	for _, e := range it.Evidence {
 		_, _ = fmt.Fprintf(out, "  evidence: %s\n", e)
 	}

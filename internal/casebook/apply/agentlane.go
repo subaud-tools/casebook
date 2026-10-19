@@ -18,6 +18,7 @@ import (
 // For issue-close, a fresh gh issue view checks the state.
 // For repo-archive, a fresh gh repo view checks isArchived.
 // For repo-delete, a fresh gh repo view confirms the repo is gone.
+// For branch-delete-remote (casebook lane), a read of the ref on GitHub.
 // Any other action or a nil gh runner returns an inconclusive observation.
 func ObserveGh(ctx context.Context, step JobStep, gh observe.Runner) item.Observed {
 	if gh == nil {
@@ -28,6 +29,8 @@ func ObserveGh(ctx context.Context, step JobStep, gh observe.Runner) item.Observ
 		return item.Observed{}
 	}
 	switch step.Action {
+	case "branch-delete-remote":
+		return observeGitHubBranch(ctx, step, gh)
 	case "pr-close", "pr-merge":
 		b, err := gh.Gh(ctx, "pr", "view", fmt.Sprint(k.Number), "-R", k.Repo(), "--json", "state")
 		if err != nil {

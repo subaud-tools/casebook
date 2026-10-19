@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -105,19 +107,42 @@ func (r Runner) RunStep(ctx context.Context, step JobStep, env Env) (StepResult,
 			}
 			restoreCmd = rec.RestoreCommand
 		}
-		dir, args, err := gitCommand(step.Command)
-		if err != nil {
+		if err := r.run(ctx, step.Command); err != nil {
 			return StepResult{State: StepFailed, Detail: err.Error()}, nil //nolint:nilerr // step failure → StepResult.Detail, not a program error
-		}
-		if _, err := r.RunGit(ctx, dir, args...); err != nil {
-			return StepResult{State: StepFailed, Detail: "command failed: " + err.Error()}, nil //nolint:nilerr // step failure → StepResult.Detail, not a program error
 		}
 	}
 	return StepResult{State: StepReported, Restore: restoreCmd}, nil
 }
 
+// run runs a step's command: a gh command through Gh, any other through
+// RunGit.
+func (r Runner) run(ctx context.Context, cmd string) error {
+	if strings.HasPrefix(cmd, "gh ") {
+		args, err := ghCommand(cmd)
+		if err != nil {
+			return err
+		}
+		if r.Gh == nil {
+			return errors.New("command failed: no gh available")
+		}
+		if _, err := r.Gh.Gh(ctx, args...); err != nil {
+			return fmt.Errorf("command failed: %w", err)
+		}
+		return nil
+	}
+	dir, args, err := gitCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if _, err := r.RunGit(ctx, dir, args...); err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+	return nil
+}
+
 // Observe re-reads just this step's key from the world (a targeted git read),
-// so Verify can promote a reported step (§5.5).
+// so Verify can promote a reported step (§5.5). A GitHub delete reads the
+// branch on GitHub.
 func (r Runner) Observe(ctx context.Context, step JobStep) item.Observed {
 	switch step.Action {
 	case "branch-delete-local":
@@ -128,15 +153,7 @@ func (r Runner) Observe(ctx context.Context, step JobStep) item.Observed {
 		_, err = r.RunGit(ctx, dir, "rev-parse", "--verify", "refs/heads/"+branch)
 		return item.Observed{Known: true, Exists: err == nil}
 	case "branch-delete-remote":
-		dir, remote, branch, err := parseRemoteDelete(step.Command)
-		if err != nil {
-			return item.Observed{}
-		}
-		out, err := r.RunGit(ctx, dir, "ls-remote", remote, "refs/heads/"+branch)
-		if err != nil {
-			return item.Observed{}
-		}
-		return item.Observed{Known: true, Exists: strings.TrimSpace(out) != ""}
+		return observeGitHubBranch(ctx, step, r.Gh)
 	case "worktree-remove":
 		dir, path, err := parseWorktreeRemove(step.Command)
 		if err != nil {
@@ -149,6 +166,27 @@ func (r Runner) Observe(ctx context.Context, step JobStep) item.Observed {
 		return item.Observed{Known: true, Exists: worktreeListed(out, resolvePath(path))}
 	}
 	return item.Observed{}
+}
+
+// observeGitHubBranch reads a GitHub delete's branch on GitHub: GitHub's 404
+// is gone, an answer is there, any other error is unknown.
+func observeGitHubBranch(ctx context.Context, step JobStep, gh observe.Runner) item.Observed {
+	_, branch, _, err := parseGitHubDelete(step.Command)
+	if err != nil || gh == nil {
+		return item.Observed{}
+	}
+	k, err := item.ParseKey(step.Key)
+	if err != nil {
+		return item.Observed{}
+	}
+	_, err = gh.Gh(ctx, "api", "repos/"+k.Owner+"/"+k.Name+"/git/ref/heads/"+escapeRef(branch), "--jq", ".object.sha")
+	switch {
+	case notFound(err):
+		return item.Observed{Known: true, Exists: false}
+	case err != nil:
+		return item.Observed{}
+	}
+	return item.Observed{Known: true, Exists: true}
 }
 
 // RunCasebookLane runs the job's runnable casebook-lane steps in order. After

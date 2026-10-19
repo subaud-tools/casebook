@@ -1614,3 +1614,37 @@ func TestVerifiedSinceNeedsEveryStepOfTheItem(t *testing.T) {
 		t.Errorf("%s: every step verified: got %+v, %v", both, v, ok)
 	}
 }
+
+// TestVerifiedStepsAreAKeysVerifiedStepsFromEveryJob: a key's verified
+// steps across jobs, without the undone, failed or other keys' ones.
+func TestVerifiedStepsAreAKeysVerifiedStepsFromEveryJob(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore(openTestDB(t))
+	k := "branch:schuettc/a@x"
+	_, a := makeJob(t, s, []Step{
+		{Key: k, Action: "branch-delete-local", Lane: LaneCasebook, Command: "git branch -D x"},
+		{Key: k, Action: "branch-delete-remote", Lane: LaneCasebook, Command: "gh api x"},
+		{Key: "branch:schuettc/b@y", Action: "branch-delete-local", Lane: LaneCasebook, Command: "git branch -D y"},
+	})
+	_, b := makeJob(t, s, []Step{{Key: k, Action: "branch-delete-remote", Lane: LaneCasebook, Command: "gh api x"}})
+	for _, id := range []int64{a[0].ID, a[2].ID, b[0].ID} {
+		for _, st := range []StepState{StepRunning, StepReported, StepVerified} {
+			if err := s.SetStepState(ctx, id, st, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := s.SetStepState(ctx, a[1].ID, StepRunning, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetStepState(ctx, a[1].ID, StepFailed, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.VerifiedSteps(ctx, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != a[0].ID || got[1].ID != b[0].ID {
+		t.Fatalf("got %+v, want steps %d and %d", got, a[0].ID, b[0].ID)
+	}
+}

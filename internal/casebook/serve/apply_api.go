@@ -155,6 +155,18 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 			reply(w, nil, err)
 			return
 		}
+		// What a named item needs first (a worktree decided Remove it that
+		// holds its branch) joins the same plan, unless a job has it.
+		for _, it := range res.Items {
+			if !keySet[it.ID] {
+				continue
+			}
+			for _, n := range it.Needs {
+				if nd, ok := res.Find(n); ok && nd.Status == item.StatusToApply && held[n] == nil {
+					keySet[n] = true
+				}
+			}
+		}
 		for _, it := range res.Items {
 			if keySet[it.ID] {
 				items = append(items, it)
@@ -190,6 +202,14 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 	// second tab's "plan all" just after the first one planned everything).
 	// A stale observation is refused first (above): after a sync there may
 	// be something to plan.
+	plan.Head = s.Index.Head()
+
+	// A review of only held or waiting items shows them: why each one won't
+	// run from here.
+	if in.Preview && len(plan.Steps) == 0 && (len(plan.HeldBack) > 0 || len(plan.Waiting) > 0) {
+		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: apply.Preview(plan, s.App.Cfg.Machine, now)}, nil)
+		return
+	}
 	if len(plan.Steps) == 0 {
 		msg := "nothing to plan: no decided item is waiting to be applied"
 		switch {
@@ -201,8 +221,6 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, httpError{code: http.StatusUnprocessableEntity, msg: msg})
 		return
 	}
-
-	plan.Head = s.Index.Head()
 
 	if in.Preview {
 		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: apply.Preview(plan, s.App.Cfg.Machine, now)}, nil)
@@ -702,9 +720,10 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 		s.wake(job.Session)
 		sent = true
 	} else {
-		// Casebook-lane git restore: run locally via the runner's RunGit.
-		// If the restore fails, release the claim so Court can retry.
-		if err := runRestoreCommand(ctx, step.Restore, runGit); err != nil {
+		// Casebook-lane restore: a git restore runs locally via the runner's
+		// RunGit, a GitHub one through gh. If the restore fails, release the
+		// claim so Court can retry.
+		if err := runRestoreCommand(ctx, step.Restore, runGit, s.App.Gh); err != nil {
 			releaseUndo("restore failed: " + err.Error())
 			reply(w, nil, bad("restore command failed: %v", err))
 			return
@@ -716,10 +735,21 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	reply(w, UndoResult{StepID: step.ID, Sent: sent}, nil)
 }
 
-// runRestoreCommand runs a "git -C <dir> ..." restore command locally via the
-// supplied runGit function. It only handles commands that start with "git -C "
-// (the exact format produced by RestoreFor for casebook-lane steps).
-func runRestoreCommand(ctx context.Context, restore string, runGit func(ctx context.Context, dir string, args ...string) (string, error)) error {
+// runRestoreCommand runs a casebook-lane restore command, as RestoreFor makes
+// them: a "git -C <dir> ..." one locally via the supplied runGit function, a
+// "gh ..." one (the GitHub branch recreate) through gh.
+func runRestoreCommand(ctx context.Context, restore string, runGit func(ctx context.Context, dir string, args ...string) (string, error), gh observe.Runner) error {
+	if strings.HasPrefix(restore, "gh ") {
+		words, err := apply.ShellSplit(restore)
+		if err != nil || len(words) < 2 {
+			return fmt.Errorf("could not parse restore command %q: %w", restore, err)
+		}
+		if gh == nil {
+			return fmt.Errorf("no gh available for %q", restore)
+		}
+		_, err = gh.Gh(ctx, words[1:]...)
+		return err
+	}
 	if !strings.HasPrefix(restore, "git -C ") {
 		return fmt.Errorf("unsupported restore command format: %q", restore)
 	}

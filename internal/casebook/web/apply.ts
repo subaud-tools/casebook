@@ -60,6 +60,7 @@ import type {
   AnswerResult,
   DecisionVocabView,
   GroupView,
+  HeldBack,
   ItemView,
   ItemsView,
   Job,
@@ -76,6 +77,7 @@ import type {
   SyncEvent,
   SyncView,
   UndoResult,
+  Waiting,
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
 import { keyWithoutKind, pluralize } from './decide-math.ts';
@@ -93,8 +95,17 @@ import {
   nextSteps,
   observations,
   openCardsByJob,
-  planSummary,
   progress,
+  publicLine,
+  reviewKicker,
+  reviewKeys as chooseReviewKeys,
+  waitBlocks,
+  heldText,
+  otherHalf,
+  runsNow,
+  stepTags,
+  tagText,
+  type Tag,
   stepMark,
   applyLabel,
   runOrder,
@@ -106,6 +117,7 @@ import {
   isRunning,
   type StepGroup,
 } from './apply-text.ts';
+import { pathEscape } from './router-helpers.ts';
 import { getVocab } from './decide.ts';
 import { coalesced } from './coalesce.ts';
 
@@ -236,6 +248,9 @@ export function makeApply(ctx: Ctx): Section {
   const sameKeys = (a: string[], b: string[]): boolean =>
     a.length === b.length && a.every((k, i) => k === b[i]);
   let reviewKeys: string[] = [];
+  // How many groups the open review's ticks are from: several make one
+  // review.
+  let reviewTicked = 0;
   let reviewView: PlanView | null = null;
   // drawnView is the plan drawReview last put on the page: only it runs.
   let drawnView: PlanView | null = null;
@@ -1028,9 +1043,18 @@ export function makeApply(ctx: Ctx): Section {
       focusHead(g.id);
     }
     const mine = planSeq.next();
-    let keys = tickedIn(g);
-    if (!keys.length) {
-      keys = waiting(g).map((it) => it.key);
+    // Ticks in any group make one review of every ticked item; with none
+    // anywhere, review shows the open group's waiting items.
+    const choice = chooseReviewKeys(
+      groups.map((x) => ({
+        ticked: tickedIn(x),
+        waiting: x.id === g.id ? waiting(g).map((it) => it.key) : [],
+      })),
+      groups.findIndex((x) => x.id === g.id),
+    );
+    let keys = choice.keys;
+    const nTicked = choice.groups;
+    if (!groups.some((x) => tickedIn(x).length > 0)) {
       if (itemsTotal > items.length) {
         try {
           keys = await groupKeys(g.id);
@@ -1045,6 +1069,7 @@ export function makeApply(ctx: Ctx): Section {
     if (!planSeq.isLatest(mine)) return;
     if (follow && sameKeys(keys, reviewKeys)) return;
     reviewKeys = keys;
+    reviewTicked = nTicked;
     if (!follow) drawReview();
     if (!keys.length) return;
     opening = true;
@@ -1110,6 +1135,7 @@ export function makeApply(ctx: Ctx): Section {
     reviewGroup = '';
     reviewView = null;
     reviewKeys = [];
+    reviewTicked = 0;
     reviewNote = '';
     opening = false;
     markOpenGroup();
@@ -1378,7 +1404,7 @@ export function makeApply(ctx: Ctx): Section {
         'data-testid': 'review-group',
         'data-group': reviewGroup,
       },
-      h('p', { class: 'kit-kick' }, 'review'),
+      h('p', { class: 'kit-kick' }, reviewKicker(reviewTicked)),
       h(
         'h1',
         { class: 'kit-h1' },
@@ -1409,7 +1435,9 @@ export function makeApply(ctx: Ctx): Section {
     }
     if (!v || !j) return paint(doc);
     const steps = j.steps ?? [];
-    if (!steps.length) {
+    const held = v.plan.held_back ?? [];
+    const waits = v.plan.waiting ?? [];
+    if (!steps.length && !held.length && !waits.length) {
       doc.append(
         h(
           'p',
@@ -1419,8 +1447,8 @@ export function makeApply(ctx: Ctx): Section {
       );
       return paint(doc);
     }
-    drawnView = v;
-    doc.append(runBlock(j));
+    if (steps.length) drawnView = v;
+    doc.append(runBlock(v));
     const agent = runnerAgent() ?? 'an agent';
     const parts: StepGroup<Step>[] = (v.groups ?? []).map((x) => ({
       action: x.action,
@@ -1428,7 +1456,28 @@ export function makeApply(ctx: Ctx): Section {
       undo: x.undo,
       steps: x.steps ?? [],
     }));
-    for (const p of parts.length ? parts : groupSteps(steps)) {
+    const deletesBranches = steps.some((s) => s.action.startsWith('branch-'));
+    const shown: StepGroup<Step>[] = !steps.length
+      ? []
+      : parts.length
+        ? parts
+        : groupSteps<Step>(steps);
+    for (const p of shown) {
+      const github = p.action === 'branch-delete-remote';
+      const first = p.action === 'worktree-remove' && deletesBranches;
+      const title = github
+        ? 'Delete on GitHub'
+        : first
+          ? 'Remove worktrees first'
+          : actionTitle(p.action);
+      const where =
+        p.lane === 'agent'
+          ? `Runs on GitHub, through ${agent}.`
+          : github
+            ? 'Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed.'
+            : first
+              ? 'Runs here, before their branches: each holds a branch below and is clean.'
+              : `Runs here, on ${j.machine}.`;
       doc.append(
         h(
           'h3',
@@ -1436,16 +1485,15 @@ export function makeApply(ctx: Ctx): Section {
           h(
             'span',
             { class: `cb-lanename cb-lanename-${p.lane}` },
-            laneLabel(p.lane, agent),
+            github ? 'casebook \u00b7 github' : laneLabel(p.lane, agent),
           ),
-          ` \u00b7 ${actionTitle(p.action)} \u00b7 ${p.steps.length}`,
+          ` \u00b7 ${title} \u00b7 ${p.steps.length}`,
+          ...tagEls(stepTags(p.steps), p.steps.length),
         ),
         h(
           'p',
           { class: 'cb-plan-where', 'data-testid': 'plan-where' },
-          p.lane === 'agent'
-            ? `Runs on GitHub, through ${agent}.`
-            : `Runs here, on ${j.machine}.`,
+          where,
           p.undo
             ? h(
                 'span',
@@ -1466,33 +1514,161 @@ export function makeApply(ctx: Ctx): Section {
               'div',
               { class: 'kit-tr cb-plan-step', 'data-key': s.key },
               h('span', { class: 'cb-step-k' }, keyWithoutKind(s.key)),
-              h('code', { class: 'cb-cmd' }, s.command),
+              h(
+                'code',
+                { class: 'cb-cmd', 'data-cmd': s.command },
+                s.command,
+                github && s.expected_tip
+                  ? h(
+                      'span',
+                      { class: 'cb-cmd-if' },
+                      ` (if still at ${s.expected_tip.slice(0, 7)})`,
+                    )
+                  : null,
+              ),
+              s.posts && s.comment
+                ? h('span', { class: 'cb-publine' }, publicLine(s))
+                : null,
             ),
           ),
         ),
       );
     }
+    drawWaits(doc, waits, steps);
+    drawHeld(doc, held, steps);
     paint(doc);
   }
 
-  // runBlock: what it does (red when it can't be undone), who runs it, and
-  // the one button named for the action.
-  function runBlock(j: Job): HTMLElement {
+  // drawWaits lists, per Mac, the items whose local copy is only there:
+  // they run from review on that Mac.
+  function drawWaits(
+    doc: HTMLElement,
+    waits: Waiting[],
+    steps: Pick<Step, 'key' | 'action'>[],
+  ): void {
+    const byMachine = new Map<string, Waiting[]>();
+    for (const w of waits)
+      byMachine.set(w.machine, [...(byMachine.get(w.machine) ?? []), w]);
+    for (const [m, ws] of byMachine) {
+      doc.append(
+        h(
+          'h3',
+          { class: 'kit-label cb-group-label cb-wait-h' },
+          `Waits for ${m} \u00b7 ${ws.length}`,
+        ),
+        ...waitBlocks(ws, steps).flatMap((b) => [
+          h('p', { class: 'cb-plan-where' }, b.text),
+          h(
+            'div',
+            {
+              class: 'kit-table cb-plan-group cb-waits',
+              'data-testid': 'plan-waits',
+            },
+            ...b.waits.map((w) =>
+              h(
+                'div',
+                { class: 'kit-tr cb-plan-step' },
+                h('span', { class: 'cb-step-k' }, keyWithoutKind(w.key)),
+                h(
+                  'span',
+                  { class: 'cb-cmd' },
+                  `on ${m}${w.path ? ` \u00b7 ${w.path}` : ''}`,
+                ),
+              ),
+            ),
+          ),
+        ]),
+      );
+    }
+  }
+
+  // drawHeld lists the items held out of this run, each with what holds
+  // it and a link to settle it.
+  function drawHeld(
+    doc: HTMLElement,
+    held: HeldBack[],
+    steps: Pick<Step, 'key'>[],
+  ): void {
+    if (!held.length) return;
+    doc.append(
+      h(
+        'h3',
+        { class: 'kit-label cb-group-label cb-held-h' },
+        `Held \u00b7 ${held.length}`,
+      ),
+      h('p', { class: 'cb-plan-where' }, heldText),
+      h(
+        'div',
+        {
+          class: 'kit-table cb-plan-group cb-held',
+          'data-testid': 'plan-held',
+        },
+        ...held.map((x) => {
+          const holds = x.holds ?? [];
+          const links: HTMLElement[] = [];
+          for (const hd of holds) {
+            if (hd.by)
+              links.push(
+                h(
+                  'a',
+                  { class: 'cb-link', href: `#/decide/${pathEscape(hd.by)}` },
+                  keyWithoutKind(hd.by),
+                ),
+              );
+            else if (hd.kind === 'long-lived')
+              links.push(
+                h(
+                  'a',
+                  { class: 'cb-link', href: `#/decide/${pathEscape(x.key)}` },
+                  'decide again',
+                ),
+              );
+          }
+          return h(
+            'div',
+            { class: 'kit-tr cb-plan-step cb-held-row', 'data-held': x.key },
+            h('span', { class: 'cb-step-k' }, keyWithoutKind(x.key)),
+            h(
+              'span',
+              { class: 'cb-held-why' },
+              holds.map((hd) => hd.text).join(' \u00b7 '),
+              ...links.flatMap((a) => [' \u00b7 ', a]),
+              otherHalf(x.key, steps),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // tagEls: a tag span per tag, for a heading of `of` steps (0: the summary).
+  function tagEls(tags: Tag[], of: number): HTMLElement[] {
+    return tags.map((t) =>
+      h('span', { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of)),
+    );
+  }
+
+  // runBlock: what runs now and where, what waits and is held, its tags,
+  // who runs it, and the one button named for the action.
+  function runBlock(v: PlanView): HTMLElement {
+    const j = v.job;
     const steps = j.steps ?? [];
-    const outward = steps.some((s) => s.lane === 'agent');
-    const permanent = steps.some((s) => s.permanent);
     const rc = runCheck();
     const el = h('div', { class: 'cb-approve', 'data-testid': 'run-group' });
+    const [first, rest] = runsNow(v.plan).split('\n');
     el.append(
       h(
         'p',
         { class: 'cb-approve-what' },
-        `${planSummary(steps)}${outward ? '' : ', all local'}.`,
-        permanent
-          ? h('span', { class: 'cb-approve-warn' }, ' Cannot be undone.')
-          : null,
+        first,
+        rest ? h('br') : null,
+        rest ?? null,
       ),
     );
+    const tags = stepTags(steps);
+    if (tags.length)
+      el.append(h('p', { class: 'cb-tags-line' }, ...tagEls(tags, 0)));
+    if (!steps.length) return el;
     const row = h('div', { class: 'cb-approve-row' });
     if (rc?.text)
       row.append(

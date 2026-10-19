@@ -276,3 +276,69 @@ func TestBodyTruncationIsRuneSafe(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshRecordsMergeState(t *testing.T) {
+	pr := `{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"mergeStateStatus":"BEHIND","headRefName":"feat/x","headRepository":{"nameWithOwner":"Court/Hail"},
+	 "createdAt":"2026-09-01T00:00:00Z","updatedAt":"2026-09-02T00:00:00Z","author":{"login":"bob"},"comments":{"nodes":[]}}`
+	var sent string
+	gh := &fakeGh{handle: func(a []string) (string, error) {
+		j := strings.Join(a, " ")
+		switch {
+		case j == "api user --jq .login":
+			return "schuettc", nil
+		case isQuery(a, "repositoryOwner"):
+			sent = field(a, "query")
+			return fmt.Sprintf(ownerPage, false, fmt.Sprintf(repoNode, "schuettc/hail", pr)), nil
+		case isQuery(a, "search("):
+			if q := field(a, "query"); !strings.Contains(q, "mergeStateStatus") || !strings.Contains(q, "headRefName") || !strings.Contains(q, "headRepository { nameWithOwner }") {
+				t.Errorf("search query lacks mergeStateStatus/headRefName/headRepository")
+			}
+			return `{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, nil
+		}
+		return "", fmt.Errorf("unexpected gh %s", j)
+	}}
+	g, rep := Refresh(ctx, gh, NewGitHub(), RefreshOptions{Owners: []string{"schuettc"}, Now: time.Now()})
+	if len(rep.Errors) != 0 {
+		t.Fatalf("errors: %v", rep.Errors)
+	}
+	p := g.Owners["schuettc"].Repos[0].PRs[0]
+	if p.MergeState != "BEHIND" || p.HeadRef != "feat/x" || p.HeadRepo != "court/hail" {
+		t.Errorf("pr %+v, want MergeState BEHIND, HeadRef feat/x and HeadRepo court/hail", p)
+	}
+	if !strings.Contains(sent, "mergeStateStatus") || !strings.Contains(sent, "headRefName") || !strings.Contains(sent, "headRepository { nameWithOwner }") {
+		t.Errorf("owner query lacks mergeStateStatus/headRefName:\n%s", sent)
+	}
+}
+
+func TestLookupRecordsTheBranchCommit(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   Ref
+	}{
+		{`{"data":{"k0":{"id":"R_kgDO1","ref":{"name":"feat/x","target":{"oid":"abc123"}}}}}`, Ref{Exists: true, Tip: "abc123", RepoID: "R_kgDO1"}},
+		{`{"data":{"k0":{"id":"R_kgDO1","ref":null}}}`, Ref{Exists: false}},
+	} {
+		gh := &fakeGh{handle: func(a []string) (string, error) {
+			j := strings.Join(a, " ")
+			switch {
+			case j == "api user --jq .login":
+				return "schuettc", nil
+			case isQuery(a, "repositoryOwner"):
+				return fmt.Sprintf(ownerPage, false, ""), nil
+			case isQuery(a, "search("):
+				return `{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, nil
+			case isQuery(a, "k0:"):
+				if q := field(a, "query"); !strings.Contains(q, "target { oid }") || !strings.Contains(q, "{ id ref(") {
+					t.Errorf("lookup query lacks id/target oid:\n%s", q)
+				}
+				return tc.answer, nil
+			}
+			return "", fmt.Errorf("unexpected gh %s", j)
+		}}
+		k := item.BranchKey("o/r", "feat/x")
+		g, _ := Refresh(ctx, gh, NewGitHub(), RefreshOptions{Owners: []string{"schuettc"}, Keys: []item.Key{k}, Now: time.Now()})
+		if got := g.Refs["branch:o/r@feat/x"]; got != tc.want {
+			t.Errorf("ref = %+v, want %+v", got, tc.want)
+		}
+	}
+}

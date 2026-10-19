@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // TestPlanEndpointRefusesStale verifies that POST /api/apply/plan returns 409
@@ -465,4 +467,140 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func toApply(k item.Key, d item.Disposition, locs ...string) engine.Item {
+	return engine.Item{Key: k, ID: k.String(), Kind: k.Kind, Repo: k.Repo(), Status: item.StatusToApply,
+		Decision: &item.Decision{Disposition: d, DecidedBy: "court", DecidedAt: time.Now().Add(-time.Hour)}, Locations: locs}
+}
+
+// TestPlanAddsTheWorktreeABranchNeeds: reviewing a branch whose clean
+// worktree is decided Remove it puts the worktree's remove in the same
+// plan, first.
+func TestPlanAddsTheWorktreeABranchNeeds(t *testing.T) {
+	r := newRig(t)
+	wk := item.WorktreeKey("mbp", "/r/.worktrees/faqux")
+	br := toApply(item.BranchKey("schuettc/hail", "feat/faqux"), item.Delete)
+	br.Copies = []engine.Copy{{Tip: "abc", RepoID: "R_1"}}
+	br.Needs = []string{wk.String()}
+	wt := toApply(wk, item.Delete, "mbp:/r")
+	r.s.Index.set(engine.Result{Items: []engine.Item{br, wt}}, r.s.Index.Head(), time.Now())
+	var out PlanView
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{br.ID}, "preview": true}, &out); code != http.StatusOK {
+		t.Fatalf("plan: %d", code)
+	}
+	var got []string
+	for _, s := range out.Plan.Steps {
+		got = append(got, s.Action+" "+s.Key)
+	}
+	want := []string{"worktree-remove " + wk.String(), "branch-delete-remote " + br.ID}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps %v, want %v", got, want)
+	}
+}
+
+// TestPreviewOfOnlyHeldItemsShowsThem: a review whose items are all held
+// shows them (held_back); asking to run it is still refused.
+func TestPreviewOfOnlyHeldItemsShowsThem(t *testing.T) {
+	r := newRig(t)
+	pr := toApply(item.PRKey("schuettc/old", 3), item.Close)
+	pr.Holds = []engine.Hold{{Kind: engine.HoldArchived, Text: "schuettc/old is archived: GitHub refuses any change to it", Stops: []item.Disposition{item.Close, item.Merge}}}
+	r.s.Index.set(engine.Result{Items: []engine.Item{pr}}, r.s.Index.Head(), time.Now())
+	var out PlanView
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr.ID}, "preview": true}, &out); code != http.StatusOK {
+		t.Fatalf("preview: %d", code)
+	}
+	if len(out.Plan.Steps) != 0 || len(out.Plan.HeldBack) != 1 || out.Plan.HeldBack[0].Key != pr.ID {
+		t.Fatalf("plan %+v", out.Plan)
+	}
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr.ID}}, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("plan to run: %d, want 422", code)
+	}
+}
+
+// TestAppliedKeepsAnItemWithACopyOnAnotherMac: an item whose steps here
+// verified stays in review while another Mac still has a copy of it.
+func TestAppliedKeepsAnItemWithACopyOnAnotherMac(t *testing.T) {
+	both := toApply(item.BranchKey("o/r", "both"), item.Delete, "pro-2:/p", "work:/r")
+	here := toApply(item.BranchKey("o/r", "here"), item.Delete, "work:/r")
+	steps := map[string][]apply.JobStep{
+		both.ID: {localDeleted(both, "/r")},
+		here.ID: {localDeleted(here, "/r")},
+	}
+	got := appliedOf(t, steps, both, here)
+	if got[both.ID] || !got[here.ID] {
+		t.Fatalf("applied %v, want only %s", got, here.ID)
+	}
+}
+
+// appliedOf is Index.applied for items that all verified (Applied answers
+// every key), with steps as each key's verified steps, on Mac "work".
+func appliedOf(t *testing.T, steps map[string][]apply.JobStep, items ...engine.Item) map[string]bool {
+	t.Helper()
+	x := &Index{Machine: "work",
+		Applied: func(time.Time, func(string) time.Time) map[string]bool {
+			m := map[string]bool{}
+			for _, it := range items {
+				m[it.ID] = true
+			}
+			return m
+		},
+		Verified: func(key string) []apply.JobStep { return steps[key] },
+	}
+	x.set(engine.Result{Items: items}, "h", time.Now())
+	return x.applied()
+}
+
+// localDeleted is a verified local delete of it's branch in clone dir.
+func localDeleted(it engine.Item, dir string) apply.JobStep {
+	branch := it.ID[strings.IndexByte(it.ID, '@')+1:]
+	return apply.JobStep{Key: it.ID, Action: "branch-delete-local", State: apply.StepVerified, VerifiedAt: time.Now(),
+		Command: "git -C '" + dir + "' update-ref -d 'refs/heads/" + branch + "' abc"}
+}
+
+// githubDeleted is a verified GitHub delete of it's branch.
+func githubDeleted(it engine.Item) apply.JobStep {
+	return apply.JobStep{Key: it.ID, Action: "branch-delete-remote", State: apply.StepVerified, VerifiedAt: time.Now()}
+}
+
+// TestHeldGitHubHalfKeepsTheItemInReview: a branch whose GitHub delete is
+// held by an open PR, with its local delete verified, still has its GitHub
+// copy: it isn't done.
+func TestHeldGitHubHalfKeepsTheItemInReview(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Holds = []engine.Hold{{Kind: engine.HoldOpenPR, Remote: true, Stops: []item.Disposition{item.Delete}}}
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc"}, {Tip: "abc", RepoID: "R_1"}}
+	got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r")}}, br)
+	if got[br.ID] {
+		t.Fatalf("applied %v: its GitHub copy is still there", got)
+	}
+}
+
+// TestHeldLocalHalfKeepsTheItemInReview: a branch whose local delete is
+// held by a dirty worktree, with its GitHub delete verified, still has its
+// copy on this Mac: it isn't done.
+func TestHeldLocalHalfKeepsTheItemInReview(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Holds = []engine.Hold{{Kind: engine.HoldWorktree, Local: true, Machine: "work", Stops: []item.Disposition{item.Delete}}}
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc", Worktree: "/r/.worktrees/ops"}, {Tip: "abc", RepoID: "R_1"}}
+	got := appliedOf(t, map[string][]apply.JobStep{br.ID: {githubDeleted(br)}}, br)
+	if got[br.ID] {
+		t.Fatalf("applied %v: its copy on this Mac is still there", got)
+	}
+}
+
+// TestBothHalvesVerifiedIsApplied: a branch whose local and GitHub deletes
+// both verified since its decision is done; one verified before the
+// decision doesn't count.
+func TestBothHalvesVerifiedIsApplied(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc"}, {Tip: "abc", RepoID: "R_1"}}
+	if got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r"), githubDeleted(br)}}, br); !got[br.ID] {
+		t.Fatalf("applied %v, want %s", got, br.ID)
+	}
+	old := githubDeleted(br)
+	old.VerifiedAt = br.Decision.DecidedAt.Add(-time.Minute)
+	if got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r"), old}}, br); got[br.ID] {
+		t.Fatalf("applied %v: its GitHub delete verified before the decision", got)
+	}
 }

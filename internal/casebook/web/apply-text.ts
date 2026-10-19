@@ -2,7 +2,7 @@
 // functions over serve's jobs (no kit or browser imports, so node --test can
 // load it).
 
-import type { Job, JobStep, NeedsYou, Step } from './wire.d.ts';
+import type { Job, JobStep, NeedsYou, Plan, Step, Waiting } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 
 /**
@@ -424,4 +424,177 @@ export function heldOutside(
       if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
   }
   return held.size;
+}
+
+// ---- review's tags and lines ----
+
+/** What a step's tag warns of: it can't be undone, it is undone on GitHub
+ * (not here), or it posts a public comment. */
+export type TagKind = 'permanent' | 'github-undo' | 'posts';
+
+export interface Tag {
+  kind: TagKind;
+  n: number;
+}
+
+const ACTION_TAGS: Record<string, TagKind[]> = {
+  'repo-delete': ['permanent'],
+  'pr-merge': ['permanent'],
+  'pr-close': ['github-undo'],
+  'issue-close': ['github-undo'],
+  'repo-archive': ['github-undo'],
+};
+
+/** actionTags: the tags a step of action always carries. */
+export function actionTags(action: string): TagKind[] {
+  return ACTION_TAGS[action] ?? [];
+}
+
+/** stepTags counts each tag over steps, in the order permanent, posts,
+ * github-undo; a tag no step carries is left out. */
+export function stepTags(steps: Step[]): Tag[] {
+  const n: Record<TagKind, number> = {
+    permanent: 0,
+    posts: 0,
+    'github-undo': 0,
+  };
+  for (const s of steps) {
+    for (const k of actionTags(s.action)) n[k]++;
+    if (s.posts) n.posts++;
+  }
+  return (['permanent', 'posts', 'github-undo'] as TagKind[])
+    .filter((k) => n[k] > 0)
+    .map((kind) => ({ kind, n: n[kind] }));
+}
+
+/** tagText words tag t; its count shows on the summary (of = 0) and on a
+ * group heading where only some of its of steps carry it. */
+export function tagText(t: Tag, of: number): string {
+  const counted = of === 0 || t.n < of;
+  const lead = counted ? `${count(t.n)} ` : '';
+  switch (t.kind) {
+    case 'permanent':
+      return `${lead}can't be undone`;
+    case 'github-undo':
+      return `${lead}undo on GitHub`;
+    case 'posts':
+      return `${lead}${counted && t.n > 1 ? 'post' : 'posts'} a public comment`;
+  }
+}
+
+/** publicLine is a posting step's line: what it posts, and whether anyone
+ * can read it. */
+export function publicLine(s: Step): string {
+  return `posts publicly${s.public ? ' on a public repo' : ''}: \u201c${s.comment ?? ''}\u201d`;
+}
+
+/** count writes n with thousands separators: 1,240. */
+function count(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+/**
+ * runsNow is review's line above the run button: what runs now, by where,
+ * then what waits for another Mac and how many are held.
+ */
+export function runsNow(plan: Plan): string {
+  const steps = plan.steps ?? [];
+  const by = (a: string) => steps.filter((s) => s.action === a).length;
+  const agent = steps.filter((s) => s.lane === 'agent').length;
+  const wt = by('worktree-remove');
+  const remote = by('branch-delete-remote');
+  const local = by('branch-delete-local');
+  let first: string;
+  if (steps.length && agent === steps.length) {
+    first = `${pluralize(steps.length, 'step')} \u00b7 all on GitHub, through the agent.`;
+  } else if (!steps.length) {
+    first = 'Nothing runs now.';
+  } else {
+    const parts: string[] = [];
+    if (wt)
+      parts.push(
+        `${count(wt)} ${wt === 1 ? 'worktree' : 'worktrees'} removed${remote + local ? ' first' : ''}`,
+      );
+    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
+    if (local) parts.push(`${count(local)} deleted here`);
+    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
+    first = `Runs now: ${parts.join(', ')}.`;
+  }
+  const rest: string[] = [];
+  const waits = new Map<string, number>();
+  for (const w of plan.waiting ?? [])
+    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
+  for (const [m, n] of waits)
+    rest.push(
+      `Waits for ${m}: ${count(n)} ${n === 1 ? 'local copy' : 'local copies'}.`,
+    );
+  const held = plan.held_back?.length ?? 0;
+  if (held) rest.push(`Held: ${count(held)}.`);
+  return rest.length ? `${first}\n${rest.join(' ')}` : first;
+}
+
+/**
+ * reviewKeys is what review shows, given each group's ticked and waiting
+ * keys and the open group's index: every ticked key of every group that has
+ * ticks (the open group need have none), or, with no tick anywhere, the open
+ * group's waiting keys. groups is how many groups the ticks are from (at
+ * least 1).
+ */
+export function reviewKeys(
+  groups: { ticked: string[]; waiting: string[] }[],
+  open: number,
+): { keys: string[]; groups: number } {
+  const ticked = groups.filter((g) => g.ticked.length > 0);
+  if (!ticked.length)
+    return { keys: [...(groups[open]?.waiting ?? [])], groups: 1 };
+  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
+}
+
+/** reviewKicker is review's kicker: how many groups its ticks are from. */
+export function reviewKicker(groups: number): string {
+  return groups > 1 ? `review \u00b7 ${groups} groups ticked` : 'review';
+}
+
+/**
+ * waitBlocks splits the items waiting for another Mac into runs of rows
+ * that one sentence is true of, in first-seen order: a branch whose GitHub
+ * delete is among steps says its GitHub copy is deleted above, one without
+ * doesn't, and a worktree is removed from review there.
+ */
+export function waitBlocks(
+  waits: Waiting[],
+  steps: Pick<Step, 'key' | 'action'>[],
+): { text: string; waits: Waiting[] }[] {
+  const github = new Set(
+    steps.filter((s) => s.action === 'branch-delete-remote').map((s) => s.key),
+  );
+  const out: { text: string; waits: Waiting[] }[] = [];
+  for (const w of waits) {
+    const m = w.machine;
+    let text: string;
+    if (w.key.startsWith('worktree:'))
+      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
+    else if (github.has(w.key))
+      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
+    else
+      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
+    const block = out.find((b) => b.text === text);
+    if (block) block.waits.push(w);
+    else out.push({ text, waits: [w] });
+  }
+  return out;
+}
+
+/** heldText is the Held section's line. */
+export const heldText =
+  'Not run here. Each says what holds it; settle that and it joins the next run.';
+
+/**
+ * otherHalf is a held row's suffix when another step of its item runs in
+ * this plan (a branch held only on GitHub or only here).
+ */
+export function otherHalf(key: string, steps: Pick<Step, 'key'>[]): string {
+  return steps.some((s) => s.key === key)
+    ? ' \u00b7 its other half runs above'
+    : '';
 }
