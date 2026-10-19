@@ -97,8 +97,7 @@ import {
   reviewLine,
   untickHidden,
   ranLine,
-  runActions,
-  standsStep,
+  runBulk,
   tickedRunWords,
   waitBlocks,
   heldText,
@@ -262,6 +261,8 @@ export function makeApply(ctx: Ctx): Section {
   // reviewPending: review's list is loading (a filter, a search, a reload);
   // until it is drawn, and the ticked document with it, nothing runs.
   let reviewPending = false;
+  // runPending: the same for run's list.
+  let runPending = false;
   // serve's words when the group's plan wasn't built (nothing to plan, an
   // item already running): shown in the pane, no "sync first".
   let reviewNote = '';
@@ -1070,7 +1071,11 @@ export function makeApply(ctx: Ctx): Section {
   // the list no longer shows is taken off.
   async function loadRun(offset = 0, narrowed = false): Promise<void> {
     const mine = runSeq.next();
-    if (offset === 0) gen.run++;
+    if (offset === 0) {
+      gen.run++;
+      runPending = true;
+      if (mode === 'run' && runTickedOn) freezeMid();
+    }
     try {
       const v = await ctx.api.get<ItemsView>('/items', {
         view: 'run',
@@ -1096,9 +1101,13 @@ export function makeApply(ctx: Ctx): Section {
         const gone = untickHidden(runSel.ids(), new Set(shown));
         if (gone.length) runSel.deselect(gone);
       }
+      if (offset === 0) runPending = false;
       paintList();
+      if (offset === 0 && runTickedOn) drawRunTicked();
     } catch (err) {
       if (!runSeq.isLatest(mine)) return;
+      runPending = false;
+      if (runTickedOn) drawRunTicked();
       if (err instanceof ApiError && err.status === 400 && narrowed) {
         runPane.setFilterError(err.message);
         runItems = [];
@@ -1182,18 +1191,30 @@ export function makeApply(ctx: Ctx): Section {
   // drawRunTicked is the middle pane for run's ticked items: what they are
   // and their jobs, then skip, undo and hand to agent where each fits every
   // one of them (undo only when all can be undone), then a row each.
-  function drawRunTicked(): void {
-    if (!active || mode !== 'run') return;
-    const its = runSel
+  // runTicked is run's ticked items as run lists them now.
+  const runTicked = (): ItemView[] =>
+    runSel
       .ids()
       .map((k) => runItemOf.get(k))
       .filter((x): x is ItemView => !!x?.ran);
+  // bulkNow is the steps each button acts on, for what is ticked and shown
+  // now (worked out again as Court presses).
+  function bulkNow(): { skip: JobStep[]; hand: JobStep[]; undo: JobStep[] } {
+    const marks = runTicked()
+      .map((it) => it.ran)
+      .filter((m) => !!m);
+    const b = runBulk(marks, cards);
+    const sent = b.hand.every(
+      (x) => !!jobs.find((j) => j.id === x.job_id)?.session,
+    );
+    return { ...b, hand: sent ? b.hand : [] };
+  }
+
+  function drawRunTicked(): void {
+    if (!active || mode !== 'run') return;
+    const its = runTicked();
     const marks = its.map((it) => it.ran).filter((m) => !!m);
-    const steps = marks.map(standsStep).filter((x) => !!x);
-    const can = runActions(steps, cards);
-    const hand =
-      can.hand &&
-      steps.every((x) => !!jobs.find((j) => j.id === x.job_id)?.session);
+    const can = bulkNow();
     const gs = [...new Set(its.map((it) => it.group))];
     const where =
       gs.length === 1
@@ -1202,16 +1223,19 @@ export function makeApply(ctx: Ctx): Section {
     const btn = (label: string, run: () => void): HTMLElement =>
       h(
         'button',
-        { type: 'button', class: 'kit-btn', disabled: busy, onclick: run },
+        {
+          type: 'button',
+          class: 'kit-btn',
+          disabled: busy || runPending,
+          onclick: run,
+        },
         label,
       );
     const acts: HTMLElement[] = [];
-    if (can.skip) acts.push(btn('skip', () => void answerAll(steps, 'skip')));
-    if (can.undo) acts.push(btn('undo', () => void undoAll(steps)));
-    if (hand)
-      acts.push(
-        btn('hand to agent', () => void answerAll(steps, 'hand-to-agent')),
-      );
+    if (can.skip.length) acts.push(btn('skip', () => void answerAll('skip')));
+    if (can.undo.length) acts.push(btn('undo', () => void undoAll()));
+    if (can.hand.length)
+      acts.push(btn('hand to agent', () => void answerAll('hand-to-agent')));
     const shown = its.slice(0, 20);
     paint(
       h(
@@ -1232,10 +1256,14 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  // answerAll answers each ticked step's open card (skip, hand to agent),
-  // one post per step; the items it acted on are unticked.
-  async function answerAll(steps: JobStep[], action: string): Promise<void> {
-    if (busy) return;
+  // answerAll answers the open card of every step of each ticked item that
+  // needs Court (skip, hand to agent), one post per step; the items it acted
+  // on are unticked.
+  async function answerAll(action: string): Promise<void> {
+    if (busy || runPending) return;
+    const b = bulkNow();
+    const steps = action === 'skip' ? b.skip : b.hand;
+    if (!steps.length) return;
     busy = true;
     note = '';
     const done: string[] = [];
@@ -1268,9 +1296,12 @@ export function makeApply(ctx: Ctx): Section {
     else drawRunTicked();
   }
 
-  // undoAll undoes each ticked step, one post per step.
-  async function undoAll(steps: JobStep[]): Promise<void> {
-    if (busy) return;
+  // undoAll undoes every step of each ticked item that can be undone, one
+  // post per step.
+  async function undoAll(): Promise<void> {
+    if (busy || runPending) return;
+    const steps = bulkNow().undo;
+    if (!steps.length) return;
     busy = true;
     note = '';
     const done: string[] = [];

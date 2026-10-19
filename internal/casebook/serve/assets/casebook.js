@@ -1767,15 +1767,22 @@ function aroundSteps(steps, key, span) {
   const shown = steps.slice(Math.max(0, i - span), i + span + 1);
   return { steps: shown, hidden: steps.length - shown.length };
 }
-function runActions(steps, cards) {
+function runBulk(marks, cards) {
   const open = (s, kinds) => cards.some(
     (c) => c.state === "open" && c.step_id === s.id && kinds.includes(c.kind)
   );
-  const all = (f) => steps.length > 0 && steps.every(f);
+  const per = (f) => {
+    const each = marks.map(f);
+    return marks.length > 0 && each.every((x) => x.length > 0) ? each.flat() : null;
+  };
+  const needs = per(
+    (m) => m.finished ? [] : (m.steps ?? []).filter((s) => NEEDS.has(s.state))
+  );
+  const fit = (kinds) => needs && needs.every((s) => open(s, kinds)) ? needs : [];
   return {
-    skip: all((s) => open(s, ["failed", "paused"])),
-    hand: all((s) => open(s, ["failed"])),
-    undo: all((s) => !!s.undoable)
+    skip: fit(["failed", "paused"]),
+    hand: fit(["failed"]),
+    undo: per((m) => (m.steps ?? []).filter((s) => !!s.undoable)) ?? []
   };
 }
 var STATE_WORD = {
@@ -4335,6 +4342,7 @@ function makeApply(ctx) {
   let reviewView = null;
   let drawnView = null;
   let reviewPending = false;
+  let runPending = false;
   let reviewNote = "";
   let refusal = "";
   let openId = null;
@@ -4947,7 +4955,11 @@ function makeApply(ctx) {
   }
   async function loadRun(offset = 0, narrowed = false) {
     const mine = runSeq.next();
-    if (offset === 0) gen.run++;
+    if (offset === 0) {
+      gen.run++;
+      runPending = true;
+      if (mode === "run" && runTickedOn) freezeMid();
+    }
     try {
       const v = await ctx.api.get("/items", {
         view: "run",
@@ -4970,9 +4982,13 @@ function makeApply(ctx) {
         const gone = untickHidden(runSel.ids(), new Set(shown));
         if (gone.length) runSel.deselect(gone);
       }
+      if (offset === 0) runPending = false;
       paintList();
+      if (offset === 0 && runTickedOn) drawRunTicked();
     } catch (err) {
       if (!runSeq.isLatest(mine)) return;
+      runPending = false;
+      if (runTickedOn) drawRunTicked();
       if (err instanceof ApiError2 && err.status === 400 && narrowed) {
         runPane.setFilterError(err.message);
         runItems = [];
@@ -5036,27 +5052,37 @@ function makeApply(ctx) {
       );
     }
   }
+  const runTicked = () => runSel.ids().map((k) => runItemOf.get(k)).filter((x) => !!x?.ran);
+  function bulkNow() {
+    const marks = runTicked().map((it) => it.ran).filter((m) => !!m);
+    const b = runBulk(marks, cards);
+    const sent = b.hand.every(
+      (x) => !!jobs.find((j) => j.id === x.job_id)?.session
+    );
+    return { ...b, hand: sent ? b.hand : [] };
+  }
   function drawRunTicked() {
     if (!active || mode !== "run") return;
-    const its = runSel.ids().map((k) => runItemOf.get(k)).filter((x) => !!x?.ran);
+    const its = runTicked();
     const marks = its.map((it) => it.ran).filter((m) => !!m);
-    const steps = marks.map(standsStep).filter((x) => !!x);
-    const can = runActions(steps, cards);
-    const hand = can.hand && steps.every((x) => !!jobs.find((j) => j.id === x.job_id)?.session);
+    const can = bulkNow();
     const gs = [...new Set(its.map((it) => it.group))];
     const where = gs.length === 1 ? runGroups.find((g) => g.id === gs[0])?.label ?? gs[0] : `${gs.length} groups`;
     const btn = (label, run) => h10(
       "button",
-      { type: "button", class: "kit-btn", disabled: busy, onclick: run },
+      {
+        type: "button",
+        class: "kit-btn",
+        disabled: busy || runPending,
+        onclick: run
+      },
       label
     );
     const acts = [];
-    if (can.skip) acts.push(btn("skip", () => void answerAll(steps, "skip")));
-    if (can.undo) acts.push(btn("undo", () => void undoAll(steps)));
-    if (hand)
-      acts.push(
-        btn("hand to agent", () => void answerAll(steps, "hand-to-agent"))
-      );
+    if (can.skip.length) acts.push(btn("skip", () => void answerAll("skip")));
+    if (can.undo.length) acts.push(btn("undo", () => void undoAll()));
+    if (can.hand.length)
+      acts.push(btn("hand to agent", () => void answerAll("hand-to-agent")));
     const shown = its.slice(0, 20);
     paint(
       h10(
@@ -5074,8 +5100,11 @@ function makeApply(ctx) {
       )
     );
   }
-  async function answerAll(steps, action) {
-    if (busy) return;
+  async function answerAll(action) {
+    if (busy || runPending) return;
+    const b = bulkNow();
+    const steps = action === "skip" ? b.skip : b.hand;
+    if (!steps.length) return;
     busy = true;
     note = "";
     const done = [];
@@ -5104,8 +5133,10 @@ function makeApply(ctx) {
     if (done.length) runSel.deselect(done);
     else drawRunTicked();
   }
-  async function undoAll(steps) {
-    if (busy) return;
+  async function undoAll() {
+    if (busy || runPending) return;
+    const steps = bulkNow().undo;
+    if (!steps.length) return;
     busy = true;
     note = "";
     const done = [];

@@ -38,7 +38,7 @@ import {
   heldText,
   otherHalf,
   ranLine,
-  runActions,
+  runBulk,
   tickedRunWords,
   standsStep,
   aroundSteps,
@@ -797,28 +797,47 @@ describe('ticked run items', () => {
     group: 'needs-you',
     steps: [failed(job * 10 + 1)],
   });
-  test('runActions shows nothing for a failed and a done step together', () =>
+  const mark = (job: number, steps: JobStep[], finished = false) => ({
+    job,
+    group: 'needs-you',
+    finished,
+    steps,
+  });
+  const ids = (xs: JobStep[]) => xs.map((x) => x.id);
+  test('runBulk on an item with two failed steps skips both', () => {
+    const b = runBulk(
+      [mark(33, [failed(1), failed(2)])],
+      [card(1, 'failed'), card(2, 'failed')],
+    );
     assert.deepEqual(
-      runActions([failed(1), verifiedUndoable(2)], [card(1, 'failed')]),
-      { skip: false, hand: false, undo: false },
-    ));
-  test('runActions on two failed steps', () =>
+      [ids(b.skip), ids(b.hand), ids(b.undo)],
+      [[1, 2], [1, 2], []],
+    );
+  });
+  test('runBulk shows nothing for a failed item and a done one together', () => {
+    const b = runBulk(
+      [mark(33, [failed(1)]), mark(28, [verifiedUndoable(2)], true)],
+      [card(1, 'failed')],
+    );
+    assert.deepEqual([ids(b.skip), ids(b.hand), ids(b.undo)], [[], [], []]);
+  });
+  test('runBulk undoes every undoable step of each item', () => {
+    const b = runBulk(
+      [
+        mark(28, [verifiedUndoable(1), verifiedUndoable(2)], true),
+        mark(28, [verifiedUndoable(3)], true),
+      ],
+      [],
+    );
     assert.deepEqual(
-      runActions(
-        [failed(1), failed(2)],
-        [card(1, 'failed'), card(2, 'failed')],
-      ),
-      { skip: true, hand: true, undo: false },
-    ));
-  test('runActions on two undoable steps', () =>
-    assert.deepEqual(
-      runActions([verifiedUndoable(1), verifiedUndoable(2)], []),
-      {
-        skip: false,
-        hand: false,
-        undo: true,
-      },
-    ));
+      [ids(b.skip), ids(b.hand), ids(b.undo)],
+      [[], [], [1, 2, 3]],
+    );
+  });
+  test('runBulk skips nothing in a job that has finished', () => {
+    const b = runBulk([mark(33, [failed(1)], true)], [card(1, 'failed')]);
+    assert.deepEqual(ids(b.skip), []);
+  });
   test('tickedRunWords', () =>
     assert.deepEqual(
       tickedRunWords([failedMark(33), failedMark(33)], 'needs you'),

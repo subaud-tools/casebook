@@ -690,24 +690,36 @@ export function aroundSteps(
 }
 
 /**
- * runActions is which buttons fit every ticked step: skip when each has an
- * open failed or paused card, hand to agent when each has an open failed
- * one, undo when each can be undone.
+ * runBulk is the steps each of run's buttons acts on for the ticked items
+ * (their marks), every step of each item, not one: skip covers each step
+ * that needs Court in a job still open, when every one of them has an open
+ * failed or paused card; hand to agent the same, open failed cards only;
+ * undo every step that can be undone, when every item has one. Empty: the
+ * button doesn't fit them all.
  */
-export function runActions(
-  steps: JobStep[],
+export function runBulk(
+  marks: RunMark[],
   cards: NeedsYou[],
-): { skip: boolean; hand: boolean; undo: boolean } {
+): { skip: JobStep[]; hand: JobStep[]; undo: JobStep[] } {
   const open = (s: JobStep, kinds: string[]) =>
     cards.some(
       (c) => c.state === 'open' && c.step_id === s.id && kinds.includes(c.kind),
     );
-  const all = (f: (s: JobStep) => boolean) =>
-    steps.length > 0 && steps.every(f);
+  const per = (f: (m: RunMark) => JobStep[]): JobStep[] | null => {
+    const each = marks.map(f);
+    return marks.length > 0 && each.every((x) => x.length > 0)
+      ? each.flat()
+      : null;
+  };
+  const needs = per((m) =>
+    m.finished ? [] : (m.steps ?? []).filter((s) => NEEDS.has(s.state)),
+  );
+  const fit = (kinds: string[]) =>
+    needs && needs.every((s) => open(s, kinds)) ? needs : [];
   return {
-    skip: all((s) => open(s, ['failed', 'paused'])),
-    hand: all((s) => open(s, ['failed'])),
-    undo: all((s) => !!s.undoable),
+    skip: fit(['failed', 'paused']),
+    hand: fit(['failed']),
+    undo: per((m) => (m.steps ?? []).filter((s) => !!s.undoable)) ?? [],
   };
 }
 
