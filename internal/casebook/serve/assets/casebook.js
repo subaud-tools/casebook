@@ -3708,6 +3708,28 @@ import {
 
 // item.ts
 import { h as h5, facts as facts2, fold } from "/_kit/kit.js";
+
+// holds-text.ts
+function copyRow(c) {
+  const label = c.machine || "GitHub";
+  if (c.absent) return [label, "not there"];
+  const parts = [];
+  if (c.path) parts.push(c.path);
+  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
+  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
+  if (c.head) parts.push("checked out in the clone");
+  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
+  return [label, parts.join(" · ")];
+}
+function choiceTags(kind, disposition) {
+  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
+    return ["permanent"];
+  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
+    return ["github-undo"];
+  return [];
+}
+
+// item.ts
 var BODY_CAP = 600;
 function fmtDate(s) {
   if (!s) return "—";
@@ -3790,6 +3812,7 @@ function renderDecideRow(ctx, detail, hooks) {
   const it = detail.item;
   const section = h5("section", { class: "cb-decide", role: "group" });
   const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  const tag = (kind, text) => h5("span", { class: `cb-tag cb-tag-${kind}` }, text);
   const cards = renderChoices(ctx, it.kind, {
     recommended: pending?.disposition,
     chosen: it.decision?.disposition,
@@ -3797,11 +3820,36 @@ function renderDecideRow(ctx, detail, hooks) {
     onPick(d, until, note) {
       hooks.decide?.(d, until, note);
     },
-    onCards() {
+    onCards(grid) {
+      const tagged = [];
+      for (const card6 of grid.querySelectorAll(
+        ".cb-choice[data-d]"
+      )) {
+        const kinds = choiceTags(it.kind, card6.dataset.d ?? "");
+        if (!kinds.length) continue;
+        tagged.push(
+          h5(
+            "span",
+            { class: "cb-choice-tagged" },
+            card6.querySelector(".cb-choice-label")?.textContent ?? "",
+            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
+          )
+        );
+      }
+      if (tagged.length) tagsLine.replaceChildren(...tagged);
+      tagsLine.hidden = !tagged.length;
       hooks.cardsReady?.();
     }
   });
+  const tagsLine = h5("p", { class: "cb-choice-tags", hidden: true });
   cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
+  cards.querySelector(".cb-choices")?.after(tagsLine);
+  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
+    tag(
+      "posts",
+      `posts a public comment${it.public ? " · on a public repo" : ""}`
+    )
+  );
   section.append(cards);
   void getVocab(ctx).then((vocab2) => {
     const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
@@ -3834,6 +3882,46 @@ function renderRec(ctx, detail, hooks) {
     );
   });
   return el2;
+}
+function renderHolds(detail) {
+  const holds = detail.item.holds ?? [];
+  if (!holds.length) return null;
+  return h5(
+    "section",
+    { class: "cb-hold" },
+    h5("p", { class: "cb-hold-who" }, "in the way"),
+    ...holds.flatMap((hd) => [
+      h5(
+        "p",
+        { class: "cb-hold-line" },
+        hd.text,
+        hd.by ? h5(
+          "a",
+          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+          keyWithoutKind(hd.by)
+        ) : null
+      ),
+      hd.fix ? h5("p", { class: "cb-hold-sub" }, hd.fix) : null
+    ])
+  );
+}
+function renderWhere(detail) {
+  const copies = detail.item.copies ?? [];
+  if (!copies.length) return null;
+  return h5(
+    "section",
+    { class: "cb-where" },
+    h5("h3", { class: "kit-label" }, "where it is"),
+    ...copies.map((c) => {
+      const [label, text] = copyRow(c);
+      return h5(
+        "div",
+        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
+        h5("span", { class: "cb-wm" }, label),
+        h5("span", null, text)
+      );
+    })
+  );
 }
 function cameBack(vocab2, it) {
   const status = vocab2.came_back?.[it.status ?? ""];
@@ -3886,6 +3974,8 @@ function renderItem(ctx, detail, hooks = {}) {
     "div",
     { class: "cb-reading" },
     h5("p", { class: "cb-looking", hidden: !looking }, looking),
+    renderHolds(detail),
+    renderWhere(detail),
     renderRec(ctx, detail, hooks)
   );
   if (it.body) {

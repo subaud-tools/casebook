@@ -2052,6 +2052,65 @@ code.cb-cmd {
 .cb-tag-github-undo {
   color: var(--kit-muted);
 }
+/* The item page: what a decision button can't undo, under the row. */
+.cb-choice-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--kit-muted);
+}
+.cb-choice-tags[hidden] {
+  display: none;
+}
+.cb-close-comment .cb-tag {
+  align-self: center;
+}
+
+/* The item page: what is in the way (amber edge), then where it is. */
+.cb-hold {
+  margin: 0 0 22px;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid var(--kit-agent);
+}
+.cb-hold-who {
+  margin: 0 0 4px;
+  font: 12px var(--kit-mono);
+  color: var(--kit-agent);
+}
+.cb-hold-line {
+  margin: 0;
+  color: var(--kit-fg);
+}
+.cb-hold-line .cb-link {
+  margin-left: 6px;
+}
+.cb-hold-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--kit-muted);
+}
+.cb-where {
+  margin: 0 0 22px;
+}
+.cb-wrow {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 12px;
+  padding: 3px 0;
+  font: 13px var(--kit-mono);
+  color: var(--kit-fg);
+}
+.cb-wrow > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cb-wm,
+.cb-wno span:last-child {
+  color: var(--kit-muted);
+}
+
 /* A plan group's heading wraps its tags, never cuts them off. */
 .cb-plan .cb-group-label {
   white-space: normal;

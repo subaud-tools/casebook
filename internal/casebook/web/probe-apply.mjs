@@ -1032,6 +1032,22 @@ async function holdsScenario(context, t, s) {
       'ticking two groups makes one review: "review \u00b7 2 groups ticked", an "undo on GitHub" tag in its summary',
       combined,
     );
+
+    await pg.goto(s.url + '#/decide/' + T11_PR, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const inTheWay = await until(
+      pg,
+      () =>
+        document.querySelector('.cb-hold-who')?.textContent === 'in the way' &&
+        (document.querySelector('.cb-hold-line')?.textContent ?? '').includes(
+          'is archived',
+        ),
+      null,
+      8000,
+    );
+    check('the item page says what is in the way', inTheWay);
   } finally {
     await pg.close();
   }
