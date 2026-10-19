@@ -733,6 +733,12 @@ func (s *Server) postAccept(w http.ResponseWriter, r *http.Request) {
 	made := map[string]Committed{}
 	prevs := map[string]*Committed{}
 	var keys []string
+	// What was decided, announced once per decision and recommender after
+	// the loop (Court, 2026-10-18: one event per item made a group's press
+	// redraw the page once per item).
+	type made1 struct{ disposition, source string }
+	var order []made1
+	decidedBy := map[made1][]string{}
 	for _, id := range in.IDs {
 		p, err := s.Props.Get(ctx, id)
 		if err == nil {
@@ -754,13 +760,20 @@ func (s *Server) postAccept(w http.ResponseWriter, r *http.Request) {
 		made[normed] = c
 		prevs[normed] = prev
 		_ = s.Props.Settle(ctx, id, propose.Accepted, "")
-		s.publish(ctx, "decided", map[string]any{
-			"keys":        []string{normed},
-			"disposition": p.Disposition,
-			"by":          by,
-			"proposed_by": p.Source,
-		})
+		m := made1{p.Disposition, p.Source}
+		if decidedBy[m] == nil {
+			order = append(order, m)
+		}
+		decidedBy[m] = append(decidedBy[m], normed)
 		total++
+	}
+	for _, m := range order {
+		s.publish(ctx, "decided", map[string]any{
+			"keys":        decidedBy[m],
+			"disposition": m.disposition,
+			"by":          by,
+			"proposed_by": m.source,
+		})
 	}
 	errs = s.finishDecides(ctx, total, errs)
 	s.publish(ctx, "proposals", map[string]any{"ids": in.IDs, "keys": nonNil(keys), "state": propose.Accepted})
