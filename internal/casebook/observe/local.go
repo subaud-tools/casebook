@@ -183,7 +183,7 @@ func inspect(ctx context.Context, dir string) (Clone, error) {
 		c.Branches = append(c.Branches, b)
 	}
 	sort.Slice(c.Branches, func(i, j int) bool { return c.Branches[i].Name < c.Branches[j].Name })
-	c.Worktrees = worktrees(ctx, dir)
+	c.Head, c.Worktrees = worktrees(ctx, dir)
 	return c, nil
 }
 
@@ -206,14 +206,20 @@ func identity(remotes map[string]string) string {
 	return ""
 }
 
-func worktrees(ctx context.Context, dir string) []Worktree {
+// worktrees lists dir's linked worktrees, and head, the branch checked out in
+// the main worktree ("" when detached or bare).
+func worktrees(ctx context.Context, dir string) (head string, wts []Worktree) {
 	out, err := gitx.Run(ctx, dir, "worktree", "list", "--porcelain")
 	if err != nil {
-		return nil
+		return "", nil
 	}
-	var wts []Worktree
 	for i, block := range strings.Split(out, "\n\n") {
 		if i == 0 { // the main worktree, or the bare repo itself
+			for _, line := range strings.Split(block, "\n") {
+				if v, ok := strings.CutPrefix(line, "branch "); ok {
+					head = strings.TrimPrefix(v, "refs/heads/")
+				}
+			}
 			continue
 		}
 		var w Worktree
@@ -242,7 +248,7 @@ func worktrees(ctx context.Context, dir string) []Worktree {
 		wts = append(wts, w)
 	}
 	sort.Slice(wts, func(i, j int) bool { return wts[i].Path < wts[j].Path })
-	return wts
+	return head, wts
 }
 
 // EncodeSnapshot renders s deterministically (map keys sorted by

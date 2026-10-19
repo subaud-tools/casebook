@@ -23,7 +23,7 @@ const ownerQuery = `query($login: String!, $after: String) {
         latestRelease { publishedAt }
         pullRequests(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage }
-          nodes { number title url state isDraft createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } comments(last: 1) { nodes { author { login __typename } createdAt } } }
+          nodes { number title url state isDraft mergeStateStatus headRefName createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } comments(last: 1) { nodes { author { login __typename } createdAt } } }
         }
         issues(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage }
@@ -37,7 +37,7 @@ const ownerQuery = `query($login: String!, $after: String) {
 const searchQuery = `query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { number title url state isDraft createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } repository { nameWithOwner } comments(last: 1) { nodes { author { login __typename } createdAt } } } }
+    nodes { ... on PullRequest { number title url state isDraft mergeStateStatus headRefName createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } repository { nameWithOwner } comments(last: 1) { nodes { author { login __typename } createdAt } } } }
   }
 }`
 
@@ -58,16 +58,18 @@ type loginNode struct {
 }
 
 type gqlPR struct {
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	URL       string     `json:"url"`
-	State     string     `json:"state"`
-	IsDraft   bool       `json:"isDraft"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
-	Author    *loginNode `json:"author"`
-	BodyText  string     `json:"bodyText"`
-	Labels    struct {
+	Number     int        `json:"number"`
+	Title      string     `json:"title"`
+	URL        string     `json:"url"`
+	State      string     `json:"state"`
+	IsDraft    bool       `json:"isDraft"`
+	MergeState string     `json:"mergeStateStatus"`
+	HeadRef    string     `json:"headRefName"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	Author     *loginNode `json:"author"`
+	BodyText   string     `json:"bodyText"`
+	Labels     struct {
 		Nodes []struct {
 			Name string `json:"name"`
 		} `json:"nodes"`
@@ -354,7 +356,7 @@ func toRepo(n gqlRepo) RepoObs {
 
 func toPR(n gqlPR, repo string) PRObs {
 	p := PRObs{Repo: repo, Number: n.Number, Title: n.Title, State: n.State, Draft: n.IsDraft,
-		CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt, URL: n.URL, Author: "ghost"}
+		MergeState: n.MergeState, HeadRef: n.HeadRef, CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt, URL: n.URL, Author: "ghost"}
 	if n.Author != nil {
 		p.Author = n.Author.Login
 		p.AuthorIsBot = n.Author.TypeName == "Bot"
@@ -417,7 +419,7 @@ func lookupRefs(ctx context.Context, r Runner, g *GitHub, keys []item.Key, now t
 			case item.KindBranch:
 				vars = append(vars, fmt.Sprintf("$b%d: String!", i))
 				args = append(args, "-f", fmt.Sprintf("b%d=refs/heads/%s", i, k.Branch))
-				sel = fmt.Sprintf("ref(qualifiedName: $b%d) { name }", i)
+				sel = fmt.Sprintf("id ref(qualifiedName: $b%d) { name target { oid } }", i)
 			}
 			body = append(body, fmt.Sprintf("k%d: repository(owner: $o%d, name: $n%d) { %s }", i, i, i, sel))
 		}
@@ -475,6 +477,7 @@ func parseRef(k item.Key, raw json.RawMessage, errs []gqlError) (Ref, bool) {
 		return Ref{}, false
 	}
 	var v struct {
+		ID            string    `json:"id"`
 		IsArchived    bool      `json:"isArchived"`
 		PushedAt      time.Time `json:"pushedAt"`
 		LatestRelease *struct {
@@ -489,7 +492,10 @@ func parseRef(k item.Key, raw json.RawMessage, errs []gqlError) (Ref, bool) {
 			UpdatedAt time.Time `json:"updatedAt"`
 		} `json:"issue"`
 		Ref *struct {
-			Name string `json:"name"`
+			Name   string `json:"name"`
+			Target *struct {
+				Oid string `json:"oid"`
+			} `json:"target"`
 		} `json:"ref"`
 	}
 	if json.Unmarshal(raw, &v) != nil {
@@ -513,7 +519,14 @@ func parseRef(k item.Key, raw json.RawMessage, errs []gqlError) (Ref, bool) {
 		}
 		return Ref{Exists: true, State: v.Issue.State, UpdatedAt: v.Issue.UpdatedAt}, true
 	case item.KindBranch:
-		return Ref{Exists: v.Ref != nil}, true
+		if v.Ref == nil {
+			return Ref{Exists: false}, true
+		}
+		r := Ref{Exists: true, RepoID: v.ID}
+		if v.Ref.Target != nil {
+			r.Tip = v.Ref.Target.Oid
+		}
+		return r, true
 	}
 	return Ref{}, false
 }
