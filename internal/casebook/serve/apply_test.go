@@ -288,8 +288,8 @@ func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
 	gh := &okGh{}
 	r.App.Gh = gh
 	tip := "1111111111111111111111111111111111111111"
-	del := "gh api graphql -f query='mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='" + tip + "' -f a='0000000000000000000000000000000000000000'"
-	restore := "gh api graphql -f query='mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='0000000000000000000000000000000000000000' -f a='" + tip + "'"
+	del := "gh api graphql -f query='mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='" + tip + "' -f a='0000000000000000000000000000000000000000'"
+	restore := "gh api graphql -f query='mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}' -f r='R_1' -f n='refs/heads/feat/x' -f b='0000000000000000000000000000000000000000' -f a='" + tip + "'"
 	job, err := r.s.Apply.Create(ctx, apply.Plan{BuiltAt: time.Now(), Steps: []apply.Step{{
 		Key: "branch:schuettc/hail@feat/x", Action: "branch-delete-remote", Lane: apply.LaneCasebook, Command: del, ExpectedTip: tip,
 	}}}, "mbp")
@@ -312,7 +312,7 @@ func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
 	if code := r.do(t, "POST", "/api/jobs/undo", map[string]any{"step": step.ID}, &out); code != 200 {
 		t.Fatalf("undo: %d", code)
 	}
-	want := "api graphql -f query=mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}} -f r=R_1 -f n=refs/heads/feat/x -f b=0000000000000000000000000000000000000000 -f a=" + tip
+	want := "api graphql -f query=mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}} -f r=R_1 -f n=refs/heads/feat/x -f b=0000000000000000000000000000000000000000 -f a=" + tip
 	if len(gh.calls) != 1 || gh.calls[0] != want {
 		t.Fatalf("gh calls %q, want %q", gh.calls, want)
 	}
