@@ -21,17 +21,34 @@ func branchDeleteLocalCmd(clonePath, branch, tip string) string {
 		shellQuote(clonePath), shellQuote("refs/heads/"+branch), tip)
 }
 
-// branchDeleteRemoteCmd renders the exact compare-and-delete command for a
-// remote branch: --force-with-lease pins the expected tip so the remote refuses
-// the delete if the branch moved since the snapshot recorded it. --no-verify
-// skips the repo's pre-push hooks: they check code being pushed, and a delete
-// pushes none (a lefthook pre-push failed every delete in one repo).
-func branchDeleteRemoteCmd(clonePath, remote, branch, tip string) string {
-	return fmt.Sprintf("git -C %s push --no-verify %s %s %s",
-		shellQuote(clonePath),
-		shellQuote("--force-with-lease=refs/heads/"+branch+":"+tip),
-		shellQuote(remote),
-		shellQuote(":refs/heads/"+branch))
+// updateRefsMutation is GitHub's atomic ref update: it refuses unless each
+// ref is still at beforeOid. An all-zero afterOid deletes the ref; an
+// all-zero beforeOid means the ref must not exist (a create).
+const updateRefsMutation = `mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}`
+
+// zeroOid is git's all-zero object id: "no ref" in an updateRefs.
+const zeroOid = "0000000000000000000000000000000000000000"
+
+// branchDeleteGitHubCmd renders the exact command that deletes a branch on
+// GitHub through its API, from either Mac: GitHub refuses it unless the
+// branch is still at tip.
+func branchDeleteGitHubCmd(repoID, branch, tip string) string {
+	return updateRefsCmd(repoID, branch, tip, zeroOid)
+}
+
+// branchRestoreGitHubCmd renders the undo of branchDeleteGitHubCmd: it makes
+// the branch on GitHub again at tip, and GitHub refuses it if the branch
+// exists.
+func branchRestoreGitHubCmd(repoID, branch, tip string) string {
+	return updateRefsCmd(repoID, branch, zeroOid, tip)
+}
+
+func updateRefsCmd(repoID, branch, before, after string) string {
+	return "gh api graphql -f query=" + shellQuote(updateRefsMutation) +
+		" -f r=" + shellQuote(repoID) +
+		" -f n=" + shellQuote("refs/heads/"+branch) +
+		" -f b=" + shellQuote(before) +
+		" -f a=" + shellQuote(after)
 }
 
 // worktreeRemoveCmd renders the exact command to remove a linked worktree.

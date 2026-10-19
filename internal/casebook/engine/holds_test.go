@@ -184,7 +184,7 @@ func TestCopiesSayWhereItIs(t *testing.T) {
 	want := []Copy{
 		{Machine: "pro-2", Absent: true},
 		{Machine: "work", Path: "/r", Tip: "e46d896", Worktree: "/r/.worktrees/faqux"},
-		{Tip: "e46d896", Landed: "merged #107"},
+		{Tip: "e46d896", Landed: "merged #107", RepoID: "R_1"},
 	}
 	if !reflect.DeepEqual(it.Copies, want) {
 		t.Errorf("copies %+v\nwant %+v", it.Copies, want)

@@ -3,9 +3,12 @@ package apply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,7 +42,7 @@ type Env struct {
 //
 //   - OK: the precondition holds; the step may run.
 //   - Done: the target state is already reached (the branch is already gone,
-//     the remote branch is already absent, the worktree path no longer
+//     GitHub no longer has the branch, the worktree path no longer
 //     exists). The step is verified, not skipped, and no command runs.
 //   - neither OK nor Done: the precondition failed; Reason explains it and the
 //     item returns to Attention.
@@ -64,8 +67,8 @@ func Check(ctx context.Context, step JobStep, env Env) (Checked, error) {
 		return Checked{OK: true}, nil
 	case "branch-tip-unchanged-and-landed":
 		return checkBranchLocal(ctx, step, env)
-	case "remote-tip-unchanged-and-landed":
-		return checkBranchRemote(ctx, step, env)
+	case PreconditionGitHubTip:
+		return checkBranchGitHub(ctx, step, env)
 	case "worktree-clean":
 		return checkWorktreeClean(ctx, step, env)
 	case "pr-no-new-activity":
@@ -153,44 +156,88 @@ func longLived(env Env, key, branch string) string {
 	return ""
 }
 
-// checkBranchRemote implements remote-tip-unchanged-and-landed: the remote's
-// live tip (read with ls-remote) is landed, and equals ExpectedTip when that is
-// set. An already-absent remote branch is already done.
-func checkBranchRemote(ctx context.Context, step JobStep, env Env) (Checked, error) {
-	dir, remote, branch, err := parseRemoteDelete(step.Command)
+// PreconditionGitHubTip is the GitHub delete's precondition: read on GitHub
+// now, the branch is not long-lived, is still at the expected commit, has
+// landed, and heads no open PR.
+const PreconditionGitHubTip = "github-tip-unchanged-and-landed"
+
+// checkBranchGitHub implements PreconditionGitHubTip with GitHub's REST API,
+// so it needs no clone. A branch GitHub no longer has is already done.
+func checkBranchGitHub(ctx context.Context, step JobStep, env Env) (Checked, error) {
+	_, branch, _, err := parseGitHubDelete(step.Command)
 	if err != nil {
 		return Checked{}, err
 	}
-	if reason := longLived(env, step.Key, branch); reason != "" {
-		return Checked{Reason: reason}, nil
-	}
-	if _, err := os.Stat(dir); err != nil {
-		return Checked{Reason: "clone missing: " + dir}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
-	}
-	out, err := env.RunGit(ctx, dir, "ls-remote", remote, "refs/heads/"+branch)
+	k, err := item.ParseKey(step.Key)
 	if err != nil {
-		return Checked{Reason: "ls-remote failed: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		return Checked{}, err
 	}
-	out = strings.TrimSpace(out)
-	if out == "" {
-		// Another machine (or GitHub auto-delete) already removed it: done.
+	if env.Gh == nil {
+		return Checked{Reason: "no gh available"}, nil
+	}
+	repo := "repos/" + k.Owner + "/" + k.Name
+	read := func(args ...string) (string, error) {
+		out, err := env.Gh.Gh(ctx, append([]string{"api"}, args...)...)
+		return strings.TrimSpace(string(out)), err
+	}
+	def, err := read(repo, "--jq", ".default_branch")
+	if err != nil {
+		return Checked{Reason: "cannot read the repo on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	}
+	if observe.LongLived(branch, def) {
+		return Checked{Reason: branch + " is a long-lived branch: casebook never deletes it"}, nil
+	}
+	sha, err := read(repo+"/git/ref/heads/"+escapeRef(branch), "--jq", ".object.sha")
+	if notFound(err) {
 		return Checked{Done: true}, nil
 	}
-	liveTip := strings.Fields(out)[0]
-	if step.ExpectedTip != "" && liveTip != step.ExpectedTip {
-		return Checked{Reason: fmt.Sprintf("remote tip moved: have %s, expected %s", short(liveTip), short(step.ExpectedTip))}, nil
+	if err != nil {
+		return Checked{Reason: "cannot read the branch on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
-	// Make sure the object is local before the landed check; fetch it if not.
-	if _, err := env.RunGit(ctx, dir, "cat-file", "-e", liveTip); err != nil {
-		if _, err := env.RunGit(ctx, dir, "fetch", remote, "refs/heads/"+branch); err != nil {
-			return Checked{Reason: "fetch remote tip failed: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	if sha != step.ExpectedTip {
+		return Checked{Reason: fmt.Sprintf("branch on GitHub moved: have %s, expected %s", short(sha), short(step.ExpectedTip))}, nil
+	}
+	status, err := read(repo+"/compare/"+escapeRef(def)+"..."+sha, "--jq", ".status")
+	if err != nil {
+		return Checked{Reason: "cannot compare the branch on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	}
+	if status != "behind" && status != "identical" {
+		n, err := read(repo+"/commits/"+sha+"/pulls", "--jq", `[.[] | select(.merged_at != null and .head.sha == "`+sha+`")] | length`)
+		if err != nil {
+			return Checked{Reason: "cannot read the branch's pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		}
+		if c, _ := strconv.Atoi(n); c == 0 {
+			return Checked{Reason: "branch is not landed"}, nil
 		}
 	}
-	landed, reason := isLanded(ctx, env, dir, liveTip, step.Key)
-	if !landed {
-		return Checked{Reason: reason}, nil
+	open, err := read(repo+"/pulls?state=open&head="+k.Owner+":"+url.QueryEscape(branch), "--jq", "[.[].number]")
+	if err != nil {
+		return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
-	return Checked{OK: true, Tip: liveTip, Branch: branch}, nil
+	var prs []int
+	if err := json.Unmarshal([]byte(open), &prs); err != nil {
+		return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	}
+	if len(prs) > 0 {
+		return Checked{Reason: fmt.Sprintf("open PR #%d uses this branch: deleting it on GitHub closes that PR", prs[0])}, nil
+	}
+	return Checked{OK: true, Tip: sha, Branch: branch}, nil
+}
+
+// escapeRef escapes each /-separated segment of a ref for a URL path,
+// spaces as %20 and + as %2B.
+func escapeRef(ref string) string {
+	segs := strings.Split(ref, "/")
+	for i, s := range segs {
+		segs[i] = strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+	}
+	return strings.Join(segs, "/")
+}
+
+// notFound reports a gh error that is GitHub's 404.
+func notFound(err error) bool {
+	var ge *observe.GhError
+	return errors.As(err, &ge) && strings.Contains(ge.Stderr, "HTTP 404")
 }
 
 // checkWorktreeClean implements worktree-clean: git status --porcelain is empty

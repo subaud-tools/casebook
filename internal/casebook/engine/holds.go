@@ -45,6 +45,7 @@ type Copy struct {
 	Head     bool   `json:"head,omitempty"`     // checked out in the clone itself
 	Absent   bool   `json:"absent,omitempty"`   // "not there"
 	Landed   string `json:"landed,omitempty"`   // GitHub row: the item's LandedHow
+	RepoID   string `json:"-"`                  // GitHub row: the repository's GraphQL node id, for the delete
 }
 
 // Stopped reports whether a hold stops disposition d for the whole item. A
@@ -196,7 +197,7 @@ func (b *builder) copies(it *Item) []Copy {
 	}
 	gh := Copy{Landed: it.LandedHow}
 	if r, ok := b.in.GitHub.Refs[it.ID]; ok {
-		gh.Tip, gh.Absent = r.Tip, !r.Exists
+		gh.Tip, gh.Absent, gh.RepoID = r.Tip, !r.Exists, r.RepoID
 	}
 	if gh.Tip == "" && !gh.Absent {
 		gh.Tip = b.remoteTips[it.ID]
@@ -205,7 +206,7 @@ func (b *builder) copies(it *Item) []Copy {
 		gh.Absent = true
 	}
 	if gh.Absent {
-		gh.Tip = ""
+		gh.Tip, gh.RepoID = "", ""
 	}
 	return append(out, gh)
 }

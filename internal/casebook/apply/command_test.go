@@ -56,15 +56,6 @@ func TestBranchDeleteCommandIsExact(t *testing.T) {
 	}
 }
 
-func TestBranchDeleteRemoteCommandIsExact(t *testing.T) {
-	cmd := branchDeleteRemoteCmd("/Users/me/repos/myrepo", "origin", "feat/my branch", "deadbeef")
-	// Branch name has a space — the ref-bearing args must be quoted.
-	want := "git -C '/Users/me/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/my branch:deadbeef' 'origin' ':refs/heads/feat/my branch'"
-	if cmd != want {
-		t.Errorf("branchDeleteRemoteCmd =\n  %q\nwant\n  %q", cmd, want)
-	}
-}
-
 func TestWorktreeRemoveCommandIsExact(t *testing.T) {
 	cmd := worktreeRemoveCmd("/Users/me/repos/myrepo", "/Users/me/worktrees/feat-branch")
 	want := "git -C '/Users/me/repos/myrepo' worktree remove '/Users/me/worktrees/feat-branch'"

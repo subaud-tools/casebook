@@ -2,15 +2,14 @@
 // the exact shell commands for every step. It is pure: no I/O.
 //
 // Two lanes carry steps:
-//   - casebook: mechanical, local, reversible steps run by casebook itself
-//     (local branch delete, remote branch delete, worktree remove).
+//   - casebook: mechanical, reversible steps run by casebook itself
+//     (local branch delete, GitHub branch delete, worktree remove).
 //   - agent: outward or judgment steps handed to the chosen agent session
 //     (repo archive/delete, PR close/merge, issue close).
 package apply
 
 import (
 	"errors"
-	"sort"
 	"strings"
 	"time"
 
@@ -46,10 +45,10 @@ type Step struct {
 	Posts bool `json:"posts,omitempty"`
 	// ExpectedTip is the branch tip SHA we expect to see at execution time and
 	// is baked into the compare-and-delete command. For local-delete steps it is
-	// the snapshot's local branch tip for that clone; for remote-delete steps it
-	// is the snapshot's upstream remote tip (RemoteTip) for the clone used for
-	// the push. The precondition compares this against the live tip before
-	// executing, and treats an already-absent remote branch as done.
+	// the snapshot's local branch tip for that clone; for GitHub-delete steps it
+	// is the branch's commit on GitHub. The precondition compares this against
+	// the live tip before executing, and treats an already-absent branch as
+	// done.
 	ExpectedTip string `json:"expected_tip,omitempty"`
 }
 
@@ -80,7 +79,7 @@ func UndoNote(action string) string {
 	case "branch-delete-local":
 		return "Can be undone: undo makes the branch again at the same commit."
 	case "branch-delete-remote":
-		return "Can be undone: undo pushes the branch back at the same commit."
+		return "Can be undone: undo makes the branch on GitHub again at the same commit."
 	case "worktree-remove":
 		return "Can be undone: undo adds the worktree back on its branch."
 	case "repo-archive":
@@ -145,12 +144,8 @@ func (p Plan) Groups() []Group {
 // Machine scope:
 //   - local steps (branch delete, worktree remove) are generated only for
 //     locations on snap.Machine;
-//   - remote and GitHub steps run once, from whichever machine applies them;
-//   - for remote branch delete, the remote name is the entry in Clone.Remotes
-//     whose value equals the item's repo (case-insensitive); the first clone
-//     (stable sort order) that has such a remote provides the working directory;
-//     if no clone on this machine has a matching remote, no remote delete step
-//     is generated.
+//   - GitHub steps (a branch's GitHub copy included) run once, from
+//     whichever machine applies them.
 func Build(items []engine.Item, snap observe.Snapshot, now, builtAt time.Time, syncInterval time.Duration) (Plan, error) {
 	if now.Sub(builtAt) > syncInterval {
 		return Plan{}, ErrStale
@@ -212,36 +207,6 @@ func (sl snapLookup) branch(clonePath, branchName string) (observe.Branch, bool)
 	return observe.Branch{}, false
 }
 
-// identityRemote returns the remote name and clone for the first clone (by
-// stable sorted order) on this machine that has a remote pointing to repo
-// (case-insensitive). Returns "", observe.Clone{} if none found.
-func (sl snapLookup) identityRemote(clonePaths []string, repo string) (remoteName string, clone observe.Clone) {
-	repoLower := strings.ToLower(repo)
-	// clonePaths come from machineClones which preserves item.Locations order;
-	// sort for stable deterministic selection.
-	sorted := make([]string, len(clonePaths))
-	copy(sorted, clonePaths)
-	sort.Strings(sorted)
-	for _, p := range sorted {
-		c, ok := sl.cloneByPath[p]
-		if !ok {
-			continue
-		}
-		// Sort remote names for determinism within one clone.
-		names := make([]string, 0, len(c.Remotes))
-		for n := range c.Remotes {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			if strings.ToLower(c.Remotes[n]) == repoLower {
-				return n, c
-			}
-		}
-	}
-	return "", observe.Clone{}
-}
-
 // stepsForItem dispatches to the kind-specific builder.
 func stepsForItem(it engine.Item, machine string, sl snapLookup) []Step {
 	switch it.Kind {
@@ -278,16 +243,12 @@ func machineClones(it engine.Item, machine string) []string {
 // snapshot's branch tip for that clone (precondition:
 // branch-tip-unchanged-and-landed).
 //
-// Remote delete: one step from the first clone (stable order) that has a
-// remote whose Remotes value equals the item's repo (case-insensitive). The
-// remote name comes from that Remotes entry. The remote step is planned only
-// when the snapshot recorded the clone's upstream remote tip (RemoteTip): a
-// non-empty RemoteTip means an upstream exists and is not gone. ExpectedTip is
-// that RemoteTip, baked into the force-with-lease push so the remote refuses a
-// moved branch; the precondition (remote-tip-unchanged-and-landed) reads the
-// remote's tip live, requires it to equal ExpectedTip, and requires that commit
-// to be landed. Omitted when no clone on this machine has a matching remote, or
-// the branch has no live upstream.
+// GitHub delete: one step from the item's GitHub copy (engine.Item.GitHubCopy),
+// through GitHub's API, so it needs no clone and runs from either Mac.
+// ExpectedTip is the copy's commit, baked into the updateRefs so GitHub
+// refuses a moved branch; the precondition (PreconditionGitHubTip) reads
+// GitHub again before it runs. Omitted when no GitHub copy is known or it
+// wasn't looked up (no repository id).
 func branchSteps(it engine.Item, machine string, sl snapLookup) []Step {
 	if it.Decision.Disposition != item.Delete {
 		return nil
@@ -321,23 +282,15 @@ func branchSteps(it engine.Item, machine string, sl snapLookup) []Step {
 		})
 	}
 
-	// Remote delete: once, from the first clone that has a matching remote, and
-	// only when the snapshot recorded that clone's upstream remote tip
-	// (RemoteTip). An empty RemoteTip means there is no upstream or it is gone,
-	// so no remote step is planned. The recorded tip is the force-with-lease
-	// expected tip, so the push refuses a moved remote branch.
-	remoteName, remoteClone := sl.identityRemote(localClones, it.Key.Repo())
-	if remoteName != "" {
-		if b, ok := sl.branch(remoteClone.Path, branch); ok && b.RemoteTip != "" {
-			steps = append(steps, Step{
-				Key:          it.ID,
-				Action:       "branch-delete-remote",
-				Lane:         LaneCasebook,
-				Command:      branchDeleteRemoteCmd(remoteClone.Path, remoteName, branch, b.RemoteTip),
-				Precondition: "remote-tip-unchanged-and-landed",
-				ExpectedTip:  b.RemoteTip,
-			})
-		}
+	if c, ok := it.GitHubCopy(); ok && c.RepoID != "" {
+		steps = append(steps, Step{
+			Key:          it.ID,
+			Action:       "branch-delete-remote",
+			Lane:         LaneCasebook,
+			Command:      branchDeleteGitHubCmd(c.RepoID, branch, c.Tip),
+			Precondition: PreconditionGitHubTip,
+			ExpectedTip:  c.Tip,
+		})
 	}
 
 	return steps

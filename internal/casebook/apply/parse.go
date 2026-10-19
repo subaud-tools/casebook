@@ -89,26 +89,51 @@ func parseLocalDelete(cmd string) (dir, branch string, err error) {
 	return d, strings.TrimPrefix(ref, "refs/heads/"), nil
 }
 
-// parseRemoteDelete parses the compare-and-delete remote command
-// "git -C <dir> push [--no-verify] --force-with-lease=refs/heads/<branch>:<tip> <remote> :refs/heads/<branch>"
-// (jobs made before 0.16.2 have no --no-verify).
-func parseRemoteDelete(cmd string) (dir, remote, branch string, err error) {
-	d, args, err := gitCommand(cmd)
+// ghCommand parses a "gh <args...>" command into the arguments for gh.
+func ghCommand(cmd string) ([]string, error) {
+	w, err := ShellSplit(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if len(w) < 2 || w[0] != "gh" {
+		return nil, fmt.Errorf("not a gh command: %q", cmd)
+	}
+	return w[1:], nil
+}
+
+// parseUpdateRefs parses an updateRefsCmd into its variables.
+func parseUpdateRefs(cmd string) (repoID, branch, before, after string, err error) {
+	args, err := ghCommand(cmd)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if len(args) != 12 || args[0] != "api" || args[1] != "graphql" || args[2] != "-f" || args[3] != "query="+updateRefsMutation {
+		return "", "", "", "", fmt.Errorf("not an updateRefs command: %q", cmd)
+	}
+	var vals []string
+	for i, name := range []string{"r=", "n=refs/heads/", "b=", "a="} {
+		flag, v := args[4+2*i], args[5+2*i]
+		if flag != "-f" || !strings.HasPrefix(v, name) {
+			return "", "", "", "", fmt.Errorf("not an updateRefs command: %q", cmd)
+		}
+		vals = append(vals, strings.TrimPrefix(v, name))
+	}
+	if vals[1] == "" {
+		return "", "", "", "", fmt.Errorf("no branch in %q", cmd)
+	}
+	return vals[0], vals[1], vals[2], vals[3], nil
+}
+
+// parseGitHubDelete parses branchDeleteGitHubCmd.
+func parseGitHubDelete(cmd string) (repoID, branch, tip string, err error) {
+	repoID, branch, tip, after, err := parseUpdateRefs(cmd)
 	if err != nil {
 		return "", "", "", err
 	}
-	if len(args) == 5 && args[0] == "push" && args[1] == "--no-verify" {
-		args = append([]string{"push"}, args[2:]...)
+	if after != zeroOid || tip == zeroOid {
+		return "", "", "", fmt.Errorf("not a GitHub branch delete: %q", cmd)
 	}
-	if len(args) != 4 || args[0] != "push" || !strings.HasPrefix(args[1], "--force-with-lease=refs/heads/") {
-		return "", "", "", fmt.Errorf("not a remote-delete command: %q", cmd)
-	}
-	lease := strings.TrimPrefix(args[1], "--force-with-lease=refs/heads/")
-	b, _, ok := strings.Cut(lease, ":")
-	if !ok {
-		return "", "", "", fmt.Errorf("malformed force-with-lease: %q", args[1])
-	}
-	return d, args[2], b, nil
+	return repoID, branch, tip, nil
 }
 
 // parseWorktreeRemove parses "git -C <dir> worktree remove <path>".

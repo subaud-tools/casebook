@@ -702,9 +702,10 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 		s.wake(job.Session)
 		sent = true
 	} else {
-		// Casebook-lane git restore: run locally via the runner's RunGit.
-		// If the restore fails, release the claim so Court can retry.
-		if err := runRestoreCommand(ctx, step.Restore, runGit); err != nil {
+		// Casebook-lane restore: a git restore runs locally via the runner's
+		// RunGit, a GitHub one through gh. If the restore fails, release the
+		// claim so Court can retry.
+		if err := runRestoreCommand(ctx, step.Restore, runGit, s.App.Gh); err != nil {
 			releaseUndo("restore failed: " + err.Error())
 			reply(w, nil, bad("restore command failed: %v", err))
 			return
@@ -716,10 +717,21 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	reply(w, UndoResult{StepID: step.ID, Sent: sent}, nil)
 }
 
-// runRestoreCommand runs a "git -C <dir> ..." restore command locally via the
-// supplied runGit function. It only handles commands that start with "git -C "
-// (the exact format produced by RestoreFor for casebook-lane steps).
-func runRestoreCommand(ctx context.Context, restore string, runGit func(ctx context.Context, dir string, args ...string) (string, error)) error {
+// runRestoreCommand runs a casebook-lane restore command, as RestoreFor makes
+// them: a "git -C <dir> ..." one locally via the supplied runGit function, a
+// "gh ..." one (the GitHub branch recreate) through gh.
+func runRestoreCommand(ctx context.Context, restore string, runGit func(ctx context.Context, dir string, args ...string) (string, error), gh observe.Runner) error {
+	if strings.HasPrefix(restore, "gh ") {
+		words, err := apply.ShellSplit(restore)
+		if err != nil || len(words) < 2 {
+			return fmt.Errorf("could not parse restore command %q: %w", restore, err)
+		}
+		if gh == nil {
+			return fmt.Errorf("no gh available for %q", restore)
+		}
+		_, err = gh.Gh(ctx, words[1:]...)
+		return err
+	}
 	if !strings.HasPrefix(restore, "git -C ") {
 		return fmt.Errorf("unsupported restore command format: %q", restore)
 	}
