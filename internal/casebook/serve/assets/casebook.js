@@ -1978,6 +1978,30 @@ function reviewKeys(groups, open) {
 function reviewKicker(groups) {
   return groups > 1 ? `review · ${groups} groups ticked` : "review";
 }
+function waitBlocks(waits, steps) {
+  const github = new Set(
+    steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
+  );
+  const out = [];
+  for (const w of waits) {
+    const m = w.machine;
+    let text;
+    if (w.key.startsWith("worktree:"))
+      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
+    else if (github.has(w.key))
+      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
+    else
+      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
+    const block = out.find((b) => b.text === text);
+    if (block) block.waits.push(w);
+    else out.push({ text, waits: [w] });
+  }
+  return out;
+}
+var heldText = "Not run here. Each says what holds it; settle that and it joins the next run.";
+function otherHalf(key, steps) {
+  return steps.some((s) => s.key === key) ? " · its other half runs above" : "";
+}
 
 // coalesce.ts
 function coalesced(load) {
@@ -3115,11 +3139,11 @@ function makeApply(ctx) {
         )
       );
     }
-    drawWaits(doc, waits);
-    drawHeld(doc, held2);
+    drawWaits(doc, waits, steps);
+    drawHeld(doc, held2, steps);
     paint(doc);
   }
-  function drawWaits(doc, waits) {
+  function drawWaits(doc, waits, steps) {
     const byMachine = /* @__PURE__ */ new Map();
     for (const w of waits)
       byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
@@ -3130,34 +3154,32 @@ function makeApply(ctx) {
           { class: "kit-label cb-group-label cb-wait-h" },
           `Waits for ${m} · ${ws.length}`
         ),
-        h4(
-          "p",
-          { class: "cb-plan-where" },
-          `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`
-        ),
-        h4(
-          "div",
-          {
-            class: "kit-table cb-plan-group cb-waits",
-            "data-testid": "plan-waits"
-          },
-          ...ws.map(
-            (w) => h4(
-              "div",
-              { class: "kit-tr cb-plan-step" },
-              h4("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
-              h4(
-                "span",
-                { class: "cb-cmd" },
-                `on ${m}${w.path ? ` · ${w.path}` : ""}`
+        ...waitBlocks(ws, steps).flatMap((b) => [
+          h4("p", { class: "cb-plan-where" }, b.text),
+          h4(
+            "div",
+            {
+              class: "kit-table cb-plan-group cb-waits",
+              "data-testid": "plan-waits"
+            },
+            ...b.waits.map(
+              (w) => h4(
+                "div",
+                { class: "kit-tr cb-plan-step" },
+                h4("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
+                h4(
+                  "span",
+                  { class: "cb-cmd" },
+                  `on ${m}${w.path ? ` · ${w.path}` : ""}`
+                )
               )
             )
           )
-        )
+        ])
       );
     }
   }
-  function drawHeld(doc, held2) {
+  function drawHeld(doc, held2, steps) {
     if (!held2.length) return;
     doc.append(
       h4(
@@ -3165,11 +3187,7 @@ function makeApply(ctx) {
         { class: "kit-label cb-group-label cb-held-h" },
         `Held · ${held2.length}`
       ),
-      h4(
-        "p",
-        { class: "cb-plan-where" },
-        "Not in this run. Each says what holds it; settle that and it joins the next run."
-      ),
+      h4("p", { class: "cb-plan-where" }, heldText),
       h4(
         "div",
         {
@@ -3205,7 +3223,8 @@ function makeApply(ctx) {
               "span",
               { class: "cb-held-why" },
               holds.map((hd) => hd.text).join(" · "),
-              ...links.flatMap((a) => [" · ", a])
+              ...links.flatMap((a) => [" · ", a]),
+              otherHalf(x.key, steps)
             )
           );
         })

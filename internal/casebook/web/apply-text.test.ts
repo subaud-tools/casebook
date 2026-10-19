@@ -33,6 +33,9 @@ import {
   runsNow,
   reviewKicker,
   reviewKeys,
+  waitBlocks,
+  heldText,
+  otherHalf,
 } from './apply-text.ts';
 import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
@@ -577,5 +580,66 @@ describe('reviewKeys', () => {
       keys: ['c', 'd'],
       groups: 1,
     });
+  });
+});
+
+describe('waits and held wording', () => {
+  const plan = (key: string, action: string): Step => ({
+    key,
+    action,
+    lane: 'casebook',
+    command: 'c',
+  });
+  const a = { key: 'branch:o/r@a', machine: 'pro-2', path: '/p' };
+  const b = { key: 'branch:o/r@b', machine: 'pro-2', path: '/p' };
+  const w = {
+    key: 'worktree:pro-2:/p/.worktrees/x',
+    machine: 'pro-2',
+    path: '/p',
+  };
+  test('a waiting branch whose GitHub delete runs here says so', () => {
+    assert.deepEqual(waitBlocks([a], [plan(a.key, 'branch-delete-remote')]), [
+      {
+        text: 'Their local copies are only on pro-2; their GitHub copies are deleted above. They run from review the next time casebook runs there.',
+        waits: [a],
+      },
+    ]);
+  });
+  test('a waiting branch with no GitHub delete here drops that clause', () => {
+    assert.deepEqual(waitBlocks([b], [plan(a.key, 'branch-delete-remote')]), [
+      {
+        text: 'Their local copies are only on pro-2. They run from review the next time casebook runs there.',
+        waits: [b],
+      },
+    ]);
+  });
+  test('a waiting worktree is removed from review there; mixed rows split', () => {
+    const got = waitBlocks([a, w, b], [plan(a.key, 'branch-delete-remote')]);
+    assert.deepEqual(
+      got.map((x) => [x.text, x.waits.map((y) => y.key)]),
+      [
+        [
+          'Their local copies are only on pro-2; their GitHub copies are deleted above. They run from review the next time casebook runs there.',
+          [a.key],
+        ],
+        [
+          'They are only on pro-2. They are removed from review the next time casebook runs there.',
+          [w.key],
+        ],
+        [
+          'Their local copies are only on pro-2. They run from review the next time casebook runs there.',
+          [b.key],
+        ],
+      ],
+    );
+  });
+  test('held text and the other half', () => {
+    assert.equal(
+      heldText,
+      'Not run here. Each says what holds it; settle that and it joins the next run.',
+    );
+    const steps = [plan(a.key, 'branch-delete-local')];
+    assert.equal(otherHalf(a.key, steps), ' \u00b7 its other half runs above');
+    assert.equal(otherHalf(b.key, steps), '');
   });
 });

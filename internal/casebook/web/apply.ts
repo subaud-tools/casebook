@@ -99,6 +99,9 @@ import {
   publicLine,
   reviewKicker,
   reviewKeys as chooseReviewKeys,
+  waitBlocks,
+  heldText,
+  otherHalf,
   runsNow,
   stepTags,
   tagText,
@@ -1531,14 +1534,18 @@ export function makeApply(ctx: Ctx): Section {
         ),
       );
     }
-    drawWaits(doc, waits);
-    drawHeld(doc, held);
+    drawWaits(doc, waits, steps);
+    drawHeld(doc, held, steps);
     paint(doc);
   }
 
   // drawWaits lists, per Mac, the items whose local copy is only there:
   // they run from review on that Mac.
-  function drawWaits(doc: HTMLElement, waits: Waiting[]): void {
+  function drawWaits(
+    doc: HTMLElement,
+    waits: Waiting[],
+    steps: Pick<Step, 'key' | 'action'>[],
+  ): void {
     const byMachine = new Map<string, Waiting[]>();
     for (const w of waits)
       byMachine.set(w.machine, [...(byMachine.get(w.machine) ?? []), w]);
@@ -1549,37 +1556,39 @@ export function makeApply(ctx: Ctx): Section {
           { class: 'kit-label cb-group-label cb-wait-h' },
           `Waits for ${m} \u00b7 ${ws.length}`,
         ),
-        h(
-          'p',
-          { class: 'cb-plan-where' },
-          `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`,
-        ),
-        h(
-          'div',
-          {
-            class: 'kit-table cb-plan-group cb-waits',
-            'data-testid': 'plan-waits',
-          },
-          ...ws.map((w) =>
-            h(
-              'div',
-              { class: 'kit-tr cb-plan-step' },
-              h('span', { class: 'cb-step-k' }, keyWithoutKind(w.key)),
+        ...waitBlocks(ws, steps).flatMap((b) => [
+          h('p', { class: 'cb-plan-where' }, b.text),
+          h(
+            'div',
+            {
+              class: 'kit-table cb-plan-group cb-waits',
+              'data-testid': 'plan-waits',
+            },
+            ...b.waits.map((w) =>
               h(
-                'span',
-                { class: 'cb-cmd' },
-                `on ${m}${w.path ? ` \u00b7 ${w.path}` : ''}`,
+                'div',
+                { class: 'kit-tr cb-plan-step' },
+                h('span', { class: 'cb-step-k' }, keyWithoutKind(w.key)),
+                h(
+                  'span',
+                  { class: 'cb-cmd' },
+                  `on ${m}${w.path ? ` \u00b7 ${w.path}` : ''}`,
+                ),
               ),
             ),
           ),
-        ),
+        ]),
       );
     }
   }
 
   // drawHeld lists the items held out of this run, each with what holds
   // it and a link to settle it.
-  function drawHeld(doc: HTMLElement, held: HeldBack[]): void {
+  function drawHeld(
+    doc: HTMLElement,
+    held: HeldBack[],
+    steps: Pick<Step, 'key'>[],
+  ): void {
     if (!held.length) return;
     doc.append(
       h(
@@ -1587,11 +1596,7 @@ export function makeApply(ctx: Ctx): Section {
         { class: 'kit-label cb-group-label cb-held-h' },
         `Held \u00b7 ${held.length}`,
       ),
-      h(
-        'p',
-        { class: 'cb-plan-where' },
-        'Not in this run. Each says what holds it; settle that and it joins the next run.',
-      ),
+      h('p', { class: 'cb-plan-where' }, heldText),
       h(
         'div',
         {
@@ -1628,6 +1633,7 @@ export function makeApply(ctx: Ctx): Section {
               { class: 'cb-held-why' },
               holds.map((hd) => hd.text).join(' \u00b7 '),
               ...links.flatMap((a) => [' \u00b7 ', a]),
+              otherHalf(x.key, steps),
             ),
           );
         }),

@@ -2,7 +2,7 @@
 // functions over serve's jobs (no kit or browser imports, so node --test can
 // load it).
 
-import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
+import type { Job, JobStep, NeedsYou, Plan, Step, Waiting } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 
 /**
@@ -553,4 +553,48 @@ export function reviewKeys(
 /** reviewKicker is review's kicker: how many groups its ticks are from. */
 export function reviewKicker(groups: number): string {
   return groups > 1 ? `review \u00b7 ${groups} groups ticked` : 'review';
+}
+
+/**
+ * waitBlocks splits the items waiting for another Mac into runs of rows
+ * that one sentence is true of, in first-seen order: a branch whose GitHub
+ * delete is among steps says its GitHub copy is deleted above, one without
+ * doesn't, and a worktree is removed from review there.
+ */
+export function waitBlocks(
+  waits: Waiting[],
+  steps: Pick<Step, 'key' | 'action'>[],
+): { text: string; waits: Waiting[] }[] {
+  const github = new Set(
+    steps.filter((s) => s.action === 'branch-delete-remote').map((s) => s.key),
+  );
+  const out: { text: string; waits: Waiting[] }[] = [];
+  for (const w of waits) {
+    const m = w.machine;
+    let text: string;
+    if (w.key.startsWith('worktree:'))
+      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
+    else if (github.has(w.key))
+      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
+    else
+      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
+    const block = out.find((b) => b.text === text);
+    if (block) block.waits.push(w);
+    else out.push({ text, waits: [w] });
+  }
+  return out;
+}
+
+/** heldText is the Held section's line. */
+export const heldText =
+  'Not run here. Each says what holds it; settle that and it joins the next run.';
+
+/**
+ * otherHalf is a held row's suffix when another step of its item runs in
+ * this plan (a branch held only on GitHub or only here).
+ */
+export function otherHalf(key: string, steps: Pick<Step, 'key'>[]): string {
+  return steps.some((s) => s.key === key)
+    ? ' \u00b7 its other half runs above'
+    : '';
 }
