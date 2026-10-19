@@ -151,7 +151,7 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 	if remote.Lane != LaneCasebook {
 		t.Errorf("Steps[1].Lane = %q, want %q", remote.Lane, LaneCasebook)
 	}
-	wantRemote := "git -C '/Users/me/repos/myrepo' push '--force-with-lease=refs/heads/feat/my-branch:tip123' 'origin' ':refs/heads/feat/my-branch'"
+	wantRemote := "git -C '/Users/me/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/my-branch:tip123' 'origin' ':refs/heads/feat/my-branch'"
 	if remote.Command != wantRemote {
 		t.Errorf("Steps[1].Command =\n  %q\nwant\n  %q", remote.Command, wantRemote)
 	}
@@ -317,7 +317,7 @@ func TestLocalStepsOnlyForThisMachine(t *testing.T) {
 	if remote.Action != "branch-delete-remote" {
 		t.Errorf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
 	}
-	wantRemote := "git -C '/Users/A/repos/myrepo' push '--force-with-lease=refs/heads/feat/shared:tipA' 'origin' ':refs/heads/feat/shared'"
+	wantRemote := "git -C '/Users/A/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/shared:tipA' 'origin' ':refs/heads/feat/shared'"
 	if remote.Command != wantRemote {
 		t.Errorf("Steps[1].Command =\n  %q\nwant\n  %q", remote.Command, wantRemote)
 	}
@@ -384,7 +384,7 @@ func TestRemoteNameFromSnapshotUpstream(t *testing.T) {
 	if remote.Action != "branch-delete-remote" {
 		t.Fatalf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
 	}
-	wantCmd := "git -C '/Users/me/repos/myrepo' push '--force-with-lease=refs/heads/feat/my-branch:abc1234deadbeef' 'upstream' ':refs/heads/feat/my-branch'"
+	wantCmd := "git -C '/Users/me/repos/myrepo' push --no-verify '--force-with-lease=refs/heads/feat/my-branch:abc1234deadbeef' 'upstream' ':refs/heads/feat/my-branch'"
 	if remote.Command != wantCmd {
 		t.Errorf("remote Command =\n  %q\nwant\n  %q", remote.Command, wantCmd)
 	}

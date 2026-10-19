@@ -90,11 +90,15 @@ func parseLocalDelete(cmd string) (dir, branch string, err error) {
 }
 
 // parseRemoteDelete parses the compare-and-delete remote command
-// "git -C <dir> push --force-with-lease=refs/heads/<branch>:<tip> <remote> :refs/heads/<branch>".
+// "git -C <dir> push [--no-verify] --force-with-lease=refs/heads/<branch>:<tip> <remote> :refs/heads/<branch>"
+// (jobs made before 0.16.2 have no --no-verify).
 func parseRemoteDelete(cmd string) (dir, remote, branch string, err error) {
 	d, args, err := gitCommand(cmd)
 	if err != nil {
 		return "", "", "", err
+	}
+	if len(args) == 5 && args[0] == "push" && args[1] == "--no-verify" {
+		args = append([]string{"push"}, args[2:]...)
 	}
 	if len(args) != 4 || args[0] != "push" || !strings.HasPrefix(args[1], "--force-with-lease=refs/heads/") {
 		return "", "", "", fmt.Errorf("not a remote-delete command: %q", cmd)

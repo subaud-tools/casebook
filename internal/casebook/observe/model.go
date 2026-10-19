@@ -132,6 +132,7 @@ type Branch struct {
 	LandedState    string    `json:"landed_state,omitempty"` // "yes" | "no" | "unknown" | "" (empty = never checked)
 	LandedTip      string    `json:"landed_tip,omitempty"`   // tip SHA; set ONLY when LandedState == "yes"
 	LandedHow      string    `json:"landed_how,omitempty"`   // "default-branch" or "merged-pr" (empty when not landed)
+	LongLived      bool      `json:"long_lived,omitempty"`   // the default branch or a named long-lived one (LongLived): never landed, never deleted
 }
 
 // Worktree is one linked worktree of a clone.

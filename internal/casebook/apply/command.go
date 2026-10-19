@@ -23,9 +23,11 @@ func branchDeleteLocalCmd(clonePath, branch, tip string) string {
 
 // branchDeleteRemoteCmd renders the exact compare-and-delete command for a
 // remote branch: --force-with-lease pins the expected tip so the remote refuses
-// the delete if the branch moved since the snapshot recorded it.
+// the delete if the branch moved since the snapshot recorded it. --no-verify
+// skips the repo's pre-push hooks: they check code being pushed, and a delete
+// pushes none (a lefthook pre-push failed every delete in one repo).
 func branchDeleteRemoteCmd(clonePath, remote, branch, tip string) string {
-	return fmt.Sprintf("git -C %s push %s %s %s",
+	return fmt.Sprintf("git -C %s push --no-verify %s %s %s",
 		shellQuote(clonePath),
 		shellQuote("--force-with-lease=refs/heads/"+branch+":"+tip),
 		shellQuote(remote),
@@ -54,9 +56,10 @@ func prCloseCmd(n int, repo, comment string) string {
 	return fmt.Sprintf("gh pr close %d -R %s", n, shellQuote(repo)) + commentFlag(comment)
 }
 
-// prMergeCmd renders the exact command to merge a pull request.
+// prMergeCmd renders the exact command to merge a pull request, as a squash:
+// gh refuses to choose a method when nobody is at the keyboard.
 func prMergeCmd(n int, repo string) string {
-	return fmt.Sprintf("gh pr merge %d -R %s", n, shellQuote(repo))
+	return fmt.Sprintf("gh pr merge %d -R %s --squash", n, shellQuote(repo))
 }
 
 // issueCloseCmd renders the exact command to close an issue, with the

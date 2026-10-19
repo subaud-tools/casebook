@@ -420,6 +420,7 @@ func TestMergedPRListUnavailableIsNotOK(t *testing.T) {
 	// feat/y has its own commit, so it is NOT an ancestor of main.
 	testgit.Git(t, clone, "switch", "-q", "-c", "feat/y")
 	tip := testgit.Commit(t, clone, "z", "z")
+	testgit.Git(t, clone, "switch", "-q", "main")
 	spy := newSpy()
 	cb := casebookRepo(t)
 	r := Runner{Repo: cb, RunGit: spy.run, Now: func() time.Time { return time.Unix(0, 0) }}
