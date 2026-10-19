@@ -46,6 +46,30 @@ func Examples() []Rule {
 			},
 			Propose: RuleAction{Disposition: "delete", Note: "a fork, not pushed in a year"},
 		},
+		{
+			// Nothing in it is lost: no changes, nothing unpushed; removing
+			// it can be undone (Court, 2026-10-18).
+			ID:   "quiet-clean-worktrees",
+			Name: "Quiet clean worktrees",
+			Match: []Condition{
+				{Field: "kind", Op: "is", Value: "worktree"},
+				{Field: "worktree", Op: "is", Value: "clean"},
+				{Field: "unpushed", Op: "is", Value: "false"},
+				{Field: "updated", Op: "older-than", Value: "3d"},
+			},
+			Propose: RuleAction{Disposition: "delete", Note: "clean, nothing unpushed, no activity for 3 days"},
+		},
+		{
+			// An org's repos can't be archived from here: stop asking.
+			ID:   "old-org-repos",
+			Name: "Org repos not pushed in a year",
+			Match: []Condition{
+				{Field: "kind", Op: "is", Value: "repo"},
+				{Field: "ownership", Op: "is", Value: "org"},
+				{Field: "updated", Op: "older-than", Value: "52w"},
+			},
+			Propose: RuleAction{Disposition: "ignore", Note: "an org's repo, not pushed in a year"},
+		},
 	}
 	for i := range out {
 		out[i].Status = StatusActive

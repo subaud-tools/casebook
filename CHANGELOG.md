@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.16.0
+
+- Two more starter rules for a new casebook-data: **Quiet clean worktrees** (no changes, nothing unpushed, no activity for 3 days: remove it; undoable) and **Org repos not pushed in a year** (stop tracking it; an org's repos can't be archived from here). An existing casebook-data keeps its rules; add these from the rule editor if you want them.
+
 ## 0.15.1
 
 - The release moves casebook.tools/dl/casebook/latest, so `casebook update`, `kempt update` and the installer find the newest version.
