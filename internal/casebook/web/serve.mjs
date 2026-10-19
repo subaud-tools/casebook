@@ -280,6 +280,18 @@ function setupHome(seedRepos = [], seedClones = []) {
     }
     writeFileSync(cachePath, JSON.stringify(cache, null, 2));
   }
+  // The seeded clones' branches were looked up on GitHub and are gone there
+  // (as when GitHub deletes a merged branch): their local copy is their
+  // only copy, so a verified local delete makes them done.
+  if (seedClones.length) {
+    const cachePath = join(home, 'state', 'github.json');
+    const cache = JSON.parse(readFileSync(cachePath, 'utf8'));
+    cache.refs ??= {};
+    for (const c of seedClones)
+      for (const b of c.branches)
+        cache.refs[`branch:schuettc/${c.name}@${b}`] = { exists: false };
+    writeFileSync(cachePath, JSON.stringify(cache, null, 2));
+  }
   // Write a minimal config.toml. casebook_repo is left blank so it defaults
   // to CASEBOOK_HOME/data/repo (the clone above).
   writeFileSync(
