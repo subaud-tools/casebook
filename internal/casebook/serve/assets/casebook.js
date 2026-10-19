@@ -1789,7 +1789,7 @@ function openCardsByJob(cards) {
 }
 function stepMark(s, next) {
   const past = PAST[s.action] ?? "done";
-  const why = (w) => s.detail ? `${w} · ${s.detail}` : w;
+  const why = (glyph, text, tone) => s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
   if (s.undone_at) return { glyph: "↺", text: "undone", tone: "muted" };
   switch (s.state) {
     case "verified":
@@ -1807,13 +1807,13 @@ function stepMark(s, next) {
         tone: s.lane === "agent" ? "agent" : "signal"
       };
     case "paused":
-      return { glyph: "‖", text: why("paused"), tone: "agent" };
+      return why("‖", "paused", "agent");
     case "needs_you":
       return { glyph: "!", text: "needs you", tone: "signal" };
     case "failed":
-      return { glyph: "✗", text: why("failed"), tone: "signal" };
+      return why("✗", "failed", "signal");
     case "skipped":
-      return { glyph: "–", text: why("skipped"), tone: "muted" };
+      return why("–", "skipped", "muted");
     default:
       return { glyph: "·", text: next ? "next" : "queued", tone: "wait" };
   }
@@ -3248,6 +3248,14 @@ function makeApply(ctx) {
     primary
   };
 }
+function stepKeyLines(key) {
+  const at2 = key.indexOf("@");
+  if (at2 < 0) return [h4("span", { class: "cb-step-k" }, key)];
+  return [
+    h4("span", { class: "cb-step-repo" }, key.slice(0, at2)),
+    h4("span", { class: "cb-step-k" }, key.slice(at2 + 1))
+  ];
+}
 function renderJob(_ctx, v, hooks) {
   const j = v.job;
   const steps = j.steps ?? [];
@@ -3302,7 +3310,7 @@ function renderJob(_ctx, v, hooks) {
             "data-key": s.key
           },
           h4("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-          h4("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
+          ...stepKeyLines(keyWithoutKind(s.key)),
           h4(
             "span",
             { class: "cb-step-w" },
@@ -3318,7 +3326,8 @@ function renderJob(_ctx, v, hooks) {
               },
               "undo"
             ) : null
-          )
+          ),
+          m.why ? h4("span", { class: "cb-step-why" }, m.why) : null
         );
       }),
       steps.length > shown.length ? h4(

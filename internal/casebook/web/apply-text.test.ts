@@ -209,12 +209,12 @@ describe('the steps table', () => {
       text: 'closed · verified',
       tone: 'ok',
     });
-    assert.equal(
+    assert.deepEqual(
       stepMark(
         step('pr-close', 'agent', 'paused', { detail: 'new comment' }),
         false,
-      ).text,
-      'paused · new comment',
+      ),
+      { glyph: '‖', text: 'paused', why: 'new comment', tone: 'agent' },
     );
     assert.equal(
       stepMark(step('pr-close', 'agent', 'paused'), false).glyph,

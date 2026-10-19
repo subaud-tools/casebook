@@ -2112,6 +2112,31 @@ textarea.cb-needs-edit:focus {
 .cb-step-t {
   color: var(--kit-muted);
 }
+/* Why a step paused, failed or was skipped, under its key; a path breaks
+   anywhere rather than widening the row. */
+.cb-step-why {
+  grid-column: 2 / -1;
+  font: 12px var(--kit-mono);
+  color: var(--kit-muted);
+  overflow-wrap: anywhere;
+}
+/* A branch step is up to three lines: the repo across the row, the branch
+   beside its state, then why it stopped. */
+.cb-step.kit-tr {
+  row-gap: 2px;
+}
+.cb-step-repo {
+  grid-column: 2 / -1;
+  font: 12px var(--kit-mono);
+  color: var(--kit-muted);
+  overflow-wrap: anywhere;
+}
+.cb-step-repo + .cb-step-k {
+  grid-column: 2;
+}
+.cb-step-repo ~ .cb-step-w {
+  grid-column: 3;
+}
 .kit-btn.cb-undo {
   padding: 0 8px;
   font-size: 11.5px;
