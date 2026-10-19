@@ -24,7 +24,7 @@ func branchDeleteLocalCmd(clonePath, branch, tip string) string {
 // updateRefsMutation is GitHub's atomic ref update: it refuses unless each
 // ref is still at beforeOid. An all-zero afterOid deletes the ref; an
 // all-zero beforeOid means the ref must not exist (a create).
-const updateRefsMutation = `mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}`
+const updateRefsMutation = `mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}`
 
 // zeroOid is git's all-zero object id: "no ref" in an updateRefs.
 const zeroOid = "0000000000000000000000000000000000000000"

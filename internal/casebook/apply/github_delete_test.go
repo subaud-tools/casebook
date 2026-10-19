@@ -83,7 +83,7 @@ func ghRunner(t *testing.T, gh observe.Runner) Runner {
 }
 
 func TestGitHubDeleteCommandIsExact(t *testing.T) {
-	want := "gh api graphql -f query='mutation($r:ID!,$n:String!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}'" +
+	want := "gh api graphql -f query='mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}}'" +
 		" -f r='R_1' -f n='refs/heads/feat/x' -f b='abc' -f a='" + zeros + "'"
 	if got := branchDeleteGitHubCmd("R_1", "feat/x", "abc"); got != want {
 		t.Fatalf("command\n  %s\nwant\n  %s", got, want)
@@ -98,6 +98,16 @@ func TestGitHubDeleteCommandIsExact(t *testing.T) {
 	args, err := ghCommand(want)
 	if err != nil || strings.Join(args, " ") != ghDeleteArgs("R_1", "feat/x", "abc") {
 		t.Fatalf("ghCommand = %q %v", args, err)
+	}
+}
+
+// GitHub's RefUpdate is name: GitRefname!, beforeOid/afterOid: GitObjectID;
+// any other variable type is refused before the mutation runs.
+func TestUpdateRefsMutationUsesGitHubsTypes(t *testing.T) {
+	for _, v := range []string{"$r:ID!", "$n:GitRefname!", "$b:GitObjectID!", "$a:GitObjectID!"} {
+		if !strings.Contains(updateRefsMutation, v) {
+			t.Errorf("mutation does not declare %s: %s", v, updateRefsMutation)
+		}
 	}
 }
 

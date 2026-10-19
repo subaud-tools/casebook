@@ -425,7 +425,7 @@ func lookupRefs(ctx context.Context, r Runner, g *GitHub, keys []item.Key, now t
 			case item.KindBranch:
 				vars = append(vars, fmt.Sprintf("$b%d: String!", i))
 				args = append(args, "-f", fmt.Sprintf("b%d=refs/heads/%s", i, k.Branch))
-				sel = fmt.Sprintf("id ref(qualifiedName: $b%d) { name target { oid } }", i)
+				sel = fmt.Sprintf("id viewerPermission ref(qualifiedName: $b%d) { name target { oid } }", i)
 			}
 			body = append(body, fmt.Sprintf("k%d: repository(owner: $o%d, name: $n%d) { %s }", i, i, i, sel))
 		}
@@ -483,10 +483,11 @@ func parseRef(k item.Key, raw json.RawMessage, errs []gqlError) (Ref, bool) {
 		return Ref{}, false
 	}
 	var v struct {
-		ID            string    `json:"id"`
-		IsArchived    bool      `json:"isArchived"`
-		PushedAt      time.Time `json:"pushedAt"`
-		LatestRelease *struct {
+		ID               string    `json:"id"`
+		ViewerPermission string    `json:"viewerPermission"`
+		IsArchived       bool      `json:"isArchived"`
+		PushedAt         time.Time `json:"pushedAt"`
+		LatestRelease    *struct {
 			PublishedAt time.Time `json:"publishedAt"`
 		} `json:"latestRelease"`
 		PullRequest *struct {
@@ -528,7 +529,7 @@ func parseRef(k item.Key, raw json.RawMessage, errs []gqlError) (Ref, bool) {
 		if v.Ref == nil {
 			return Ref{Exists: false}, true
 		}
-		r := Ref{Exists: true, RepoID: v.ID}
+		r := Ref{Exists: true, RepoID: v.ID, Permission: v.ViewerPermission}
 		if v.Ref.Target != nil {
 			r.Tip = v.Ref.Target.Oid
 		}

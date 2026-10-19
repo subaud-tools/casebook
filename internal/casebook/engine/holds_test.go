@@ -119,7 +119,8 @@ func TestHoldMergeBlocked(t *testing.T) {
 		"BEHIND":  "merge blocked: the PR is behind its base branch",
 		"BLOCKED": "merge blocked: a required check or review is missing",
 		"DIRTY":   "merge blocked: the PR has conflicts with its base branch",
-		"CLEAN":   "", "UNKNOWN": "", "UNSTABLE": "", "HAS_HOOKS": "", "DRAFT": "", "": "",
+		"UNKNOWN": "merge status not worked out by GitHub yet",
+		"CLEAN":   "", "UNSTABLE": "", "HAS_HOOKS": "", "DRAFT": "", "": "",
 	} {
 		in := holdsInput(func(in *Input, _ *observe.Clone) {
 			in.GitHub.Owners["o"].Repos[0].PRs = []observe.PRObs{{Repo: "o/r", Number: 9, State: "OPEN", MergeState: state}}
@@ -225,5 +226,68 @@ func TestCopiesGitHubFromTheSnapshotsRemoteTip(t *testing.T) {
 	}
 	if _, ok := it.GitHubCopy(); ok {
 		t.Error("GitHubCopy of an absent copy")
+	}
+}
+
+// TestHoldNoAccessStopsOnlyTheGitHubHalf: without write access GitHub
+// refuses the branch delete; the local copy can still go. An empty
+// permission (not looked up yet) holds nothing.
+func TestHoldNoAccessStopsOnlyTheGitHubHalf(t *testing.T) {
+	for perm, held := range map[string]bool{"READ": true, "TRIAGE": true, "WRITE": false, "MAINTAIN": false, "ADMIN": false, "": false} {
+		in := holdsInput(func(in *Input, _ *observe.Clone) {
+			in.GitHub.Refs[featX] = observe.Ref{Exists: true, Tip: "e46d896", RepoID: "R_1", Permission: perm}
+		})
+		it := holdsOf(t, in, featX)
+		if !held {
+			if len(it.Holds) != 0 {
+				t.Errorf("%q: holds %+v", perm, it.Holds)
+			}
+			continue
+		}
+		want := []Hold{{Kind: HoldNoAccess, Text: "you can't change branches in o/r on GitHub (your access: " + map[string]string{"READ": "read", "TRIAGE": "triage"}[perm] + ")",
+			Fix: "Its local copy can still go; for GitHub, ask for write access or decide this again.", Stops: deleteOnly, Remote: true}}
+		if !reflect.DeepEqual(it.Holds, want) {
+			t.Errorf("%q: holds %+v\nwant %+v", perm, it.Holds, want)
+		}
+		if it.Stopped(item.Delete) {
+			t.Errorf("%q: a no-access hold stops the whole delete", perm)
+		}
+	}
+}
+
+// closedPRInput is PR o/r#20, known only from its lookup, in state, with
+// decision d.
+func closedPRInput(state string, d item.Disposition) Input {
+	return holdsInput(func(in *Input, _ *observe.Clone) {
+		in.GitHub.Refs["pr:o/r#20"] = observe.Ref{Exists: true, State: state}
+		decide(*in, "pr:o/r#20", d, "")
+	})
+}
+
+func TestHoldClosedPRDecidedMerge(t *testing.T) {
+	it := holdsOf(t, closedPRInput("CLOSED", item.Merge), "pr:o/r#20")
+	want := []Hold{{Kind: HoldClosed, Text: "closed on GitHub without merging: it can't be merged",
+		Fix: "Reopen it on GitHub, or decide it again.", Stops: []item.Disposition{item.Merge}}}
+	if !reflect.DeepEqual(it.Holds, want) {
+		t.Errorf("holds %+v\nwant %+v", it.Holds, want)
+	}
+	if !it.Stopped(item.Merge) || it.Status != item.StatusToApply {
+		t.Errorf("stopped %v status %s", it.Stopped(item.Merge), it.Status)
+	}
+}
+
+func TestMergedPRDecidedMergeIsNotHeld(t *testing.T) {
+	it := holdsOf(t, closedPRInput("MERGED", item.Merge), "pr:o/r#20")
+	if len(it.Holds) != 0 || it.Status != item.StatusDone {
+		t.Errorf("holds %+v status %s, want none and done", it.Holds, it.Status)
+	}
+}
+
+// TestCloseDecisionOnAClosedPRIsDoneNotHeld: ruling of 2026-10-19: a close
+// on something already closed is done.
+func TestCloseDecisionOnAClosedPRIsDoneNotHeld(t *testing.T) {
+	it := holdsOf(t, closedPRInput("CLOSED", item.Close), "pr:o/r#20")
+	if len(it.Holds) != 0 || it.Status != item.StatusDone {
+		t.Errorf("holds %+v status %s, want none and done", it.Holds, it.Status)
 	}
 }
