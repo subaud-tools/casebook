@@ -406,6 +406,7 @@ func (r Rule) MatchAll(res engine.Result, now time.Time) ([]Match, error) {
 
 // Proposable returns all matches that are eligible for proposal:
 //   - the item has no decision (undecided)
+//   - no hold stops the rule's disposition for the item
 //   - the item has no pending proposal from this rule
 //   - the item was not rejected for this rule since the rule's last edit
 //
@@ -427,6 +428,10 @@ func (r Rule) Proposable(res engine.Result, now time.Time, pending map[string]pr
 			continue
 		}
 		if it.Decision != nil {
+			continue
+		}
+		// Skip items a hold stops this disposition for.
+		if it.Stopped(item.Disposition(r.Propose.Disposition)) {
 			continue
 		}
 		// Skip items with a pending proposal from this rule.

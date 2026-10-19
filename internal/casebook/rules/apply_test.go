@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -333,5 +334,20 @@ func TestProposeOnceReturnsErrorOnProposeFailure(t *testing.T) {
 	_, _, err := ProposeOnce(ctx, r, res, applyTestNow, s)
 	if err == nil {
 		t.Fatal("ProposeOnce: expected non-nil error when Propose fails (invalid disposition), got nil — Propose errors are being silently discarded")
+	}
+}
+
+func TestStaleWithdrawsARecommendationAHoldStops(t *testing.T) {
+	closeAll := Rule{ID: "close-prs", Status: StatusActive, Match: []Condition{{Field: "kind", Op: "is", Value: "pr"}}, Propose: RuleAction{Disposition: "close"}}
+	res := engine.Result{Items: []engine.Item{
+		{ID: "pr:o/old#3", Kind: item.KindPR, Holds: []engine.Hold{archivedHold}},
+		{ID: "pr:o/r#4", Kind: item.KindPR},
+	}}
+	pending := []propose.Proposal{
+		{ID: 7, Key: "pr:o/old#3", Disposition: "close", Source: "rule:close-prs", State: propose.Pending},
+		{ID: 8, Key: "pr:o/r#4", Disposition: "close", Source: "rule:close-prs", State: propose.Pending},
+	}
+	if got := Stale([]Rule{closeAll}, res, testNow, pending); !slices.Equal(got, []int64{7}) {
+		t.Errorf("stale %v, want [7]", got)
 	}
 }

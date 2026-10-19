@@ -519,3 +519,30 @@ func TestPatterns(t *testing.T) {
 		}
 	}
 }
+
+var (
+	archivedHold = engine.Hold{Kind: engine.HoldArchived, Text: "o/old is archived: GitHub refuses any change to it", Stops: []item.Disposition{item.Close, item.Merge}}
+	devHold      = engine.Hold{Kind: engine.HoldLongLived, Text: "dev is a long-lived branch: casebook never deletes it", Stops: []item.Disposition{item.Delete}}
+	dirtyHold    = engine.Hold{Kind: engine.HoldWorktree, Text: "in use by worktree ops on work, which has uncommitted changes", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "work"}
+)
+
+func TestRuleDoesNotRecommendWhatAHoldStops(t *testing.T) {
+	closeAll := Rule{ID: "close-prs", Status: StatusActive, Match: []Condition{{Field: "kind", Op: "is", Value: "pr"}}, Propose: RuleAction{Disposition: "close"}}
+	res := engine.Result{Items: []engine.Item{{ID: "pr:o/old#3", Kind: item.KindPR, Holds: []engine.Hold{archivedHold}}}}
+	if got := closeAll.Proposable(res, testNow, map[string]propose.Proposal{}, map[string]bool{}); len(got) != 0 {
+		t.Errorf("close of an archived-repo PR proposable: %v", got)
+	}
+	delAll := Rule{ID: "del-branches", Status: StatusActive, Match: []Condition{{Field: "kind", Op: "is", Value: "branch"}}, Propose: RuleAction{Disposition: "delete"}}
+	res = engine.Result{Items: []engine.Item{{ID: "branch:o/r@dev", Kind: item.KindBranch, Holds: []engine.Hold{devHold}}}}
+	if got := delAll.Proposable(res, testNow, map[string]propose.Proposal{}, map[string]bool{}); len(got) != 0 {
+		t.Errorf("delete of a long-lived branch proposable: %v", got)
+	}
+}
+
+func TestRuleStillRecommendsABranchHeldOnlyLocally(t *testing.T) {
+	delAll := Rule{ID: "del-branches", Status: StatusActive, Match: []Condition{{Field: "kind", Op: "is", Value: "branch"}}, Propose: RuleAction{Disposition: "delete"}}
+	res := engine.Result{Items: []engine.Item{{ID: "branch:o/r@feat/x", Kind: item.KindBranch, Holds: []engine.Hold{dirtyHold}}}}
+	if got := delAll.Proposable(res, testNow, map[string]propose.Proposal{}, map[string]bool{}); len(got) != 1 {
+		t.Errorf("got %v, want one match", got)
+	}
+}

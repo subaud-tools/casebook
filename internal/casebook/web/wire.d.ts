@@ -358,6 +358,10 @@ export interface ItemView {
   landed_how?: string;
   landed_via?: string[];
   landed_tips?: Record<string, string>;
+  holds?: Hold[];
+  copies?: Copy[];
+  needs?: string[];
+  public?: boolean;
   proposal?: Proposal;
   looking?: Looking;
   group: string;
@@ -676,6 +680,27 @@ export interface Observed {
   exists: boolean;
   archived?: boolean;
   state?: string;
+}
+
+export interface Hold {
+  kind: string;
+  text: string;
+  fix?: string;
+  by?: string;
+  stops: string[] | null;
+  local?: boolean;
+  remote?: boolean;
+  machine?: string;
+}
+
+export interface Copy {
+  machine?: string;
+  path?: string;
+  tip?: string;
+  worktree?: string;
+  head?: boolean;
+  absent?: boolean;
+  landed?: string;
 }
 
 export interface Looking {

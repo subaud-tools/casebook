@@ -19,6 +19,7 @@ type Input struct {
 	Snapshots []observe.Snapshot
 	Decisions map[string]item.Decision
 	Seen      map[string]time.Time // item key → decided_at of a decision observed done
+	Machine   string               // this Mac ("" = no other-mac holds)
 }
 
 // Item is one tracked thing with its computed status.
@@ -50,6 +51,10 @@ type Item struct {
 	LandedHow   string            `json:"landed_how,omitempty"`  // human-readable: "in main", "merged #N", or "; "-joined when both
 	LandedVia   []string          `json:"landed_via,omitempty"`  // machine codes: "default-branch", "merged-pr" (multi-valued)
 	LandedTips  map[string]string `json:"landed_tips,omitempty"` // machine → tip checked
+	Holds       []Hold            `json:"holds,omitempty"`       // what stands in the way of its decision
+	Copies      []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
+	Needs       []string          `json:"needs,omitempty"`       // keys that run first in the same job
+	Public      bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
 
 	fresh          bool      // observed from a fresh owner listing
 	othersAt       time.Time // pr/issue: latest activity by anyone but the user (zero: none known)
@@ -112,16 +117,21 @@ type machineLanded struct {
 }
 
 type builder struct {
-	in             Input
-	user           string
-	items          map[string]*Item
-	f              facts
-	local          map[string]bool            // branch keys present in some snapshot
-	fresh          map[string]bool            // lower-case owners with a fresh, complete listing
-	stale          map[string]bool            // lower-case owners whose listing is stale
-	snaps          map[string]bool            // machines with a snapshot
-	branchLanded   map[string][]machineLanded // branch item ID → per-machine verdicts
-	branchWorktree map[string]string          // branch item ID → "dirty" or "clean"
+	in           Input
+	user         string
+	items        map[string]*Item
+	f            facts
+	local        map[string]bool            // branch keys present in some snapshot
+	fresh        map[string]bool            // lower-case owners with a fresh, complete listing
+	stale        map[string]bool            // lower-case owners whose listing is stale
+	snaps        map[string]bool            // machines with a snapshot
+	branchLanded map[string][]machineLanded // branch item ID → per-machine verdicts
+	branchUses   map[string][]wtUse         // branch item ID → linked worktrees it is checked out in
+	branchHeads  map[string][]place         // branch item ID → clones it is the current branch of
+	branchCopies map[string]map[string]Copy // branch item ID → machine → first clone holding it
+	branchPRs    map[string][]int           // branch item ID → open PRs whose head it is
+	remoteTips   map[string]string          // branch item ID → first upstream tip a snapshot saw
+	longLived    map[string]bool            // branch item ID → a snapshot called it long-lived
 }
 
 func (b *builder) get(k item.Key) *Item {
@@ -148,12 +158,17 @@ func Build(in Input) Result {
 			prs:   map[string]observe.PRObs{},
 			refs:  in.GitHub.Refs,
 		},
-		local:          map[string]bool{},
-		fresh:          map[string]bool{},
-		stale:          map[string]bool{},
-		snaps:          map[string]bool{},
-		branchLanded:   map[string][]machineLanded{},
-		branchWorktree: map[string]string{},
+		local:        map[string]bool{},
+		fresh:        map[string]bool{},
+		stale:        map[string]bool{},
+		snaps:        map[string]bool{},
+		branchLanded: map[string][]machineLanded{},
+		branchUses:   map[string][]wtUse{},
+		branchHeads:  map[string][]place{},
+		branchCopies: map[string]map[string]Copy{},
+		branchPRs:    map[string][]int{},
+		remoteTips:   map[string]string{},
+		longLived:    map[string]bool{},
 	}
 	b.f.items = b.items
 	var res Result
@@ -171,6 +186,15 @@ func Build(in Input) Result {
 	b.unobserved()
 	for _, it := range b.items {
 		b.finish(it)
+	}
+	// Holds read other items' statuses (a worktree decided Remove it), so
+	// they come after every status.
+	for _, it := range b.items {
+		it.Holds, it.Needs = b.holds(it)
+		it.Copies = b.copies(it)
+		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && it.Kind != item.KindBranch && it.Kind != item.KindWorktree {
+			it.Public = !r.Private
+		}
 		res.Items = append(res.Items, *it)
 	}
 	sort.Slice(res.Items, func(i, j int) bool { return res.Items[i].ID < res.Items[j].ID })
@@ -265,6 +289,10 @@ func (b *builder) pr(k item.Key, p observe.PRObs, dir string, fresh bool) {
 	}
 	it.Evidence = append(it.Evidence, fmt.Sprintf("%s by %s, updated %s", strings.ToLower(p.State), p.Author, p.UpdatedAt.Format("2006-01-02")))
 	b.f.prs[k.String()] = p
+	if k.Kind == item.KindPR && p.State == "OPEN" && p.HeadRef != "" {
+		bk := item.BranchKey(p.Repo, p.HeadRef).String()
+		b.branchPRs[bk] = append(b.branchPRs[bk], p.Number)
+	}
 }
 
 func (b *builder) snapshots() {
@@ -293,14 +321,9 @@ func (b *builder) snapshots() {
 						it.UpdatedAt = br.TipAt
 					}
 				}
-				// Track worktree state for the branch item.
 				if c.Repo != "" && w.Branch != "" {
 					bk := item.BranchKey(c.Repo, w.Branch).String()
-					if w.Dirty {
-						b.branchWorktree[bk] = "dirty" // dirty overrides clean
-					} else if b.branchWorktree[bk] == "" {
-						b.branchWorktree[bk] = "clean"
-					}
+					b.branchUses[bk] = append(b.branchUses[bk], wtUse{key: item.WorktreeKey(snap.Machine, w.Path), machine: snap.Machine, path: w.Path, dirty: w.Dirty})
 				}
 			}
 			if c.Repo == "" {
@@ -317,6 +340,7 @@ func (b *builder) snapshots() {
 				k := item.BranchKey(c.Repo, br.Name)
 				it := b.get(k)
 				b.local[k.String()] = true
+				b.place(snap.Machine, c, br)
 				it.Observed = item.Observed{Known: true, Exists: true}
 				it.fresh = true
 				it.Locations = append(it.Locations, where)
@@ -353,6 +377,35 @@ func (b *builder) snapshots() {
 				}
 			}
 		}
+	}
+}
+
+// place records where branch br of clone c on machine is: its copy (the
+// first clone on the machine), whether it is the clone's current branch,
+// its upstream tip and whether the snapshot calls it long-lived.
+func (b *builder) place(machine string, c observe.Clone, br observe.Branch) {
+	id := item.BranchKey(c.Repo, br.Name).String()
+	if b.branchCopies[id] == nil {
+		b.branchCopies[id] = map[string]Copy{}
+	}
+	if _, ok := b.branchCopies[id][machine]; !ok {
+		cp := Copy{Machine: machine, Path: c.Path, Tip: br.Tip, Head: c.Head == br.Name}
+		for _, w := range c.Worktrees {
+			if w.Branch == br.Name {
+				cp.Worktree = w.Path
+				break
+			}
+		}
+		b.branchCopies[id][machine] = cp
+	}
+	if c.Head == br.Name {
+		b.branchHeads[id] = append(b.branchHeads[id], place{machine: machine, path: c.Path})
+	}
+	if br.RemoteTip != "" && b.remoteTips[id] == "" {
+		b.remoteTips[id] = br.RemoteTip
+	}
+	if br.LongLived {
+		b.longLived[id] = true
 	}
 }
 
@@ -464,11 +517,14 @@ func (b *builder) finish(it *Item) {
 	it.DueReason = item.DueReason(it.Key, it.Decision, it.Observed, b.f, b.in.Now)
 	it.NewActivity = it.Status == item.StatusDue && item.NewActivity(it.Key, it.Decision, b.f)
 	sort.Strings(it.Locations)
-	// Set worktreeState on branch items from the worktree tracking map.
-	if it.Kind == item.KindBranch {
-		if state, ok := b.branchWorktree[it.ID]; ok {
-			it.worktreeState = state
+	// worktreeState: "dirty" when any worktree using the branch has
+	// changes, else "clean" when one uses it.
+	for _, u := range b.branchUses[it.ID] {
+		if u.dirty {
+			it.worktreeState = "dirty"
+			break
 		}
+		it.worktreeState = "clean"
 	}
 	b.finishLanded(it)
 }
