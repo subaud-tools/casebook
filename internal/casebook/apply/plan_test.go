@@ -95,9 +95,9 @@ func TestPlanGroupsByActionAndLane(t *testing.T) {
 		}
 	}
 
-	// Groups should preserve first-seen order.
-	if groups[0].Action != "branch-delete-local" {
-		t.Errorf("groups[0].Action = %q, want branch-delete-local", groups[0].Action)
+	// A branch's GitHub copy goes first, then its local copies.
+	if groups[0].Action != "branch-delete-remote" || groups[1].Action != "branch-delete-local" {
+		t.Errorf("groups %q %q, want branch-delete-remote, branch-delete-local", groups[0].Action, groups[1].Action)
 	}
 }
 
@@ -129,9 +129,9 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 		t.Fatalf("want 2 steps (local + remote), got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	local := plan.Steps[0]
+	local := plan.Steps[1]
 	if local.Action != "branch-delete-local" {
-		t.Errorf("Steps[0].Action = %q, want branch-delete-local", local.Action)
+		t.Errorf("Steps[1].Action = %q, want branch-delete-local", local.Action)
 	}
 	if local.Lane != LaneCasebook {
 		t.Errorf("Steps[0].Lane = %q, want %q", local.Lane, LaneCasebook)
@@ -150,9 +150,9 @@ func TestBranchDeleteIsCasebookLaneWithExactCommand(t *testing.T) {
 		t.Error("Steps[0].Posts should be false for local branch delete")
 	}
 
-	remote := plan.Steps[1]
+	remote := plan.Steps[0]
 	if remote.Action != "branch-delete-remote" {
-		t.Errorf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
+		t.Errorf("Steps[0].Action = %q, want branch-delete-remote", remote.Action)
 	}
 	if remote.Lane != LaneCasebook {
 		t.Errorf("Steps[1].Lane = %q, want %q", remote.Lane, LaneCasebook)
@@ -310,18 +310,18 @@ func TestLocalStepsOnlyForThisMachine(t *testing.T) {
 		t.Fatalf("want 2 steps, got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	local := plan.Steps[0]
+	local := plan.Steps[1]
 	if local.Action != "branch-delete-local" {
-		t.Errorf("Steps[0].Action = %q, want branch-delete-local", local.Action)
+		t.Errorf("Steps[1].Action = %q, want branch-delete-local", local.Action)
 	}
 	wantLocal := "git -C '/Users/A/repos/myrepo' update-ref -d 'refs/heads/feat/shared' tipA"
 	if local.Command != wantLocal {
 		t.Errorf("Steps[0].Command =\n  %q\nwant\n  %q", local.Command, wantLocal)
 	}
 
-	remote := plan.Steps[1]
+	remote := plan.Steps[0]
 	if remote.Action != "branch-delete-remote" {
-		t.Errorf("Steps[1].Action = %q, want branch-delete-remote", remote.Action)
+		t.Errorf("Steps[0].Action = %q, want branch-delete-remote", remote.Action)
 	}
 	wantRemote := branchDeleteGitHubCmd("R_1", "feat/shared", "tipA")
 	if remote.Command != wantRemote {
@@ -386,10 +386,10 @@ func TestBranchStepsHaveExpectedTips(t *testing.T) {
 		t.Fatalf("want 2 steps, got %d: %v", len(plan.Steps), plan.Steps)
 	}
 
-	if got := plan.Steps[0].ExpectedTip; got != wantTip {
+	if got := plan.Steps[1].ExpectedTip; got != wantTip {
 		t.Errorf("local step ExpectedTip = %q, want %q", got, wantTip)
 	}
-	if got := plan.Steps[1].ExpectedTip; got != wantTip {
+	if got := plan.Steps[0].ExpectedTip; got != wantTip {
 		t.Errorf("remote step ExpectedTip = %q, want %q", got, wantTip)
 	}
 }
@@ -588,5 +588,145 @@ func TestPermanentIsWhatCannotBeUndone(t *testing.T) {
 	}
 	if !Permanent("repo-delete") || Permanent("repo-archive") {
 		t.Fatal("repo-delete is permanent, repo-archive is not")
+	}
+}
+
+func actions(p Plan) []string {
+	var out []string
+	for _, s := range p.Steps {
+		out = append(out, s.Action)
+	}
+	return out
+}
+
+func TestGitHubDeleteNeedsNoClone(t *testing.T) {
+	it := branchItem("o/r", "feat/x", "pro-2", "/p")
+	it.Copies = []engine.Copy{{Machine: "pro-2", Path: "/p", Tip: "abc"}, {Machine: "work", Absent: true}, {Tip: "abc", RepoID: "R_1"}}
+	it.Holds = []engine.Hold{{Kind: engine.HoldOtherMac, Text: "its local copy is only on pro-2", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "pro-2"}}
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 1 || plan.Steps[0].Action != "branch-delete-remote" || plan.Steps[0].Command != branchDeleteGitHubCmd("R_1", "feat/x", "abc") || plan.Steps[0].ExpectedTip != "abc" {
+		t.Fatalf("steps %+v", plan.Steps)
+	}
+	if len(plan.Waiting) != 1 || plan.Waiting[0] != (Waiting{Key: it.ID, Machine: "pro-2", Path: "/p"}) {
+		t.Errorf("waiting %+v", plan.Waiting)
+	}
+	if len(plan.HeldBack) != 0 {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestWorktreeRemovedBeforeItsBranch(t *testing.T) {
+	br := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	br.Needs = []string{"worktree:work:/r/.worktrees/faqux"}
+	wk := item.WorktreeKey("work", "/r/.worktrees/faqux")
+	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply, Decision: decided(item.Delete, ""), Locations: []string{"work:/r"}}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}},
+		Worktrees: []observe.Worktree{{Path: "/r/.worktrees/faqux", Branch: "feat/x"}}}})
+	plan, err := Build([]engine.Item{br, wt}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "worktree-remove branch-delete-remote branch-delete-local" {
+		t.Fatalf("order %s", got)
+	}
+}
+
+func TestHeldItemHasNoStep(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "dev", "work", "/r"), "abc")
+	it.Holds = []engine.Hold{{Kind: engine.HoldLongLived, Text: "dev is a long-lived branch: casebook never deletes it", Stops: []item.Disposition{item.Delete}}}
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.HeldBack) != 1 || plan.HeldBack[0].Key != it.ID || plan.HeldBack[0].Holds[0].Kind != engine.HoldLongLived {
+		t.Fatalf("steps %+v held %+v", plan.Steps, plan.HeldBack)
+	}
+}
+
+func TestWorktreeHoldStopsOnlyTheLocalDelete(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	hold := engine.Hold{Kind: engine.HoldWorktree, Text: "in use by worktree ops on work, which has uncommitted changes", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "work"}
+	it.Holds = []engine.Hold{hold}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}}}})
+	plan, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "branch-delete-remote" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != hold.Text {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestOpenPRHoldStopsOnlyTheGitHubDelete(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	hold := engine.Hold{Kind: engine.HoldOpenPR, Text: "open PR #12 uses this branch: deleting it on GitHub closes that PR", By: "pr:o/r#12", Stops: []item.Disposition{item.Delete}, Remote: true}
+	it.Holds = []engine.Hold{hold}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}}}})
+	plan, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "branch-delete-local" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Kind != engine.HoldOpenPR {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
+func TestOtherMacCopyWaits(t *testing.T) {
+	wk := item.WorktreeKey("pro-2", "/p/.worktrees/w")
+	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply, Decision: decided(item.Delete, ""), Locations: []string{"pro-2:/p"},
+		Holds: []engine.Hold{{Kind: engine.HoldOtherMac, Text: "its local copy is only on pro-2", Stops: []item.Disposition{item.Delete}, Local: true, Machine: "pro-2"}}}
+	plan, err := Build([]engine.Item{wt}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.Waiting) != 1 || plan.Waiting[0].Machine != "pro-2" || plan.Waiting[0].Path != "/p" || len(plan.HeldBack) != 0 {
+		t.Fatalf("steps %+v waiting %+v held %+v", plan.Steps, plan.Waiting, plan.HeldBack)
+	}
+}
+
+func TestItemWithNothingToRunSaysSo(t *testing.T) {
+	it := branchItem("o/r", "feat/x", "work", "/gone")
+	plan, err := Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 0 || len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != "nothing to run for it from this Mac" ||
+		plan.HeldBack[0].Holds[0].Kind != engine.HoldNothingHere {
+		t.Fatalf("steps %+v held %+v", plan.Steps, plan.HeldBack)
+	}
+	// A GitHub copy that wasn't looked up says so.
+	it.Copies = []engine.Copy{{Tip: "abc"}}
+	plan, _ = Build([]engine.Item{it}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Text != "GitHub copy not looked up yet: sync first" {
+		t.Fatalf("held %+v", plan.HeldBack)
+	}
+}
+
+func TestCloseStepCarriesItsCommentAndPublic(t *testing.T) {
+	pk := item.PRKey("o/r", 3)
+	pr := engine.Item{Key: pk, ID: pk.String(), Kind: item.KindPR, Status: item.StatusToApply, Decision: decided(item.Close, "stale"), Public: true}
+	plan, _ := Build([]engine.Item{pr}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "stale" || !s.Public || !s.Posts {
+		t.Errorf("step %+v", s)
+	}
+	pr.Decision = decided(item.Close, "")
+	plan, _ = Build([]engine.Item{pr}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "" || s.Public || s.Posts {
+		t.Errorf("step %+v", s)
+	}
+	ik := item.IssueKey("o/r", 4)
+	is := engine.Item{Key: ik, ID: ik.String(), Kind: item.KindIssue, Status: item.StatusToApply, Decision: decided(item.Close, "done"), Public: true}
+	plan, _ = Build([]engine.Item{is}, snapWith("work", nil), epoch, epoch, 30*time.Minute)
+	if s := plan.Steps[0]; s.Comment != "done" || !s.Public {
+		t.Errorf("issue step %+v", s)
 	}
 }

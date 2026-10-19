@@ -26,6 +26,9 @@ type Index struct {
 	// sets it): such an item has left To apply before a sync sees it gone.
 	// decided is when an item's current decision was made.
 	Applied func(since time.Time, decided func(key string) time.Time) map[string]bool
+	// Machine is this Mac: an item with a copy on another Mac isn't done
+	// until that copy is gone, whatever ran here.
+	Machine string
 }
 
 func (x *Index) set(r engine.Result, head string, at time.Time) {
@@ -125,12 +128,18 @@ func (x *Index) applied() map[string]bool {
 	if x.Applied == nil {
 		return nil
 	}
-	return x.Applied(x.builtAt, func(key string) time.Time {
+	done := x.Applied(x.builtAt, func(key string) time.Time {
 		if it, ok := x.byKey[key]; ok && it.Decision != nil {
 			return it.Decision.DecidedAt
 		}
 		return time.Time{}
 	})
+	for key := range done {
+		if it, ok := x.byKey[key]; ok && otherCopies(it, x.Machine) {
+			delete(done, key)
+		}
+	}
+	return done
 }
 
 // leftOpenInView reports whether an item left open belongs to an Attention

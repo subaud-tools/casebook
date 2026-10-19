@@ -10,6 +10,7 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
 	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
@@ -93,6 +94,17 @@ func (s *Server) applied(built time.Time, decided func(key string) time.Time) ma
 		at, ok := reads[owner]
 		return at, ok
 	}, decided, built)
+}
+
+// otherCopies reports whether it has a local copy on a Mac other than
+// machine: its steps here can't make it done.
+func otherCopies(it engine.Item, machine string) bool {
+	for _, loc := range it.Locations {
+		if m, _, _ := strings.Cut(loc, ":"); m != machine {
+			return true
+		}
+	}
+	return false
 }
 
 // doneHow says how a done item got done, in the page's words: casebook's job

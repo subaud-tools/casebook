@@ -10,6 +10,8 @@ package apply
 
 import (
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -50,6 +52,25 @@ type Step struct {
 	// the live tip before executing, and treats an already-absent branch as
 	// done.
 	ExpectedTip string `json:"expected_tip,omitempty"`
+	// Comment is the text a posting step posts ("" for none).
+	Comment string `json:"comment,omitempty"`
+	// Public is true for a posting step on a repo anyone can read.
+	Public bool `json:"public,omitempty"`
+}
+
+// HeldBack is a decided item the plan leaves out of the run, with the holds
+// that keep it out.
+type HeldBack struct {
+	Key   string        `json:"key"`
+	Holds []engine.Hold `json:"holds"`
+}
+
+// Waiting is a decided item whose local copy is only on another Mac: it
+// runs from review there.
+type Waiting struct {
+	Key     string `json:"key"`
+	Machine string `json:"machine"`
+	Path    string `json:"path,omitempty"`
 }
 
 // Plan is the ordered set of steps for one apply session.
@@ -60,6 +81,10 @@ type Plan struct {
 	Head string `json:"head,omitempty"`
 	// Steps are the ordered apply steps.
 	Steps []Step `json:"steps"`
+	// HeldBack are the decided items held out of this run, and why.
+	HeldBack []HeldBack `json:"held_back,omitempty"`
+	// Waiting are the decided items whose local copy waits for another Mac.
+	Waiting []Waiting `json:"waiting,omitempty"`
 }
 
 // Group groups steps that share the same action and lane, for page display.
@@ -158,10 +183,88 @@ func Build(items []engine.Item, snap observe.Snapshot, now, builtAt time.Time, s
 		if it.Status != item.StatusToApply || it.Decision == nil {
 			continue
 		}
-		plan.Steps = append(plan.Steps, stepsForItem(it, snap.Machine, sl)...)
+		d := it.Decision.Disposition
+		if it.Stopped(d) {
+			plan.HeldBack = append(plan.HeldBack, HeldBack{Key: it.ID, Holds: stopping(it.Holds, d)})
+			continue
+		}
+		ip := planItem(it, snap.Machine, sl)
+		plan.Steps = append(plan.Steps, ip.steps...)
+		plan.Waiting = append(plan.Waiting, ip.waiting...)
+		if len(ip.held) > 0 {
+			plan.HeldBack = append(plan.HeldBack, HeldBack{Key: it.ID, Holds: ip.held})
+		}
+		if len(ip.steps) == 0 && len(ip.held) == 0 && len(ip.waiting) == 0 && acts(d) {
+			plan.HeldBack = append(plan.HeldBack, HeldBack{Key: it.ID, Holds: []engine.Hold{{
+				Kind: engine.HoldNothingHere, Text: "nothing to run for it from this Mac", Stops: []item.Disposition{d}}}})
+		}
 	}
+	sort.SliceStable(plan.Steps, func(i, j int) bool { return stepRank(plan.Steps[i].Action) < stepRank(plan.Steps[j].Action) })
 
 	return plan, nil
+}
+
+// stepRank orders a plan's steps: a worktree goes before the branch it
+// holds, and a branch's GitHub copy before its local ones.
+func stepRank(action string) int {
+	switch action {
+	case "worktree-remove":
+		return 0
+	case "branch-delete-remote":
+		return 1
+	case "branch-delete-local":
+		return 2
+	}
+	return 3
+}
+
+// acts reports whether a disposition makes steps (the others record a
+// decision and run nothing).
+func acts(d item.Disposition) bool {
+	switch d {
+	case item.Archive, item.Close, item.Merge, item.Delete:
+		return true
+	}
+	return false
+}
+
+// stopping is the holds that stop disposition d.
+func stopping(hs []engine.Hold, d item.Disposition) []engine.Hold {
+	var out []engine.Hold
+	for _, h := range hs {
+		if slices.Contains(h.Stops, d) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// itemPlan is what one item adds to a plan: its steps, the holds that keep
+// part of it out, and the local copies that wait for another Mac.
+type itemPlan struct {
+	steps   []Step
+	held    []engine.Hold
+	waiting []Waiting
+}
+
+// waits lists an item's local copies on other Macs (its other-mac holds),
+// with each one's path from the item's Locations.
+func waits(it engine.Item) []Waiting {
+	var out []Waiting
+	for _, h := range it.Holds {
+		if h.Kind != engine.HoldOtherMac {
+			continue
+		}
+		path := ""
+		for _, loc := range it.Locations {
+			if m, p, ok := strings.Cut(loc, ":"); ok && m == h.Machine {
+				path = p
+				break
+			}
+		}
+		out = append(out, Waiting{Key: it.ID, Machine: h.Machine, Path: path})
+	}
+	return out
 }
 
 // snapLookup is a precomputed index into an observe.Snapshot for fast lookups.
@@ -207,21 +310,21 @@ func (sl snapLookup) branch(clonePath, branchName string) (observe.Branch, bool)
 	return observe.Branch{}, false
 }
 
-// stepsForItem dispatches to the kind-specific builder.
-func stepsForItem(it engine.Item, machine string, sl snapLookup) []Step {
+// planItem dispatches to the kind-specific builder.
+func planItem(it engine.Item, machine string, sl snapLookup) itemPlan {
 	switch it.Kind {
 	case item.KindBranch:
 		return branchSteps(it, machine, sl)
 	case item.KindWorktree:
 		return worktreeSteps(it, machine, sl)
 	case item.KindRepo:
-		return repoSteps(it)
+		return itemPlan{steps: repoSteps(it)}
 	case item.KindPR:
-		return prSteps(it)
+		return itemPlan{steps: prSteps(it)}
 	case item.KindIssue:
-		return issueSteps(it)
+		return itemPlan{steps: issueSteps(it)}
 	}
-	return nil
+	return itemPlan{}
 }
 
 // machineClones returns the clone paths that are on the given machine,
@@ -239,51 +342,56 @@ func machineClones(it engine.Item, machine string) []string {
 
 // branchSteps generates steps for a branch item with disposition delete.
 //
-// Local delete: one step per clone on machine, with ExpectedTip set from the
-// snapshot's branch tip for that clone (precondition:
-// branch-tip-unchanged-and-landed).
-//
 // GitHub delete: one step from the item's GitHub copy (engine.Item.GitHubCopy),
 // through GitHub's API, so it needs no clone and runs from either Mac.
 // ExpectedTip is the copy's commit, baked into the updateRefs so GitHub
 // refuses a moved branch; the precondition (PreconditionGitHubTip) reads
-// GitHub again before it runs. Omitted when no GitHub copy is known or it
-// wasn't looked up (no repository id).
-func branchSteps(it engine.Item, machine string, sl snapLookup) []Step {
+// GitHub again before it runs. A hold on the GitHub delete (an open PR) keeps
+// it out; a copy not looked up (no repository id) says to sync first.
+//
+// Local delete: one step per clone on machine, with ExpectedTip set from the
+// snapshot's branch tip for that clone (precondition:
+// branch-tip-unchanged-and-landed), unless a local hold on this machine (a
+// worktree, the clone's current branch) keeps it out.
+//
+// A local copy only on another Mac waits for that Mac.
+func branchSteps(it engine.Item, machine string, sl snapLookup) itemPlan {
 	if it.Decision.Disposition != item.Delete {
-		return nil
+		return itemPlan{}
 	}
 
 	branch := it.Key.Branch
 	localClones := machineClones(it, machine)
-	if observe.LongLived(branch, "") {
-		return nil
-	}
+	longLived := observe.LongLived(branch, "")
 	for _, c := range localClones {
 		if b, ok := sl.branch(c, branch); ok && b.LongLived {
-			return nil
+			longLived = true
+		}
+	}
+	if longLived {
+		return itemPlan{held: []engine.Hold{{Kind: engine.HoldLongLived, Text: branch + " is a long-lived branch: casebook never deletes it",
+			Stops: []item.Disposition{item.Delete}}}}
+	}
+
+	ip := itemPlan{waiting: waits(it)}
+	var remoteHolds, localHolds []engine.Hold
+	for _, h := range it.Holds {
+		switch {
+		case h.Remote:
+			remoteHolds = append(remoteHolds, h)
+		case h.Local && h.Machine == machine:
+			localHolds = append(localHolds, h)
 		}
 	}
 
-	var steps []Step
-
-	// One local-delete step per clone on this machine. The expected tip is the
-	// snapshot's local branch tip, always known for local steps, and baked into
-	// the update-ref command so it refuses a moved branch.
-	for _, clonePath := range localClones {
-		tip := sl.branchTip(clonePath, branch)
-		steps = append(steps, Step{
-			Key:          it.ID,
-			Action:       "branch-delete-local",
-			Lane:         LaneCasebook,
-			Command:      branchDeleteLocalCmd(clonePath, branch, tip),
-			Precondition: "branch-tip-unchanged-and-landed",
-			ExpectedTip:  tip,
-		})
-	}
-
-	if c, ok := it.GitHubCopy(); ok && c.RepoID != "" {
-		steps = append(steps, Step{
+	switch c, ok := it.GitHubCopy(); {
+	case !ok:
+	case len(remoteHolds) > 0:
+		ip.held = append(ip.held, remoteHolds...)
+	case c.RepoID == "":
+		ip.held = append(ip.held, engine.Hold{Kind: engine.HoldNothingHere, Text: "GitHub copy not looked up yet: sync first", Stops: []item.Disposition{item.Delete}, Remote: true})
+	default:
+		ip.steps = append(ip.steps, Step{
 			Key:          it.ID,
 			Action:       "branch-delete-remote",
 			Lane:         LaneCasebook,
@@ -293,19 +401,41 @@ func branchSteps(it engine.Item, machine string, sl snapLookup) []Step {
 		})
 	}
 
-	return steps
+	// One local-delete step per clone on this machine. The expected tip is the
+	// snapshot's local branch tip, always known for local steps, and baked into
+	// the update-ref command so it refuses a moved branch.
+	if len(localHolds) > 0 && len(localClones) > 0 {
+		ip.held = append(ip.held, localHolds...)
+		return ip
+	}
+	for _, clonePath := range localClones {
+		b, ok := sl.branch(clonePath, branch)
+		if !ok {
+			continue // this Mac's snapshot no longer has it there
+		}
+		tip := b.Tip
+		ip.steps = append(ip.steps, Step{
+			Key:          it.ID,
+			Action:       "branch-delete-local",
+			Lane:         LaneCasebook,
+			Command:      branchDeleteLocalCmd(clonePath, branch, tip),
+			Precondition: "branch-tip-unchanged-and-landed",
+			ExpectedTip:  tip,
+		})
+	}
+	return ip
 }
 
 // worktreeSteps generates a step to remove a worktree with disposition delete.
 // Only generated when the worktree's machine matches the plan machine.
 // The clone path is looked up from the snapshot (the clone that owns the
 // worktree), not from the item's Locations list.
-func worktreeSteps(it engine.Item, machine string, sl snapLookup) []Step {
+func worktreeSteps(it engine.Item, machine string, sl snapLookup) itemPlan {
 	if it.Decision.Disposition != item.Delete {
-		return nil
+		return itemPlan{}
 	}
 	if it.Key.Machine != machine {
-		return nil
+		return itemPlan{waiting: waits(it)}
 	}
 	worktreePath := it.Key.Path
 	clone, ok := sl.cloneForWorktree[worktreePath]
@@ -313,17 +443,17 @@ func worktreeSteps(it engine.Item, machine string, sl snapLookup) []Step {
 		// Worktree not found in snapshot; fall back to Locations.
 		clonePath := machineCloneForWorktree(it, machine)
 		if clonePath == "" {
-			return nil
+			return itemPlan{}
 		}
 		clone.Path = clonePath
 	}
-	return []Step{{
+	return itemPlan{steps: []Step{{
 		Key:          it.ID,
 		Action:       "worktree-remove",
 		Lane:         LaneCasebook,
 		Command:      worktreeRemoveCmd(clone.Path, worktreePath),
 		Precondition: "worktree-clean",
-	}}
+	}}}
 }
 
 // machineCloneForWorktree returns the clone path from the first Locations
@@ -376,6 +506,8 @@ func prSteps(it engine.Item) []Step {
 			Command:      prCloseCmd(n, repo, comment),
 			Precondition: "pr-no-new-activity",
 			Posts:        comment != "",
+			Comment:      comment,
+			Public:       it.Public && comment != "",
 		}}
 	case item.Merge:
 		return []Step{{
@@ -403,6 +535,8 @@ func issueSteps(it engine.Item) []Step {
 		Lane:    LaneAgent,
 		Command: issueCloseCmd(n, repo, comment),
 		Posts:   comment != "",
+		Comment: comment,
+		Public:  it.Public && comment != "",
 	}}
 }
 

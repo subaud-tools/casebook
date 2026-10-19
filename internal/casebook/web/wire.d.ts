@@ -633,6 +633,8 @@ export interface Plan {
   built_at: string;
   head?: string;
   steps: Step[] | null;
+  held_back?: HeldBack[];
+  waiting?: Waiting[];
 }
 
 export interface Group {
@@ -758,6 +760,19 @@ export interface Step {
   precondition?: string;
   posts?: boolean;
   expected_tip?: string;
+  comment?: string;
+  public?: boolean;
+}
+
+export interface HeldBack {
+  key: string;
+  holds: Hold[] | null;
+}
+
+export interface Waiting {
+  key: string;
+  machine: string;
+  path?: string;
 }
 
 export interface JobStep {

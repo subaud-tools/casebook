@@ -155,6 +155,18 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 			reply(w, nil, err)
 			return
 		}
+		// What a named item needs first (a worktree decided Remove it that
+		// holds its branch) joins the same plan, unless a job has it.
+		for _, it := range res.Items {
+			if !keySet[it.ID] {
+				continue
+			}
+			for _, n := range it.Needs {
+				if nd, ok := res.Find(n); ok && nd.Status == item.StatusToApply && held[n] == nil {
+					keySet[n] = true
+				}
+			}
+		}
 		for _, it := range res.Items {
 			if keySet[it.ID] {
 				items = append(items, it)
@@ -190,6 +202,14 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 	// second tab's "plan all" just after the first one planned everything).
 	// A stale observation is refused first (above): after a sync there may
 	// be something to plan.
+	plan.Head = s.Index.Head()
+
+	// A review of only held or waiting items shows them: why each one won't
+	// run from here.
+	if in.Preview && len(plan.Steps) == 0 && (len(plan.HeldBack) > 0 || len(plan.Waiting) > 0) {
+		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: apply.Preview(plan, s.App.Cfg.Machine, now)}, nil)
+		return
+	}
 	if len(plan.Steps) == 0 {
 		msg := "nothing to plan: no decided item is waiting to be applied"
 		switch {
@@ -201,8 +221,6 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, httpError{code: http.StatusUnprocessableEntity, msg: msg})
 		return
 	}
-
-	plan.Head = s.Index.Head()
 
 	if in.Preview {
 		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: apply.Preview(plan, s.App.Cfg.Machine, now)}, nil)

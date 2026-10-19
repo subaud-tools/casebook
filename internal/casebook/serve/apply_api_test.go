@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // TestPlanEndpointRefusesStale verifies that POST /api/apply/plan returns 409
@@ -465,4 +467,68 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func toApply(k item.Key, d item.Disposition, locs ...string) engine.Item {
+	return engine.Item{Key: k, ID: k.String(), Kind: k.Kind, Repo: k.Repo(), Status: item.StatusToApply,
+		Decision: &item.Decision{Disposition: d, DecidedBy: "court", DecidedAt: time.Now().Add(-time.Hour)}, Locations: locs}
+}
+
+// TestPlanAddsTheWorktreeABranchNeeds: reviewing a branch whose clean
+// worktree is decided Remove it puts the worktree's remove in the same
+// plan, first.
+func TestPlanAddsTheWorktreeABranchNeeds(t *testing.T) {
+	r := newRig(t)
+	wk := item.WorktreeKey("mbp", "/r/.worktrees/faqux")
+	br := toApply(item.BranchKey("schuettc/hail", "feat/faqux"), item.Delete)
+	br.Copies = []engine.Copy{{Tip: "abc", RepoID: "R_1"}}
+	br.Needs = []string{wk.String()}
+	wt := toApply(wk, item.Delete, "mbp:/r")
+	r.s.Index.set(engine.Result{Items: []engine.Item{br, wt}}, r.s.Index.Head(), time.Now())
+	var out PlanView
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{br.ID}, "preview": true}, &out); code != http.StatusOK {
+		t.Fatalf("plan: %d", code)
+	}
+	var got []string
+	for _, s := range out.Plan.Steps {
+		got = append(got, s.Action+" "+s.Key)
+	}
+	want := []string{"worktree-remove " + wk.String(), "branch-delete-remote " + br.ID}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps %v, want %v", got, want)
+	}
+}
+
+// TestPreviewOfOnlyHeldItemsShowsThem: a review whose items are all held
+// shows them (held_back); asking to run it is still refused.
+func TestPreviewOfOnlyHeldItemsShowsThem(t *testing.T) {
+	r := newRig(t)
+	pr := toApply(item.PRKey("schuettc/old", 3), item.Close)
+	pr.Holds = []engine.Hold{{Kind: engine.HoldArchived, Text: "schuettc/old is archived: GitHub refuses any change to it", Stops: []item.Disposition{item.Close, item.Merge}}}
+	r.s.Index.set(engine.Result{Items: []engine.Item{pr}}, r.s.Index.Head(), time.Now())
+	var out PlanView
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr.ID}, "preview": true}, &out); code != http.StatusOK {
+		t.Fatalf("preview: %d", code)
+	}
+	if len(out.Plan.Steps) != 0 || len(out.Plan.HeldBack) != 1 || out.Plan.HeldBack[0].Key != pr.ID {
+		t.Fatalf("plan %+v", out.Plan)
+	}
+	if code := r.do(t, "POST", "/api/apply/plan", map[string]any{"keys": []string{pr.ID}}, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("plan to run: %d, want 422", code)
+	}
+}
+
+// TestAppliedKeepsAnItemWithACopyOnAnotherMac: an item whose steps here
+// verified stays in review while another Mac still has a copy of it.
+func TestAppliedKeepsAnItemWithACopyOnAnotherMac(t *testing.T) {
+	both := toApply(item.BranchKey("o/r", "both"), item.Delete, "pro-2:/p", "work:/r")
+	here := toApply(item.BranchKey("o/r", "here"), item.Delete, "work:/r")
+	x := &Index{Machine: "work", Applied: func(time.Time, func(string) time.Time) map[string]bool {
+		return map[string]bool{both.ID: true, here.ID: true}
+	}}
+	x.set(engine.Result{Items: []engine.Item{both, here}}, "h", time.Now())
+	got := x.applied()
+	if got[both.ID] || !got[here.ID] {
+		t.Fatalf("applied %v, want only %s", got, here.ID)
+	}
 }
