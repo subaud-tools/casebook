@@ -58,9 +58,17 @@ func cloneRemote(c *Clone) string {
 	return "origin"
 }
 
-// isDefaultBranch reports whether name is the clone's default or a well-known default.
-func isDefaultBranch(name, def string) bool {
-	return name == def || name == "main" || name == "master"
+// LongLived reports whether a branch lives on rather than landing: the repo's
+// default branch (def), or one named main, master, dev, develop or staging.
+// It is never landed and casebook never deletes it: a dev → main release PR
+// made dev look landed, and its deletes reached a shared repo (Court,
+// 2026-10-18).
+func LongLived(name, def string) bool {
+	switch name {
+	case def, "main", "master", "dev", "develop", "staging":
+		return true
+	}
+	return false
 }
 
 // ComputeAncestorLanded runs the git merge-base ancestor check for every
@@ -85,7 +93,9 @@ func ComputeAncestorLanded(ctx context.Context, snap *Snapshot, repos map[string
 		remote := cloneRemote(c)
 		for bi := range c.Branches {
 			b := &c.Branches[bi]
-			if isDefaultBranch(b.Name, def) {
+			if LongLived(b.Name, def) {
+				b.Landed, b.LandedState, b.LandedTip, b.LandedHow = "", "", "", ""
+				b.LongLived = true
 				continue
 			}
 			// Reset so re-computation is idempotent.
@@ -125,7 +135,7 @@ func ReposWithUnlandedBranches(snap Snapshot, repos map[string]RepoObs) []string
 			def = r.DefaultBranch
 		}
 		for _, b := range c.Branches {
-			if isDefaultBranch(b.Name, def) {
+			if LongLived(b.Name, def) {
 				continue
 			}
 			if b.LandedState != "yes" {
@@ -206,8 +216,8 @@ func ComputeMergedPRLanded(ctx context.Context, snap *Snapshot, merged map[strin
 		ml := merged[strings.ToLower(c.Repo)]
 		for bi := range c.Branches {
 			b := &c.Branches[bi]
-			if b.LandedState == "yes" {
-				continue // already confirmed landed
+			if b.LandedState == "yes" || b.LongLived {
+				continue // already confirmed landed, or never landed
 			}
 			if !ml.Fetched {
 				b.LandedState = "unknown"

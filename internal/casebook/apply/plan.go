@@ -295,6 +295,14 @@ func branchSteps(it engine.Item, machine string, sl snapLookup) []Step {
 
 	branch := it.Key.Branch
 	localClones := machineClones(it, machine)
+	if observe.LongLived(branch, "") {
+		return nil
+	}
+	for _, c := range localClones {
+		if b, ok := sl.branch(c, branch); ok && b.LongLived {
+			return nil
+		}
+	}
 
 	var steps []Step
 

@@ -85,6 +85,9 @@ func checkBranchLocal(ctx context.Context, step JobStep, env Env) (Checked, erro
 	if err != nil {
 		return Checked{}, err
 	}
+	if reason := longLived(env, step.Key, branch); reason != "" {
+		return Checked{Reason: reason}, nil
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return Checked{Reason: "clone missing: " + dir}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
@@ -103,11 +106,51 @@ func checkBranchLocal(ctx context.Context, step JobStep, env Env) (Checked, erro
 	if step.ExpectedTip != "" && live != step.ExpectedTip {
 		return Checked{Reason: fmt.Sprintf("branch tip moved: have %s, expected %s", short(live), short(step.ExpectedTip))}, nil
 	}
+	// A checked-out branch is never deleted: its clone or worktree would be
+	// left on a branch that doesn't exist.
+	list, err := env.RunGit(ctx, dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return Checked{Reason: "cannot list worktrees: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	}
+	if at := checkedOutAt(list, branch); at != "" {
+		return Checked{Reason: "checked out in " + at}, nil
+	}
 	landed, reason := isLanded(ctx, env, dir, live, step.Key)
 	if !landed {
 		return Checked{Reason: reason}, nil
 	}
 	return Checked{OK: true, Tip: live, Branch: branch}, nil
+}
+
+// checkedOutAt returns the path of the worktree (the clone itself included)
+// that has branch checked out, from `git worktree list --porcelain`, or "".
+func checkedOutAt(list, branch string) string {
+	path := ""
+	for _, line := range strings.Split(list, "\n") {
+		if p, ok := strings.CutPrefix(line, "worktree "); ok {
+			path = p
+		}
+		if line == "branch refs/heads/"+branch {
+			return path
+		}
+	}
+	return ""
+}
+
+// longLived is the refusal for a delete of a long-lived branch
+// (observe.LongLived, with the repo's default when it was observed), or "".
+// It holds even for a step a job already carries.
+func longLived(env Env, key, branch string) string {
+	def := ""
+	if env.Repos != nil {
+		if r, ok := env.Repos(strings.ToLower(repoOfKey(key))); ok {
+			def = r.DefaultBranch
+		}
+	}
+	if observe.LongLived(branch, def) {
+		return branch + " is a long-lived branch: casebook never deletes it"
+	}
+	return ""
 }
 
 // checkBranchRemote implements remote-tip-unchanged-and-landed: the remote's
@@ -117,6 +160,9 @@ func checkBranchRemote(ctx context.Context, step JobStep, env Env) (Checked, err
 	dir, remote, branch, err := parseRemoteDelete(step.Command)
 	if err != nil {
 		return Checked{}, err
+	}
+	if reason := longLived(env, step.Key, branch); reason != "" {
+		return Checked{Reason: reason}, nil
 	}
 	if _, err := os.Stat(dir); err != nil {
 		return Checked{Reason: "clone missing: " + dir}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error

@@ -6,6 +6,13 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.16.2
+
+- A long-lived branch (the repo's default, or one named main, master, dev, develop or staging) is never landed and never deleted, even by a job made before this release. A dev → main release PR used to make dev look landed.
+- A branch that is checked out in a clone or worktree is never deleted; the step stops and says where it is checked out.
+- A remote branch delete skips the repo's pre-push hooks, which check code being pushed (a delete pushes none).
+- A merge is a squash: gh refuses to choose a method when nobody is at the keyboard.
+
 ## 0.16.1
 
 - A group's button (and any decide of several items) records all its decisions in one commit: 1,757 landed branches now take under a second, not six minutes. Each item's history shows that commit, which lists every item it decided.

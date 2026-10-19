@@ -408,3 +408,30 @@ func TestTipLandedSharedDefinition(t *testing.T) {
 		t.Fatalf("unavailable merged list: %+v, want not landed", res)
 	}
 }
+
+// TestLongLivedBranchesAreNeverLanded: dev is an ancestor of main and the head
+// of a merged dev → main PR, yet it is not landed: it lives on (Court,
+// 2026-10-18). So is the repo's own default branch.
+func TestLongLivedBranchesAreNeverLanded(t *testing.T) {
+	dir, tip, mainTip := setupAncestorRepo(t)
+	testgit.Git(t, dir, "update-ref", "refs/remotes/origin/trunk", mainTip)
+	snap := makeSnapForDir(dir, "acme/proj", "origin")
+	for _, b := range []string{"dev", "develop", "staging", "trunk", "feat"} {
+		addBranch(&snap, 0, b, tip)
+	}
+	repos := map[string]RepoObs{"acme/proj": {Repo: "acme/proj", DefaultBranch: "trunk"}}
+	merged := map[string]MergedPRList{"acme/proj": {Fetched: true, PRs: []MergedPR{
+		{Number: 9, HeadRefName: "dev", HeadRefOid: tip},
+		{Number: 10, HeadRefName: "staging", HeadRefOid: tip},
+	}}}
+	ComputeLanded(ctx, &snap, repos, merged)
+	for _, b := range snap.Clones[0].Branches {
+		long := b.Name != "feat"
+		if long && (b.LandedState == "yes" || !b.LongLived) {
+			t.Errorf("%s: landed %q long-lived %v, want not landed and long-lived", b.Name, b.LandedState, b.LongLived)
+		}
+		if !long && b.LandedState != "yes" {
+			t.Errorf("feat: landed %q, want yes", b.LandedState)
+		}
+	}
+}
