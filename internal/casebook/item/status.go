@@ -108,7 +108,7 @@ func DueReason(k Key, d *Decision, obs Observed, f Facts, now time.Time) string 
 		if d.Disposition == Keep {
 			return "new activity since you left it open"
 		}
-		return "new activity since Not now"
+		return "new activity since not now"
 	}
 	return ""
 }

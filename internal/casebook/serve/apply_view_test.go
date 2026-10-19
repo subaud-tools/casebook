@@ -87,10 +87,10 @@ func TestToApplyListsGroupsByWhatWillHappen(t *testing.T) {
 		t.Fatalf("items: %d", c)
 	}
 	want := []struct{ id, label string }{
-		{"merge|pr", "Merge 1 PR"},
-		{"close|pr", "Close 1 PR"},
-		{"close|issue", "Close 2 issues"},
-		{"delete|branch", "Delete 1 branch"},
+		{"merge|pr", "merge 1 PR"},
+		{"close|pr", "close 1 PR"},
+		{"close|issue", "close 2 issues"},
+		{"delete|branch", "delete 1 branch"},
 	}
 	if len(items.Groups) != len(want) {
 		t.Fatalf("groups %+v, want %d", items.Groups, len(want))

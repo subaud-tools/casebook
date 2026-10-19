@@ -34,7 +34,7 @@ func TestItemsGroupFilterAllPages(t *testing.T) {
 	if _, errs := r.s.Props.Propose(ctx, "pi:s1", merging, "merge", "", ""); len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	id := "pi:s1|close|Close it without merging"
+	id := "pi:s1|close|close it without merging"
 	var got []string
 	for _, off := range []int{0, 200, 400} {
 		var l ItemsView
@@ -70,7 +70,7 @@ func TestWithdrawByGroup(t *testing.T) {
 	}
 	propose([]string{"issue:schuettc/hail#4", "issue:schuettc/hail#5"}, "close")
 	propose([]string{"pr:schuettc/hail#3"}, "close")
-	if n := r.withdraw(t, map[string]any{"view": "new", "group": "pi:s1|close|Close it"}); n != 2 {
+	if n := r.withdraw(t, map[string]any{"view": "new", "group": "pi:s1|close|close it"}); n != 2 {
 		t.Fatalf("withdrew %d, want the 2 issues", n)
 	}
 	pending, _ := r.s.Props.Pending(ctx)
@@ -146,7 +146,7 @@ func TestVocabularyGroupWords(t *testing.T) {
 		t.Fatalf("vocabulary %d", c)
 	}
 	// The asks name the agent, never the session (the dock header does).
-	if v.DiscardMany != "Discard {n}" || v.RecommendThese != "ask agent to recommend these" || v.SuggestRules != "ask agent to suggest rules" || v.DiscardAll != "discard all {n}" {
+	if v.DiscardMany != "discard {n}" || v.RecommendThese != "ask agent to recommend these" || v.SuggestRules != "ask agent to suggest rules" || v.DiscardAll != "discard all {n}" {
 		t.Fatalf("group words %q %q %q %q", v.DiscardMany, v.RecommendThese, v.SuggestRules, v.DiscardAll)
 	}
 	if v.Summary != (SummaryVocab{ToDecide: "{n} to decide", CameBack: "{n} came back", Group: "{who} \u00b7 {decision} \u00b7 {n}", NotRecommended: "{n} not recommended yet"}) {
@@ -223,7 +223,7 @@ func TestVocabularyItemPageWords(t *testing.T) {
 	if v.Nav != want {
 		t.Fatalf("nav %+v", v.Nav)
 	}
-	if v.HideList != "Hide the list" || v.ShowList != "Show the list" {
+	if v.HideList != "hide the list" || v.ShowList != "show the list" {
 		t.Fatalf("hide %q, show %q", v.HideList, v.ShowList)
 	}
 }
@@ -286,7 +286,7 @@ func TestItemsGroupFalseIsFlat(t *testing.T) {
 	if at <= 0 {
 		t.Fatalf("%s at %d in %v: want it in its date's place, not first", key, at, l.Items)
 	}
-	g := r.viewItems(t, "view=new&group="+url.QueryEscape("pi:s1|close|Close it"))
+	g := r.viewItems(t, "view=new&group="+url.QueryEscape("pi:s1|close|close it"))
 	if len(g.Items) != 1 || g.Items[0].ID != key {
 		t.Fatalf("close group lists %+v, want only %s", g.Items, key)
 	}
@@ -337,7 +337,7 @@ func TestItemsOpenListsOnlyTheOpenGroups(t *testing.T) {
 	if _, errs := r.s.Props.Propose(ctx, "pi:s1", closing, "close", "", ""); len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	id := "pi:s1|close|Close it without merging"
+	id := "pi:s1|close|close it without merging"
 	for _, c := range []struct {
 		open  string
 		total int

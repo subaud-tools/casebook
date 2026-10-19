@@ -127,8 +127,8 @@ describe('names', () => {
     assert.equal(laneLabel('agent', ''), 'agent · outward');
   });
   test('a group is named by its action', () => {
-    assert.equal(actionTitle('branch-delete-local'), 'Delete local branches');
-    assert.equal(actionTitle('pr-close'), 'Close PRs');
+    assert.equal(actionTitle('branch-delete-local'), 'delete local branches');
+    assert.equal(actionTitle('pr-close'), 'close PRs');
     assert.equal(actionTitle('something-new'), 'something-new');
   });
   test("a job's title is its groups, and its lanes casebook's first", () => {
@@ -137,7 +137,7 @@ describe('names', () => {
       step('branch-delete-local', 'casebook'),
       step('repo-archive', 'agent'),
     ]);
-    assert.equal(jobTitle(j), 'Archive repos, delete local branches');
+    assert.equal(jobTitle(j), 'archive repos, delete local branches');
     assert.deepEqual(jobLanes(j), ['casebook', 'agent']);
     assert.equal(jobTitle(job('planned', [])), 'job #3');
   });
@@ -418,13 +418,13 @@ describe('planTitle', () => {
         ]),
         nouns,
       ),
-      'Delete 2 repos',
+      'delete 2 repos',
     );
   });
   test('one item reads singular', () => {
     assert.equal(
       planTitle(job([['pr:o/a#1', 'pr-merge']]), nouns),
-      'Merge 1 pr',
+      'merge 1 pr',
     );
   });
   test('a branch counts once across its local and remote steps', () => {
@@ -437,7 +437,7 @@ describe('planTitle', () => {
         ]),
         nouns,
       ),
-      'Delete 1 local branch, delete 1 remote branch, close 1 pr',
+      'delete 1 local branch, delete 1 remote branch, close 1 pr',
     );
   });
 });
@@ -527,7 +527,7 @@ describe('review tags and lines', () => {
     };
     assert.equal(
       runsNow(plan),
-      'Runs now: 2 worktrees removed first, 3 deleted on GitHub, 1 deleted here.\nWaits for pro-2: 4 local copies. Held: 1.',
+      'runs now: 2 worktrees removed first, 3 deleted on GitHub, 1 deleted here.\nWaits for pro-2: 4 local copies. Held: 1.',
     );
     assert.equal(
       runsNow({
@@ -541,7 +541,7 @@ describe('review tags and lines', () => {
         built_at: '',
         steps: [st('branch-delete-local'), st('repo-archive')],
       }),
-      'Runs now: 1 deleted here, 1 on GitHub, through the agent.',
+      'runs now: 1 deleted here, 1 on GitHub, through the agent.',
     );
     assert.equal(
       runsNow({
@@ -549,14 +549,14 @@ describe('review tags and lines', () => {
         steps: [],
         held_back: [{ key: 'pr:o/r#3', holds: [] }],
       }),
-      'Nothing runs now.\nHeld: 1.',
+      'nothing runs now.\nHeld: 1.',
     );
     assert.equal(
       runsNow({
         built_at: '',
         steps: Array.from({ length: 1240 }, () => st('branch-delete-remote')),
       }),
-      'Runs now: 1,240 deleted on GitHub.',
+      'runs now: 1,240 deleted on GitHub.',
     );
   });
   test('reviewKick', () => {

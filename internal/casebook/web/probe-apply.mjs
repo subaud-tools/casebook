@@ -1026,7 +1026,7 @@ async function holdsScenario(context, t, s) {
         const doc = document.querySelector('[data-testid="review-group"]');
         return (
           !!doc &&
-          doc.querySelector('.cb-held-h')?.textContent === 'Held \u00b7 1' &&
+          doc.querySelector('.cb-held-h')?.textContent === 'held \u00b7 1' &&
           (doc.textContent ?? '').includes(
             'schuettc/t11-archived is archived: GitHub refuses any change to it',
           )
@@ -1036,7 +1036,7 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check(
-      "review shows an archived repo's PR under Held with its reason",
+      "review shows an archived repo's PR under held with its reason",
       held,
     );
 

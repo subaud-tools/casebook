@@ -75,10 +75,10 @@ const (
 )
 
 var (
-	leaveOpen = Choice{Disposition: Keep, Label: "Leave it open", Many: "Leave {n} open", Says: keepSays, Done: "Left it open", DoneMany: "Left {n} open"}
-	keepIt    = Choice{Disposition: Keep, Label: "Keep it", Many: "Keep {n}", Says: keepSays, Done: "Kept it", DoneMany: "Kept {n}"}
-	notNow    = Choice{Disposition: Wait, Label: "Not now", Many: "Not now for {n}", Says: notNowSay, Done: "Put it off", DoneMany: "Put off {n}", NeedsUntil: true}
-	stopTrack = Choice{Disposition: Ignore, Label: "Stop tracking it", Many: "Stop tracking {n}", Says: stopSays, Done: "Stopped tracking it", DoneMany: "Stopped tracking {n}"}
+	leaveOpen = Choice{Disposition: Keep, Label: "leave it open", Many: "leave {n} open", Says: keepSays, Done: "left it open", DoneMany: "left {n} open"}
+	keepIt    = Choice{Disposition: Keep, Label: "keep it", Many: "keep {n}", Says: keepSays, Done: "kept it", DoneMany: "kept {n}"}
+	notNow    = Choice{Disposition: Wait, Label: "not now", Many: "not now for {n}", Says: notNowSay, Done: "put it off", DoneMany: "put off {n}", NeedsUntil: true}
+	stopTrack = Choice{Disposition: Ignore, Label: "stop tracking it", Many: "stop tracking {n}", Says: stopSays, Done: "stopped tracking it", DoneMany: "stopped tracking {n}"}
 )
 
 // choices lists what the decide step offers per kind, in the order shown.
@@ -86,29 +86,29 @@ var (
 var choices = map[Kind][]Choice{
 	KindPR: {
 		leaveOpen,
-		{Disposition: Merge, Label: "Merge it", Many: "Merge {n}", Says: "Decides to merge this pull request." + onGitHub, Done: "Merged it", DoneMany: "Merged {n}", Outward: true},
-		{Disposition: Close, Label: "Close it without merging", Many: "Close {n}", Says: "Decides to close this pull request." + onGitHub, Done: "Closed it", DoneMany: "Closed {n}", Outward: true},
+		{Disposition: Merge, Label: "merge it", Many: "merge {n}", Says: "Decides to merge this pull request." + onGitHub, Done: "merged it", DoneMany: "merged {n}", Outward: true},
+		{Disposition: Close, Label: "close it without merging", Many: "close {n}", Says: "Decides to close this pull request." + onGitHub, Done: "closed it", DoneMany: "closed {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindIssue: {
 		leaveOpen,
-		{Disposition: Close, Label: "Close it", Many: "Close {n}", Says: "Decides to close this issue." + onGitHub, Done: "Closed it", DoneMany: "Closed {n}", Outward: true},
+		{Disposition: Close, Label: "close it", Many: "close {n}", Says: "Decides to close this issue." + onGitHub, Done: "closed it", DoneMany: "closed {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindBranch: {
 		keepIt,
-		{Disposition: Delete, Label: "Delete it", Many: "Delete {n}", Says: "Decides to delete this branch. Nothing is deleted until you run it in review.", Done: "Deleted it", DoneMany: "Deleted {n}", Outward: true},
+		{Disposition: Delete, Label: "delete it", Many: "delete {n}", Says: "Decides to delete this branch. Nothing is deleted until you run it in review.", Done: "deleted it", DoneMany: "deleted {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindWorktree: {
 		keepIt,
-		{Disposition: Delete, Label: "Remove it", Many: "Remove {n}", Says: "Decides to remove this worktree. Nothing is removed until you run it in review.", Done: "Removed it", DoneMany: "Removed {n}", Outward: true},
+		{Disposition: Delete, Label: "remove it", Many: "remove {n}", Says: "Decides to remove this worktree. Nothing is removed until you run it in review.", Done: "removed it", DoneMany: "removed {n}", Outward: true},
 		notNow, stopTrack,
 	},
 	KindRepo: {
 		keepIt,
-		{Disposition: Archive, Label: "Archive it on GitHub", Many: "Archive {n}", Says: "Decides to archive this repository." + onGitHub, Done: "Archived it", DoneMany: "Archived {n}", Outward: true},
-		{Disposition: Delete, Label: "Delete it", Many: "Delete {n}", Says: "Decides to delete this repository." + onGitHub, Done: "Deleted it", DoneMany: "Deleted {n}", Outward: true},
+		{Disposition: Archive, Label: "archive it on GitHub", Many: "archive {n}", Says: "Decides to archive this repository." + onGitHub, Done: "archived it", DoneMany: "archived {n}", Outward: true},
+		{Disposition: Delete, Label: "delete it", Many: "delete {n}", Says: "Decides to delete this repository." + onGitHub, Done: "deleted it", DoneMany: "deleted {n}", Outward: true},
 		notNow, stopTrack,
 	},
 }

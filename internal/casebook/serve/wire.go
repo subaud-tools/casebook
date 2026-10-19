@@ -84,7 +84,7 @@ type ItemView struct {
 // proposal, and GroupNoneLabel its name.
 const (
 	GroupNone      = "none"
-	GroupNoneLabel = "Not recommended yet"
+	GroupNoneLabel = "not recommended yet"
 )
 
 // GroupCameBack is the group of an Attention view's items that were
@@ -92,7 +92,7 @@ const (
 // it is listed first. GroupCameBackLabel is its name.
 const (
 	GroupCameBack      = "came-back"
-	GroupCameBackLabel = "Came back"
+	GroupCameBackLabel = "came back"
 )
 
 // GroupView is one group of an Attention view: the items whose pending

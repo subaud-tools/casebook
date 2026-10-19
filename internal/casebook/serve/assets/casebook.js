@@ -1390,14 +1390,14 @@ function applyLabel(many, noun, nouns, n) {
   return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
 }
 var TITLES = {
-  "branch-delete-local": "Delete local branches",
-  "branch-delete-remote": "Delete remote branches",
-  "worktree-remove": "Remove worktrees",
-  "repo-archive": "Archive repos",
-  "repo-delete": "Delete repos",
-  "pr-close": "Close PRs",
-  "pr-merge": "Merge PRs",
-  "issue-close": "Close issues"
+  "branch-delete-local": "delete local branches",
+  "branch-delete-remote": "delete remote branches",
+  "worktree-remove": "remove worktrees",
+  "repo-archive": "archive repos",
+  "repo-delete": "delete repos",
+  "pr-close": "close PRs",
+  "pr-merge": "merge PRs",
+  "issue-close": "close issues"
 };
 function actionTitle(action) {
   return TITLES[action] ?? action;
@@ -1412,7 +1412,7 @@ function planTitle(job, nouns) {
     return [words[0], String(n), ...mid, n === 1 ? one : many].join(" ");
   });
   if (!parts.length) return `job #${job.id}`;
-  return parts.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
+  return parts.join(", ");
 }
 var PAST = {
   "branch-delete-local": "deleted",
@@ -1476,7 +1476,7 @@ function jobTitle(job) {
     ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action)))
   ];
   if (!titles.length) return `job #${job.id}`;
-  return titles.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
+  return titles.join(", ");
 }
 function jobLanes(job) {
   const have = new Set((job.steps ?? []).map((s) => s.lane));
@@ -1673,7 +1673,7 @@ function runsNow(plan) {
   if (steps.length && agent === steps.length) {
     first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
   } else if (!steps.length) {
-    first = "Nothing runs now.";
+    first = "nothing runs now.";
   } else {
     const parts = [];
     if (wt)
@@ -1683,7 +1683,7 @@ function runsNow(plan) {
     if (remote) parts.push(`${count(remote)} deleted on GitHub`);
     if (local) parts.push(`${count(local)} deleted here`);
     if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
-    first = `Runs now: ${parts.join(", ")}.`;
+    first = `runs now: ${parts.join(", ")}.`;
   }
   const rest = [];
   const waits = /* @__PURE__ */ new Map();
@@ -3567,6 +3567,42 @@ function makePane(ctx, tab, selection2, hooks) {
   };
 }
 
+// obs.ts
+function makeObs(ctx, set) {
+  let builtAt = 0;
+  let intervalMs = 0;
+  let syncing = false;
+  function paint() {
+    const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
+    set(
+      syncing ? "syncing observations…" : o.text,
+      syncing ? "syncing" : o.stale ? "stale" : "fresh"
+    );
+  }
+  async function load() {
+    try {
+      const s = await ctx.api.get("/summary");
+      builtAt = Date.parse(s.built_at) || 0;
+      intervalMs = s.sync_interval_ms;
+      syncing = s.syncing;
+      paint();
+    } catch {
+    }
+  }
+  setInterval(paint, 1e3);
+  return {
+    load,
+    onLive(type, data) {
+      if (type === "index" || type === "gap") void load();
+      else if (type === "sync") {
+        syncing = (data ?? {}).state === "running";
+        if (!syncing) void load();
+        paint();
+      }
+    }
+  };
+}
+
 // ran.ts
 import { h as h9, facts as facts2, buttons as buttons3, card as card2 } from "/_kit/kit.js";
 
@@ -4301,8 +4337,6 @@ function makeApply(ctx) {
   let note = "";
   let busy = false;
   let painting = false;
-  let builtAt = 0;
-  let intervalMs = 0;
   let syncing = false;
   let syncError = "";
   let afterSync = false;
@@ -4530,7 +4564,6 @@ function makeApply(ctx) {
     } finally {
       painting = false;
     }
-    paintObs();
     drawOverview();
   }
   function paintRunning() {
@@ -4558,15 +4591,10 @@ function makeApply(ctx) {
       ] : []
     );
   }
-  function paintObs() {
-    const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
-    const text = syncing ? "syncing observations…" : builtAt ? o.text : "";
-    const state = syncing ? "syncing" : o.stale ? "stale" : "fresh";
+  const obs = makeObs(ctx, (text, state) => {
     reviewPane.setObs(text, state);
     runPane.setObs(text, state);
-  }
-  const obsTimer = setInterval(paintObs, 1e3);
-  void obsTimer;
+  });
   const dirty = {
     all: false,
     items: false,
@@ -4731,10 +4759,7 @@ function makeApply(ctx) {
   async function loadSummary() {
     try {
       const s = await ctx.api.get("/summary");
-      builtAt = Date.parse(s.built_at) || 0;
-      intervalMs = s.sync_interval_ms;
       syncing = s.syncing;
-      paintObs();
       drawOverview();
     } catch {
     }
@@ -5092,7 +5117,6 @@ function makeApply(ctx) {
       afterSync = false;
       syncError = message2(err);
     }
-    paintObs();
     drawReview();
     if (active) ctx.setPrimary(primary());
   }
@@ -5112,7 +5136,6 @@ function makeApply(ctx) {
         refusal = "";
       }
     }
-    paintObs();
     drawReview();
     if (active) ctx.setPrimary(primary());
   }
@@ -5257,7 +5280,7 @@ function makeApply(ctx) {
           h10(
             "h1",
             { class: "kit-h1" },
-            waitingN ? `${pluralize(waitingN, "decision")} waiting` : "Nothing decided is waiting"
+            waitingN ? `${pluralize(waitingN, "decision")} waiting` : "nothing decided is waiting"
           ),
           h10(
             "p",
@@ -5279,7 +5302,7 @@ function makeApply(ctx) {
         h10(
           "h1",
           { class: "kit-h1" },
-          o.running.length ? `${pluralize(o.running.length, "job")} running` : "Nothing is running"
+          o.running.length ? `${pluralize(o.running.length, "job")} running` : "nothing is running"
         ),
         facts3([
           ["running", String(o.running.length)],
@@ -5366,7 +5389,7 @@ function makeApply(ctx) {
     for (const p of shown) {
       const github = p.action === "branch-delete-remote";
       const first2 = p.action === "worktree-remove" && deletesBranches;
-      const title = github ? "Delete on GitHub" : first2 ? "Remove worktrees first" : actionTitle(p.action);
+      const title = github ? "delete on GitHub" : first2 ? "remove worktrees first" : actionTitle(p.action);
       const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first2 ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
       doc.append(
         h10(
@@ -5431,7 +5454,7 @@ function makeApply(ctx) {
         h10(
           "h3",
           { class: "kit-label cb-group-label cb-wait-h" },
-          `Waits for ${m} · ${ws.length}`
+          `waits for ${m} · ${ws.length}`
         ),
         ...waitBlocks(ws, steps).flatMap((b) => [
           h10("p", { class: "cb-plan-where" }, b.text),
@@ -5464,7 +5487,7 @@ function makeApply(ctx) {
       h10(
         "h3",
         { class: "kit-label cb-group-label cb-held-h" },
-        `Held · ${held2.length}`
+        `held · ${held2.length}`
       ),
       h10("p", { class: "cb-plan-where" }, heldText),
       h10(
@@ -5606,11 +5629,11 @@ function makeApply(ctx) {
   function primary() {
     if (mode === "review") {
       if (refusal)
-        return syncing ? null : { label: "Sync first", run: () => void syncFirst() };
+        return syncing ? null : { label: "sync first", run: () => void syncFirst() };
       return null;
     }
     if (open && openId !== null && isRunning(open.job)) {
-      return open.job.paused ? { label: "Resume", run: pauseOrResume } : { label: "Pause job", run: pauseOrResume };
+      return open.job.paused ? { label: "resume", run: pauseOrResume } : { label: "pause job", run: pauseOrResume };
     }
     return null;
   }
@@ -5660,6 +5683,7 @@ function makeApply(ctx) {
     } catch {
     }
   }
+  void obs.load();
   void loadFilters();
   void loadJobs();
   void loadItems();
@@ -5783,7 +5807,9 @@ function makeApply(ctx) {
           if (reviewQ.filters.length) mark((d) => d.items = true);
           if (runQ.filters.length) mark((d) => d.run = true);
         });
-      } else if (type === "sync") {
+      }
+      obs.onLive(type, data);
+      if (type === "sync") {
         onSync(data ?? {});
       }
     },
@@ -6889,6 +6915,8 @@ function makeDecide(ctx) {
     }
   });
   const handle = pane.handle;
+  const obs = makeObs(ctx, (text, state) => pane.setObs(text, state));
+  void obs.load();
   const groupSwitch = h14(
     "button",
     {
@@ -8235,6 +8263,7 @@ ${JSON.stringify(listAttached("none"))}`;
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => listKeys,
     onLive(type, data) {
+      obs.onLive(type, data);
       if (type === "gap") {
         void loadRules();
         void reload();

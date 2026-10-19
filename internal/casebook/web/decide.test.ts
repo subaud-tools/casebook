@@ -390,9 +390,9 @@ describe('navTargets', () => {
     total,
   });
   const groups = [
-    g('close', 'Close it without merging', 27),
-    g('keep', 'Leave it open', 2),
-    g('merge', 'Merge it', 2),
+    g('close', 'close it without merging', 27),
+    g('keep', 'leave it open', 2),
+    g('merge', 'merge it', 2),
   ];
   // The loaded rows in group order, a collapsed group's included.
   const order = [
@@ -411,7 +411,7 @@ describe('navTargets', () => {
     assert.equal(n.prevGroup, undefined);
     assert.equal(n.pos, 1);
     assert.equal(n.total, 27);
-    assert.equal(n.label, 'Close it without merging');
+    assert.equal(n.label, 'close it without merging');
     assert.equal(n.next, 'pr:o/r#2');
     assert.equal(n.nextGroup, 'pr:o/r#4');
   });
@@ -422,7 +422,7 @@ describe('navTargets', () => {
     assert.equal(n.prev, 'pr:o/r#4');
     assert.equal(n.pos, 2);
     assert.equal(n.total, 2);
-    assert.equal(n.label, 'Leave it open');
+    assert.equal(n.label, 'leave it open');
     // The previous group's first item, not its last.
     assert.equal(n.prevGroup, 'pr:o/r#1');
     assert.equal(n.nextGroup, 'pr:o/r#6');
@@ -562,15 +562,15 @@ describe('decideSummary', () => {
     assert.deepEqual(
       decideSummary(
         [
-          g('came-back', '', 'Came back', 3),
+          g('came-back', '', 'came back', 3),
           g(
-            'rule:landed-branches|delete|Delete it',
+            'rule:landed-branches|delete|delete it',
             'rule:landed-branches',
-            'Delete it',
+            'delete it',
             30,
           ),
           g('pi:x|archive|Archive it', 'pi:x', 'Archive it', 5),
-          g('none', '', 'Not recommended yet', 12),
+          g('none', '', 'not recommended yet', 12),
         ],
         50,
         rules,
@@ -579,7 +579,7 @@ describe('decideSummary', () => {
       [
         '50 to decide',
         '3 came back',
-        'Landed branches \u00b7 Delete it \u00b7 30',
+        'Landed branches \u00b7 delete it \u00b7 30',
         'pi \u00b7 Archive it \u00b7 5',
         '12 not recommended yet',
       ],

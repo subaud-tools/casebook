@@ -357,7 +357,7 @@ async function decisionsScenario(context, t, s) {
       `${READ} .cb-notnow:not([hidden]) .kit-chip[data-id="in-1w"]`,
     );
     check(
-      `a recommendation that came while picking a Not now (the page heard it: ${heard}) counts as decided differently: waiting, its recommendation changed`,
+      `a recommendation that came while picking a not now (the page heard it: ${heard}) counts as decided differently: waiting, its recommendation changed`,
       heard &&
         (await eventually(async () => {
           const h = await held(IPPR(5));

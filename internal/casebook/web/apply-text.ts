@@ -59,14 +59,14 @@ export function applyLabel(
 }
 
 const TITLES: Record<string, string> = {
-  'branch-delete-local': 'Delete local branches',
-  'branch-delete-remote': 'Delete remote branches',
-  'worktree-remove': 'Remove worktrees',
-  'repo-archive': 'Archive repos',
-  'repo-delete': 'Delete repos',
-  'pr-close': 'Close PRs',
-  'pr-merge': 'Merge PRs',
-  'issue-close': 'Close issues',
+  'branch-delete-local': 'delete local branches',
+  'branch-delete-remote': 'delete remote branches',
+  'worktree-remove': 'remove worktrees',
+  'repo-archive': 'archive repos',
+  'repo-delete': 'delete repos',
+  'pr-close': 'close PRs',
+  'pr-merge': 'merge PRs',
+  'issue-close': 'close issues',
 };
 
 /** actionTitle names a group of steps: "Delete local branches". */
@@ -93,9 +93,7 @@ export function planTitle(
     return [words[0], String(n), ...mid, n === 1 ? one : many].join(' ');
   });
   if (!parts.length) return `job #${job.id}`;
-  return parts
-    .map((t, i) => (i ? t.charAt(0).toLowerCase() + t.slice(1) : t))
-    .join(', ');
+  return parts.join(', ');
 }
 
 const PAST: Record<string, string> = {
@@ -191,9 +189,7 @@ export function jobTitle(job: Job): string {
     ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action))),
   ];
   if (!titles.length) return `job #${job.id}`;
-  return titles
-    .map((t, i) => (i ? t.charAt(0).toLowerCase() + t.slice(1) : t))
-    .join(', ');
+  return titles.join(', ');
 }
 
 /** jobLanes: the lanes a job has steps in, casebook's first. */
@@ -535,7 +531,7 @@ export function runsNow(plan: Plan): string {
   if (steps.length && agent === steps.length) {
     first = `${pluralize(steps.length, 'step')} \u00b7 all on GitHub, through the agent.`;
   } else if (!steps.length) {
-    first = 'Nothing runs now.';
+    first = 'nothing runs now.';
   } else {
     const parts: string[] = [];
     if (wt)
@@ -545,7 +541,7 @@ export function runsNow(plan: Plan): string {
     if (remote) parts.push(`${count(remote)} deleted on GitHub`);
     if (local) parts.push(`${count(local)} deleted here`);
     if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
-    first = `Runs now: ${parts.join(', ')}.`;
+    first = `runs now: ${parts.join(', ')}.`;
   }
   const rest: string[] = [];
   const waits = new Map<string, number>();

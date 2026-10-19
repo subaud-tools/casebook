@@ -90,7 +90,6 @@ import {
   laneLabel,
   makeSeq,
   needsSession,
-  observations,
   openCardsByJob,
   progress,
   publicLine,
@@ -133,6 +132,7 @@ import {
   type PaneQuery,
 } from './list-pane-text.ts';
 import { midHead, midRows } from './mid.ts';
+import { makeObs } from './obs.ts';
 import { renderJob, renderRan, type JobHooks } from './ran.ts';
 
 // Decided items are fetched 200 at a time (serve's cap, like decide).
@@ -271,10 +271,7 @@ export function makeApply(ctx: Ctx): Section {
   let note = '';
   let busy = false;
   let painting = false;
-  // serve's observation age: when the index was built, one sync interval,
-  // and whether a sync (POST /api/sync) is running.
-  let builtAt = 0;
-  let intervalMs = 0;
+  // Whether a sync (POST /api/sync) is running: a refused plan waits for it.
   let syncing = false;
   let syncError = '';
   // A refused plan is asked for again once a sync Court asked for here
@@ -578,7 +575,6 @@ export function makeApply(ctx: Ctx): Section {
     } finally {
       painting = false;
     }
-    paintObs();
     // With nothing open, the overview's counts follow the list.
     drawOverview();
   }
@@ -613,18 +609,11 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  function paintObs(): void {
-    const o = builtAt
-      ? observations(builtAt, intervalMs, Date.now())
-      : { text: '', stale: false };
-    const text = syncing ? 'syncing observations\u2026' : builtAt ? o.text : '';
-    const state = syncing ? 'syncing' : o.stale ? 'stale' : 'fresh';
+  // How old the observations are, at the foot of both lists (obs.ts).
+  const obs = makeObs(ctx, (text, state) => {
     reviewPane.setObs(text, state);
     runPane.setObs(text, state);
-  }
-  // The age moves on its own: the foot says so without an event.
-  const obsTimer = setInterval(paintObs, 1000);
-  void obsTimer;
+  });
 
   // ---- loading ----
   //
@@ -835,10 +824,7 @@ export function makeApply(ctx: Ctx): Section {
   async function loadSummary(): Promise<void> {
     try {
       const s = await ctx.api.get<SummaryView>('/summary');
-      builtAt = Date.parse(s.built_at) || 0;
-      intervalMs = s.sync_interval_ms;
       syncing = s.syncing;
-      paintObs();
       drawOverview();
     } catch {
       // non-fatal
@@ -1298,7 +1284,6 @@ export function makeApply(ctx: Ctx): Section {
       afterSync = false;
       syncError = message(err);
     }
-    paintObs();
     drawReview();
     if (active) ctx.setPrimary(primary());
   }
@@ -1321,7 +1306,6 @@ export function makeApply(ctx: Ctx): Section {
         refusal = '';
       }
     }
-    paintObs();
     drawReview();
     if (active) ctx.setPrimary(primary());
   }
@@ -1491,7 +1475,7 @@ export function makeApply(ctx: Ctx): Section {
             { class: 'kit-h1' },
             waitingN
               ? `${pluralize(waitingN, 'decision')} waiting`
-              : 'Nothing decided is waiting',
+              : 'nothing decided is waiting',
           ),
           h(
             'p',
@@ -1515,7 +1499,7 @@ export function makeApply(ctx: Ctx): Section {
           { class: 'kit-h1' },
           o.running.length
             ? `${pluralize(o.running.length, 'job')} running`
-            : 'Nothing is running',
+            : 'nothing is running',
         ),
         facts([
           ['running', String(o.running.length)],
@@ -1616,9 +1600,9 @@ export function makeApply(ctx: Ctx): Section {
       const github = p.action === 'branch-delete-remote';
       const first = p.action === 'worktree-remove' && deletesBranches;
       const title = github
-        ? 'Delete on GitHub'
+        ? 'delete on GitHub'
         : first
-          ? 'Remove worktrees first'
+          ? 'remove worktrees first'
           : actionTitle(p.action);
       const where =
         p.lane === 'agent'
@@ -1704,7 +1688,7 @@ export function makeApply(ctx: Ctx): Section {
         h(
           'h3',
           { class: 'kit-label cb-group-label cb-wait-h' },
-          `Waits for ${m} \u00b7 ${ws.length}`,
+          `waits for ${m} \u00b7 ${ws.length}`,
         ),
         ...waitBlocks(ws, steps).flatMap((b) => [
           h('p', { class: 'cb-plan-where' }, b.text),
@@ -1744,7 +1728,7 @@ export function makeApply(ctx: Ctx): Section {
       h(
         'h3',
         { class: 'kit-label cb-group-label cb-held-h' },
-        `Held \u00b7 ${held.length}`,
+        `held \u00b7 ${held.length}`,
       ),
       h('p', { class: 'cb-plan-where' }, heldText),
       h(
@@ -1905,14 +1889,14 @@ export function makeApply(ctx: Ctx): Section {
       if (refusal)
         return syncing
           ? null
-          : { label: 'Sync first', run: () => void syncFirst() };
+          : { label: 'sync first', run: () => void syncFirst() };
       // The one button that runs it is in the review, not the bar too.
       return null;
     }
     if (open && openId !== null && isRunning(open.job)) {
       return open.job.paused
-        ? { label: 'Resume', run: pauseOrResume }
-        : { label: 'Pause job', run: pauseOrResume };
+        ? { label: 'resume', run: pauseOrResume }
+        : { label: 'pause job', run: pauseOrResume };
     }
     return null;
   }
@@ -1978,6 +1962,7 @@ export function makeApply(ctx: Ctx): Section {
     }
   }
 
+  void obs.load();
   void loadFilters();
   void loadJobs();
   void loadItems();
@@ -2122,7 +2107,9 @@ export function makeApply(ctx: Ctx): Section {
           if (reviewQ.filters.length) mark((d) => (d.items = true));
           if (runQ.filters.length) mark((d) => (d.run = true));
         });
-      } else if (type === 'sync') {
+      }
+      obs.onLive(type, data);
+      if (type === 'sync') {
         onSync((data ?? {}) as SyncEvent);
       }
     },

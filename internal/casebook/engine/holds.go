@@ -95,7 +95,7 @@ func (b *builder) holds(it *Item) ([]Hold, []string) {
 		}
 		if observe.LongLived(it.Key.Branch, def) || b.longLived[it.ID] {
 			hs = append(hs, Hold{Kind: HoldLongLived, Text: it.Key.Branch + " is a long-lived branch: casebook never deletes it",
-				Fix: "Decide it again: Keep it or Stop tracking it.", Stops: []item.Disposition{item.Delete}})
+				Fix: "Decide it again: keep it or stop tracking it.", Stops: []item.Disposition{item.Delete}})
 		}
 		for _, u := range b.branchUses[it.ID] {
 			name := filepath.Base(u.path)

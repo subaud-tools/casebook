@@ -82,6 +82,7 @@ import {
   type PaneGroup,
 } from './list-pane.ts';
 import { paneQuery, paneParams } from './list-pane-text.ts';
+import { makeObs } from './obs.ts';
 
 // STRIP_MS is how long the strip after an outward decision ("Closed it ·
 // waiting in apply · undo") shows.
@@ -499,6 +500,9 @@ export function makeDecide(ctx: Ctx): Section {
     },
   });
   const handle = pane.handle;
+  // How old the observations are, at the foot of the list (obs.ts).
+  const obs = makeObs(ctx, (text, state) => pane.setObs(text, state));
+  void obs.load();
 
   // "group by recommendation": on, the list's groups with their heads and
   // buttons; off, one list newest first, each row naming its
@@ -2315,6 +2319,7 @@ export function makeDecide(ctx: Ctx): Section {
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => listKeys,
     onLive(type: string, data: unknown) {
+      obs.onLive(type, data);
       if (type === 'gap') {
         // Events this page never heard were pruned: reload all it shows
         // (the rules, the list, and the open item).

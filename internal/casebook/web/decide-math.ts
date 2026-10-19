@@ -391,24 +391,6 @@ export function countWord(
 }
 
 /**
- * groupButtons is a group's two buttons in serve's words, for the whole
- * group (ticked 0) or the ticked items of it: its choice for several items
- * ("Close all 27", "Close 3"), and discard their recommendations.
- */
-export function groupButtons(
-  g: GroupView,
-  ticked: number,
-  vocab: Pick<DecisionVocabView, 'discard_many' | 'count_words'>,
-): { act: string; discard: string } {
-  const n = countWord(g.total, ticked, vocab.count_words);
-  const fill = (s: string): string => s.replaceAll('{n}', n);
-  return {
-    act: fill(g.many || g.label),
-    discard: fill(vocab.discard_many),
-  };
-}
-
-/**
  * lookIntoCard is the open item's "Look into it" card, in serve's words
  * (the vocabulary's look_into): its label, its sentence with the session
  * named, and the message it sends about key.
