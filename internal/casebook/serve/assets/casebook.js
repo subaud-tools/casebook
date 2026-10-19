@@ -4165,7 +4165,7 @@ function stepRow(s, next, hooks, o = {}) {
         `job #${s.job_id}`
       ) : null,
       o.here ? h9("span", { class: "cb-step-here" }, "this item") : null,
-      s.undoable ? h9(
+      s.undoable && !o.readOnly ? h9(
         "button",
         {
           type: "button",
@@ -4249,7 +4249,15 @@ function renderRan(ctx, detail, job, cards, hooks) {
       "div",
       { class: "kit-table cb-steps", "data-testid": "its-job" },
       ...around.steps.map(
-        (s) => stepRow(s, next.has(s.id), hooks, { here: s.key === key, line: true })
+        (s) => (
+          // The other items' steps are read-only: what they are and how
+          // they stand. The job's page acts on the whole job.
+          stepRow(s, next.has(s.id), hooks, {
+            here: s.key === key,
+            line: true,
+            readOnly: s.key !== key
+          })
+        )
       ),
       around.hidden ? h9(
         "div",

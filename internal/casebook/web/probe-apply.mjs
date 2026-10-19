@@ -1173,10 +1173,13 @@ async function frameScenario(context, t, s) {
   const agent = createAgent(s.base, s.token);
   const api = (m, p, b) => agent.api(m, p, b);
   await api('POST', '/api/decide', {
-    keys: [FR('feat/a'), FR('feat/b')],
+    keys: [FR('feat/a'), FR('feat/b'), FR('feat/d')],
     disposition: 'delete',
   });
-  const plan = await api('POST', '/api/apply/plan', { keys: [FR('feat/a')] });
+  // feat/d runs beside feat/a: "its job" shows it as a neighbour.
+  const plan = await api('POST', '/api/apply/plan', {
+    keys: [FR('feat/a'), FR('feat/d')],
+  });
   await api('POST', '/api/apply/approve', {
     plan_id: plan.job.id,
     session: '',
@@ -1369,6 +1372,24 @@ async function frameScenario(context, t, s) {
           undefined,
           8000,
         )),
+    );
+    const neighbours = await pg.evaluate(() => {
+      const rows = [
+        ...document.querySelectorAll(
+          '[data-testid="its-job"] .cb-step:not(.cb-here)',
+        ),
+      ];
+      return {
+        rows: rows.length,
+        buttons: rows.reduce(
+          (n, r) => n + r.querySelectorAll('button').length,
+          0,
+        ),
+      };
+    });
+    check(
+      `frame: "its job" shows its other items' steps read-only, no buttons (${neighbours.rows} rows, ${neighbours.buttons} buttons)`,
+      neighbours.rows > 0 && neighbours.buttons === 0,
     );
 
     const lower = [];

@@ -305,12 +305,19 @@ export function needsCard(
 }
 
 // stepRow is one step in a steps table: its mark, its key, its state,
-// undo where serve says it can be undone, and why it stopped.
+// undo where serve says it can be undone (not when read-only: another
+// item's step, beside this one in its job), and why it stopped.
 function stepRow(
   s: JobStep,
   next: boolean,
   hooks: Pick<JobHooks, 'undo'>,
-  o: { what?: string; here?: boolean; job?: boolean; line?: boolean } = {},
+  o: {
+    what?: string;
+    here?: boolean;
+    job?: boolean;
+    line?: boolean;
+    readOnly?: boolean;
+  } = {},
 ): HTMLElement {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} \u00b7 ${m.text}` : m.text;
@@ -340,7 +347,7 @@ function stepRow(
           )
         : null,
       o.here ? h('span', { class: 'cb-step-here' }, 'this item') : null,
-      s.undoable
+      s.undoable && !o.readOnly
         ? h(
             'button',
             {
@@ -440,7 +447,13 @@ export function renderRan(
       'div',
       { class: 'kit-table cb-steps', 'data-testid': 'its-job' },
       ...around.steps.map((s) =>
-        stepRow(s, next.has(s.id), hooks, { here: s.key === key, line: true }),
+        // The other items' steps are read-only: what they are and how
+        // they stand. The job's page acts on the whole job.
+        stepRow(s, next.has(s.id), hooks, {
+          here: s.key === key,
+          line: true,
+          readOnly: s.key !== key,
+        }),
       ),
       around.hidden
         ? h(
