@@ -1969,6 +1969,12 @@ function runsNow(plan) {
   return rest.length ? `${first}
 ${rest.join(" ")}` : first;
 }
+function reviewKeys(groups, open) {
+  const ticked = groups.filter((g) => g.ticked.length > 0);
+  if (!ticked.length)
+    return { keys: [...groups[open]?.waiting ?? []], groups: 1 };
+  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
+}
 function reviewKicker(groups) {
   return groups > 1 ? `review · ${groups} groups ticked` : "review";
 }
@@ -2069,7 +2075,7 @@ function makeApply(ctx) {
   let reviewGroup = "";
   let followTimer = null;
   const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
-  let reviewKeys = [];
+  let reviewKeys2 = [];
   let reviewTicked = 0;
   let reviewView = null;
   let drawnView = null;
@@ -2693,11 +2699,16 @@ function makeApply(ctx) {
       focusHead(g.id);
     }
     const mine = planSeq.next();
-    const ticked = groups.filter((x) => tickedIn(x).length > 0);
-    let keys = ticked.length > 1 ? ticked.flatMap(tickedIn) : tickedIn(g);
-    const nTicked = ticked.length > 1 ? ticked.length : 1;
-    if (!keys.length) {
-      keys = waiting(g).map((it) => it.key);
+    const choice = reviewKeys(
+      groups.map((x) => ({
+        ticked: tickedIn(x),
+        waiting: x.id === g.id ? waiting(g).map((it) => it.key) : []
+      })),
+      groups.findIndex((x) => x.id === g.id)
+    );
+    let keys = choice.keys;
+    const nTicked = choice.groups;
+    if (!groups.some((x) => tickedIn(x).length > 0)) {
       if (itemsTotal > items.length) {
         try {
           keys = await groupKeys2(g.id);
@@ -2710,8 +2721,8 @@ function makeApply(ctx) {
       }
     }
     if (!planSeq.isLatest(mine)) return;
-    if (follow && sameKeys(keys, reviewKeys)) return;
-    reviewKeys = keys;
+    if (follow && sameKeys(keys, reviewKeys2)) return;
+    reviewKeys2 = keys;
     reviewTicked = nTicked;
     if (!follow) drawReview();
     if (!keys.length) return;
@@ -2767,7 +2778,7 @@ function makeApply(ctx) {
     followTimer = null;
     reviewGroup = "";
     reviewView = null;
-    reviewKeys = [];
+    reviewKeys2 = [];
     reviewTicked = 0;
     reviewNote = "";
     opening = false;
@@ -2866,7 +2877,7 @@ function makeApply(ctx) {
     drawReview();
     try {
       const saved = await ctx.api.post("/apply/plan", {
-        keys: reviewKeys
+        keys: reviewKeys2
       });
       const want = (shown2.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
@@ -2882,7 +2893,7 @@ function makeApply(ctx) {
         session
       });
       patchJob(v);
-      handle.deselect(reviewKeys);
+      handle.deselect(reviewKeys2);
       closeReview();
       jobSeq.next();
       openId = v.job.id;
@@ -3003,7 +3014,7 @@ function makeApply(ctx) {
       h4(
         "h1",
         { class: "kit-h1" },
-        j && j.steps?.length ? titleOf(j) : g ? labelFor(g, reviewKeys.length || waitingCount(g)) : reviewGroup
+        j && j.steps?.length ? titleOf(j) : g ? labelFor(g, reviewKeys2.length || waitingCount(g)) : reviewGroup
       )
     );
     if (refusal) {

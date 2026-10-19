@@ -32,6 +32,7 @@ import {
   publicLine,
   runsNow,
   reviewKicker,
+  reviewKeys,
 } from './apply-text.ts';
 import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
@@ -551,5 +552,30 @@ describe('review tags and lines', () => {
   test('reviewKicker', () => {
     assert.equal(reviewKicker(1), 'review');
     assert.equal(reviewKicker(3), 'review \u00b7 3 groups ticked');
+  });
+});
+
+describe('reviewKeys', () => {
+  const g = (ticked: string[], waiting: string[]) => ({ ticked, waiting });
+  test('ticks only in a group that is not open: those ticks only', () => {
+    assert.deepEqual(reviewKeys([g([], ['a', 'b']), g(['c'], ['c', 'd'])], 0), {
+      keys: ['c'],
+      groups: 1,
+    });
+  });
+  test('ticks in two groups: their union', () => {
+    assert.deepEqual(
+      reviewKeys(
+        [g(['a'], ['a', 'b']), g([], ['e']), g(['c', 'd'], ['c', 'd'])],
+        1,
+      ),
+      { keys: ['a', 'c', 'd'], groups: 2 },
+    );
+  });
+  test("no ticks anywhere: the open group's waiting items", () => {
+    assert.deepEqual(reviewKeys([g([], ['a']), g([], ['c', 'd'])], 1), {
+      keys: ['c', 'd'],
+      groups: 1,
+    });
   });
 });

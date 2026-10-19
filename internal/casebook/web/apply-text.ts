@@ -533,6 +533,23 @@ export function runsNow(plan: Plan): string {
   return rest.length ? `${first}\n${rest.join(' ')}` : first;
 }
 
+/**
+ * reviewKeys is what review shows, given each group's ticked and waiting
+ * keys and the open group's index: every ticked key of every group that has
+ * ticks (the open group need have none), or, with no tick anywhere, the open
+ * group's waiting keys. groups is how many groups the ticks are from (at
+ * least 1).
+ */
+export function reviewKeys(
+  groups: { ticked: string[]; waiting: string[] }[],
+  open: number,
+): { keys: string[]; groups: number } {
+  const ticked = groups.filter((g) => g.ticked.length > 0);
+  if (!ticked.length)
+    return { keys: [...(groups[open]?.waiting ?? [])], groups: 1 };
+  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
+}
+
 /** reviewKicker is review's kicker: how many groups its ticks are from. */
 export function reviewKicker(groups: number): string {
   return groups > 1 ? `review \u00b7 ${groups} groups ticked` : 'review';

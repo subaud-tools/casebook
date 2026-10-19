@@ -98,6 +98,7 @@ import {
   progress,
   publicLine,
   reviewKicker,
+  reviewKeys as chooseReviewKeys,
   runsNow,
   stepTags,
   tagText,
@@ -1039,12 +1040,18 @@ export function makeApply(ctx: Ctx): Section {
       focusHead(g.id);
     }
     const mine = planSeq.next();
-    // Ticks in several groups make one review of every ticked item.
-    const ticked = groups.filter((x) => tickedIn(x).length > 0);
-    let keys = ticked.length > 1 ? ticked.flatMap(tickedIn) : tickedIn(g);
-    const nTicked = ticked.length > 1 ? ticked.length : 1;
-    if (!keys.length) {
-      keys = waiting(g).map((it) => it.key);
+    // Ticks in any group make one review of every ticked item; with none
+    // anywhere, review shows the open group's waiting items.
+    const choice = chooseReviewKeys(
+      groups.map((x) => ({
+        ticked: tickedIn(x),
+        waiting: x.id === g.id ? waiting(g).map((it) => it.key) : [],
+      })),
+      groups.findIndex((x) => x.id === g.id),
+    );
+    let keys = choice.keys;
+    const nTicked = choice.groups;
+    if (!groups.some((x) => tickedIn(x).length > 0)) {
       if (itemsTotal > items.length) {
         try {
           keys = await groupKeys(g.id);
