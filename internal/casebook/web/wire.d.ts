@@ -736,6 +736,7 @@ export interface Looking {
 export interface RunMark {
   job: number;
   group: string;
+  finished?: boolean;
   steps: JobStep[] | null;
 }
 

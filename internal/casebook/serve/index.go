@@ -176,23 +176,37 @@ func grouped(view string) bool { return view != ViewToApply && view != ViewTrack
 // groupIn is it's group in q's view: run's from its mark, else groupOf.
 func groupIn(q Query, it engine.Item, pending map[string]propose.Proposal) GroupView {
 	if q.View == ViewRun {
-		return runGroupOf(q.Ran[it.ID])
+		m := q.Ran[it.ID]
+		m.Group, _ = runGroupFor(m, it.Status, false)
+		return runGroupOf(m)
 	}
 	return groupOf(q.View, it, pending)
 }
 
 // ran is the items q.Ran names, in run's order: by group, then latest job
 // first, then key.
+// An item to apply again whose job has finished is left out (runGroupFor).
+// The caller holds x.mu.
 func (x *Index) ran(q Query) []engine.Item {
 	var src []engine.Item
+	group := map[string]string{}
+	applied := x.applied()
 	for _, it := range x.res.Items {
-		if _, ok := q.Ran[it.ID]; ok {
-			src = append(src, it)
+		m, ok := q.Ran[it.ID]
+		if !ok {
+			continue
 		}
+		toApply := inView(ViewToApply, it, nil) && !applied[it.ID]
+		g, in := runGroupFor(m, it.Status, toApply)
+		if !in {
+			continue
+		}
+		group[it.ID] = g
+		src = append(src, it)
 	}
 	sort.SliceStable(src, func(i, j int) bool {
 		a, b := q.Ran[src[i].ID], q.Ran[src[j].ID]
-		if oa, ob := runOrder(a.Group), runOrder(b.Group); oa != ob {
+		if oa, ob := runOrder(group[src[i].ID]), runOrder(group[src[j].ID]); oa != ob {
 			return oa < ob
 		}
 		if a.Job != b.Job {
@@ -409,6 +423,7 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 		v := newItemView(it, prop)
 		v.Group = g.ID
 		if m, ok := q.Ran[it.ID]; ok && q.View == ViewRun {
+			m.Group = g.ID
 			v.Ran = &m
 		}
 		out = append(out, v)

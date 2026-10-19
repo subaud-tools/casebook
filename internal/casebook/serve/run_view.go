@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 // ViewRun is run's list: every item a job ran on (planned and cancelled
@@ -27,10 +28,12 @@ var runGroups = []struct{ id, label string }{
 
 // RunMark is what ran on an item: its latest job that ran, that job's
 // steps on it in position order, and the run group it puts the item in.
+// Finished: that job has finished (done or failed): nothing in it waits.
 type RunMark struct {
-	Job   int64           `json:"job"`
-	Group string          `json:"group"`
-	Steps []apply.JobStep `json:"steps"`
+	Job      int64           `json:"job"`
+	Group    string          `json:"group"`
+	Finished bool            `json:"finished,omitempty"`
+	Steps    []apply.JobStep `json:"steps"`
 }
 
 // runMarks is each key's mark from jobs: the highest job id holding a step
@@ -53,28 +56,48 @@ func runMarks(jobs []apply.Job) map[string]RunMark {
 			if m, ok := out[k]; ok && m.Job > j.ID {
 				continue
 			}
-			out[k] = RunMark{Job: j.ID, Group: runGroup(j, mine[k]), Steps: mine[k]}
+			out[k] = RunMark{Job: j.ID, Group: runGroup(j, mine[k]), Finished: !jobOpen(j), Steps: mine[k]}
 		}
 	}
 	return out
 }
 
+// jobOpen: j is approved, running or paused, still going.
+func jobOpen(j apply.Job) bool {
+	return j.State == apply.JobApproved || j.State == apply.JobRunning || j.State == apply.JobPaused
+}
+
 // runGroup is the group a job's steps on one item put it in, the first
-// that fits: needs you, running, undone, done.
+// that fits: needs you (a step that needs Court, in a job still open),
+// running, undone, done. A step that failed in a job that has finished
+// needs nothing: the item is back where its decision puts it.
 func runGroup(j apply.Job, steps []apply.JobStep) string {
 	has := func(states ...string) bool {
 		return slices.ContainsFunc(steps, func(st apply.JobStep) bool { return slices.Contains(states, st.State) })
 	}
 	switch {
-	case has(apply.StepFailed, apply.StepNeedsYou, apply.StepPaused):
+	case jobOpen(j) && has(apply.StepFailed, apply.StepNeedsYou, apply.StepPaused):
 		return RunNeedsYou
-	case (j.State == apply.JobApproved || j.State == apply.JobRunning || j.State == apply.JobPaused) &&
-		has(apply.StepPending, apply.StepRunning, apply.StepReported):
+	case jobOpen(j) && has(apply.StepPending, apply.StepRunning, apply.StepReported):
 		return RunRunning
 	case slices.ContainsFunc(steps, func(st apply.JobStep) bool { return !st.UndoneAt.IsZero() }):
 		return RunUndone
 	}
 	return RunDone
+}
+
+// runGroupFor is the group run lists an item in, given its mark, its
+// status and whether it is to apply again (in review's to-apply): a done
+// item is done, whatever its old steps say; one to apply again whose job
+// has finished isn't in run at all (in is false): it waits in review.
+func runGroupFor(m RunMark, status item.Status, toApply bool) (group string, in bool) {
+	if status == item.StatusDone {
+		return RunDone, true
+	}
+	if m.Finished && toApply {
+		return "", false
+	}
+	return m.Group, true
 }
 
 // runGroupOf is m's group as the list shows it.
