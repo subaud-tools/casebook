@@ -289,13 +289,6 @@ func newSnapLookup(snap observe.Snapshot) snapLookup {
 	return sl
 }
 
-// branchTip returns the Tip SHA for branchName in the clone at clonePath, or
-// "" if not found.
-func (sl snapLookup) branchTip(clonePath, branchName string) string {
-	b, _ := sl.branch(clonePath, branchName)
-	return b.Tip
-}
-
 // branch returns the snapshot's record of branchName in the clone at clonePath.
 func (sl snapLookup) branch(clonePath, branchName string) (observe.Branch, bool) {
 	c, ok := sl.cloneByPath[clonePath]

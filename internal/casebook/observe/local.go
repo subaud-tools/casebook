@@ -166,8 +166,8 @@ func inspect(ctx context.Context, dir string) (Clone, error) {
 			}
 		}
 		// The upstream remote-tracking tip, when an upstream exists and is not
-		// gone. Plan-time compare-and-delete uses this as the remote step's
-		// expected tip; empty means no remote delete step is planned.
+		// gone: the branch's GitHub commit as this clone last saw it, until a
+		// sync looks the branch up on GitHub.
 		if b.Upstream != "" && !b.Gone {
 			if rt, err := gitx.Run(ctx, dir, "rev-parse", b.Upstream); err == nil {
 				b.RemoteTip = strings.TrimSpace(rt)
