@@ -858,7 +858,67 @@ export function makeDecide(ctx: Ctx): Section {
   // 0.4.7: it was, and the list kept the old view). A load whose query
   // changed while it was on its way paints nothing: the newer query's load
   // paints.
-  const reload = coalesced(reloadNow);
+  const reloadQueued = coalesced(reloadNow);
+  // reload: a load that changes what is shown (a search, a filter, a rule)
+  // turns the middle's buttons off at once, until the new list and its
+  // ticked document are drawn; a tick it hides is then dropped.
+  function reload(): Promise<void> {
+    if (viewKey() !== shownView) {
+      viewPending = true;
+      freezeMid();
+    }
+    return reloadQueued();
+  }
+
+  // inView is every key the current view is known to hold (its loaded rows,
+  // and the pages a whole-group tick fetched), for shownView: ticks only
+  // ever cover these. viewPending: the view changed and its list isn't in.
+  let inView = new Set<string>();
+  let shownView = '';
+  let viewPending = false;
+  const viewKey = (): string => JSON.stringify(viewFilters());
+
+  // freezeMid turns every button in the middle pane off.
+  function freezeMid(): void {
+    for (const b of readEl.querySelectorAll<HTMLButtonElement>('button'))
+      b.disabled = true;
+  }
+
+  // settleShown works out what the view just loaded shows, and drops a tick
+  // it doesn't: a tick off the loaded rows is looked for in the view's every
+  // page. It reports whether the query is still the one asked.
+  async function settleShown(asked: string): Promise<boolean> {
+    const view = viewKey();
+    const next = new Set([...loadedItems, ...leftOpen].map((it) => it.key));
+    const off = selection.ids().filter((k) => !next.has(k));
+    if (off.length) {
+      try {
+        const want = new Set(off);
+        for (let at = 0, total = Infinity; at < total;) {
+          const data = await ctx.api.get<ItemsView>('/items', {
+            ...viewFilters(),
+            group: 'false',
+            offset: String(at),
+            limit: '500',
+          });
+          const got = data.items ?? [];
+          total = data.total;
+          if (!got.length) break;
+          at += got.length;
+          for (const it of got) if (want.has(it.key)) next.add(it.key);
+        }
+      } catch {
+        // not known to be shown: dropped
+      }
+      if (queryKey() !== asked) return false;
+    }
+    inView = next;
+    shownView = view;
+    viewPending = false;
+    const gone = selection.ids().filter((k) => !inView.has(k));
+    if (gone.length) selection.deselect(gone);
+    return true;
+  }
 
   // queryKey is a load's query, comparable (the page offset aside).
   function queryKey(): string {
@@ -917,6 +977,10 @@ export function makeDecide(ctx: Ctx): Section {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       paintedQuery = asked;
+      if (!(await settleShown(asked))) {
+        void reload();
+        return;
+      }
       pane.setFilterError(null);
       if (draft !== null) {
         editor?.showError(null);
@@ -930,6 +994,7 @@ export function makeDecide(ctx: Ctx): Section {
       markOpenRow();
       updateFoot();
       updateReadEmptyCount();
+      if (tickedOn && selection.ids().length) showTicked();
     } catch (err) {
       // A selection serve refuses (a filter deleted elsewhere, or one that
       // doesn't validate) says why, by name, and lists nothing: never the
@@ -940,6 +1005,12 @@ export function makeDecide(ctx: Ctx): Section {
         paintPreviewLine(`previewing a draft ${editing} \u00b7 not valid yet`);
       } else if (filtered() && refused) {
         pane.setFilterError(err.message);
+      }
+      if (!refused) {
+        // The list stays as it was, and so does what it shows.
+        shownView = viewKey();
+        viewPending = false;
+        if (tickedOn && selection.ids().length) showTicked();
       }
       if ((draft !== null || filtered()) && refused) {
         totalItems = 0;
@@ -952,6 +1023,11 @@ export function makeDecide(ctx: Ctx): Section {
         lastOrder = [];
         offset = 0;
         paintedQuery = asked;
+        // Nothing is shown, so nothing stays ticked.
+        inView = new Set();
+        shownView = viewKey();
+        viewPending = false;
+        selection.clear();
         setRows();
         updateFoot();
         updateReadEmptyCount();
@@ -985,6 +1061,7 @@ export function makeDecide(ctx: Ctx): Section {
       groups = data.groups ?? [];
       viewRecs = data.agent_recommended ?? 0;
       know(next);
+      for (const it of next) inView.add(it.key);
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       totalItems = data.total;
@@ -1325,6 +1402,7 @@ export function makeDecide(ctx: Ctx): Section {
     }
     try {
       const items = await fetchGroup(g);
+      for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
         opened.add(g.id);
@@ -1370,6 +1448,7 @@ export function makeDecide(ctx: Ctx): Section {
   function tickedItems(): ItemView[] {
     return selection
       .ids()
+      .filter((k) => inView.has(k))
       .map((k) => itemOfKey.get(k) ?? ({ key: k } as ItemView));
   }
 
@@ -1407,6 +1486,8 @@ export function makeDecide(ctx: Ctx): Section {
         tickedExtra(items),
       ),
     );
+    // The view is changing: nothing acts until its list is in.
+    if (viewPending) freezeMid();
   }
 
   function tickedExtra(items: ItemView[]): HTMLElement[] {
@@ -1426,7 +1507,9 @@ export function makeDecide(ctx: Ctx): Section {
             class: 'kit-btn cb-ticked-ask',
             disabled: looked,
             onclick() {
-              void lookInto(keys);
+              // What is ticked and shown as Court presses.
+              if (viewPending) return;
+              void lookInto(tickedItems().map((it) => it.key));
             },
           },
           vocab.recommend_these,
@@ -1446,12 +1529,22 @@ export function makeDecide(ctx: Ctx): Section {
             type: 'button',
             class: 'kit-btn cb-ticked-discard',
             onclick() {
+              // What is ticked and shown as Court presses.
+              if (viewPending) return;
+              const now = tickedItems()
+                .map((it) => it.proposal)
+                .filter(
+                  (p) =>
+                    p?.state === 'pending' && !p.source.startsWith('rule:'),
+                )
+                .map((p) => p?.id ?? 0);
+              if (!now.length) return;
               openDiscardSheet(
                 ctx,
                 words,
-                ids.length,
+                now.length,
                 discardWhere(),
-                { ids },
+                { ids: now },
                 discarded,
               );
             },
@@ -1494,7 +1587,7 @@ export function makeDecide(ctx: Ctx): Section {
   // decided. An outward one says where it went (the strip, whose undo takes
   // them all back). The open item, if it was one of them, moves on.
   async function decideTicked(d: string, until?: string): Promise<void> {
-    if (deciding || !vocab) return;
+    if (deciding || !vocab || viewPending) return;
     const items = tickedItems();
     const keys = items.map((it) => it.key);
     if (!keys.length) return;
@@ -2313,6 +2406,8 @@ export function makeDecide(ctx: Ctx): Section {
     show,
     hide() {
       active = false;
+      // Leaving decide clears its ticks: a tick covers only what is shown.
+      selection.clear();
     },
     // The list's keys (j k o ↵ x ⇧x, / its search) come from the kit, bound
     // to this list while it shows.

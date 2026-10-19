@@ -5764,7 +5764,10 @@ function makeApply(ctx) {
       active = true;
       const was = mode;
       mode = ctx.route.current().section === "run" ? "run" : "review";
-      if (was !== mode) note = "";
+      if (was !== mode) {
+        note = "";
+        (was === "review" ? reviewSel : runSel).clear();
+      }
       showPane();
       if (mode === "review") {
         closeJob();
@@ -5831,6 +5834,7 @@ function makeApply(ctx) {
       }
     },
     hide() {
+      (mode === "review" ? reviewSel : runSel).clear();
       active = false;
     },
     onLive(type, data) {
@@ -7219,7 +7223,53 @@ function makeDecide(ctx) {
       p["open"] = JSON.stringify([...opened].filter((id) => id !== LEFT_OPEN));
     return p;
   }
-  const reload = coalesced(reloadNow);
+  const reloadQueued = coalesced(reloadNow);
+  function reload() {
+    if (viewKey() !== shownView) {
+      viewPending = true;
+      freezeMid();
+    }
+    return reloadQueued();
+  }
+  let inView = /* @__PURE__ */ new Set();
+  let shownView = "";
+  let viewPending = false;
+  const viewKey = () => JSON.stringify(viewFilters());
+  function freezeMid() {
+    for (const b of readEl.querySelectorAll("button"))
+      b.disabled = true;
+  }
+  async function settleShown(asked2) {
+    const view = viewKey();
+    const next = new Set([...loadedItems, ...leftOpen].map((it) => it.key));
+    const off = selection.ids().filter((k) => !next.has(k));
+    if (off.length) {
+      try {
+        const want = new Set(off);
+        for (let at2 = 0, total = Infinity; at2 < total; ) {
+          const data = await ctx.api.get("/items", {
+            ...viewFilters(),
+            group: "false",
+            offset: String(at2),
+            limit: "500"
+          });
+          const got = data.items ?? [];
+          total = data.total;
+          if (!got.length) break;
+          at2 += got.length;
+          for (const it of got) if (want.has(it.key)) next.add(it.key);
+        }
+      } catch {
+      }
+      if (queryKey() !== asked2) return false;
+    }
+    inView = next;
+    shownView = view;
+    viewPending = false;
+    const gone = selection.ids().filter((k) => !inView.has(k));
+    if (gone.length) selection.deselect(gone);
+    return true;
+  }
   function queryKey() {
     return JSON.stringify(buildQuery(0));
   }
@@ -7264,6 +7314,10 @@ function makeDecide(ctx) {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       paintedQuery = asked2;
+      if (!await settleShown(asked2)) {
+        void reload();
+        return;
+      }
       pane.setFilterError(null);
       if (draft !== null) {
         editor?.showError(null);
@@ -7275,6 +7329,7 @@ function makeDecide(ctx) {
       markOpenRow();
       updateFoot();
       updateReadEmptyCount();
+      if (tickedOn && selection.ids().length) showTicked();
     } catch (err) {
       const refused = err instanceof ApiError4 && err.status === 400;
       if (draft !== null && refused) {
@@ -7282,6 +7337,11 @@ function makeDecide(ctx) {
         paintPreviewLine(`previewing a draft ${editing} · not valid yet`);
       } else if (filtered() && refused) {
         pane.setFilterError(err.message);
+      }
+      if (!refused) {
+        shownView = viewKey();
+        viewPending = false;
+        if (tickedOn && selection.ids().length) showTicked();
       }
       if ((draft !== null || filtered()) && refused) {
         totalItems = 0;
@@ -7294,6 +7354,10 @@ function makeDecide(ctx) {
         lastOrder = [];
         offset = 0;
         paintedQuery = asked2;
+        inView = /* @__PURE__ */ new Set();
+        shownView = viewKey();
+        viewPending = false;
+        selection.clear();
         setRows();
         updateFoot();
         updateReadEmptyCount();
@@ -7320,6 +7384,7 @@ function makeDecide(ctx) {
       groups = data.groups ?? [];
       viewRecs = data.agent_recommended ?? 0;
       know(next);
+      for (const it of next) inView.add(it.key);
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       totalItems = data.total;
@@ -7568,6 +7633,7 @@ function makeDecide(ctx) {
     }
     try {
       const items = await fetchGroup(g);
+      for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
         opened.add(g.id);
@@ -7601,7 +7667,7 @@ ${k}`);
   }
   let tickedOn = false;
   function tickedItems() {
-    return selection.ids().map((k) => itemOfKey.get(k) ?? { key: k });
+    return selection.ids().filter((k) => inView.has(k)).map((k) => itemOfKey.get(k) ?? { key: k });
   }
   function groupName(g) {
     const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
@@ -7629,6 +7695,7 @@ ${k}`);
         tickedExtra(items)
       )
     );
+    if (viewPending) freezeMid();
   }
   function tickedExtra(items) {
     const out = [];
@@ -7648,7 +7715,8 @@ ${k}`)
             class: "kit-btn cb-ticked-ask",
             disabled: looked,
             onclick() {
-              void lookInto(keys);
+              if (viewPending) return;
+              void lookInto(tickedItems().map((it) => it.key));
             }
           },
           vocab2.recommend_these
@@ -7665,12 +7733,17 @@ ${k}`)
             type: "button",
             class: "kit-btn cb-ticked-discard",
             onclick() {
+              if (viewPending) return;
+              const now = tickedItems().map((it) => it.proposal).filter(
+                (p) => p?.state === "pending" && !p.source.startsWith("rule:")
+              ).map((p) => p?.id ?? 0);
+              if (!now.length) return;
               openDiscardSheet(
                 ctx,
                 words,
-                ids.length,
+                now.length,
                 discardWhere(),
-                { ids },
+                { ids: now },
                 discarded
               );
             }
@@ -7701,7 +7774,7 @@ ${k}`)
     ) : "";
   }
   async function decideTicked(d, until) {
-    if (deciding || !vocab2) return;
+    if (deciding || !vocab2 || viewPending) return;
     const items = tickedItems();
     const keys = items.map((it) => it.key);
     if (!keys.length) return;
@@ -8308,6 +8381,7 @@ ${JSON.stringify(listAttached("none"))}`;
     show,
     hide() {
       active = false;
+      selection.clear();
     },
     // The list's keys (j k o ↵ x ⇧x, / its search) come from the kit, bound
     // to this list while it shows.

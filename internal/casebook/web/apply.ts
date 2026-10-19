@@ -2063,7 +2063,11 @@ export function makeApply(ctx: Ctx): Section {
       active = true;
       const was = mode;
       mode = ctx.route.current().section === 'run' ? 'run' : 'review';
-      if (was !== mode) note = '';
+      if (was !== mode) {
+        note = '';
+        // Leaving a tab clears its ticks: a tick covers only what is shown.
+        (was === 'review' ? reviewSel : runSel).clear();
+      }
       showPane();
       if (mode === 'review') {
         closeJob();
@@ -2139,6 +2143,8 @@ export function makeApply(ctx: Ctx): Section {
       }
     },
     hide() {
+      // Leaving the tab clears its ticks.
+      (mode === 'review' ? reviewSel : runSel).clear();
       active = false;
     },
     onLive(type: string, data: unknown) {

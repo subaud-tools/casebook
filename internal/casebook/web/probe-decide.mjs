@@ -370,5 +370,40 @@ async function decisionsScenario(context, t, s) {
         !posts.includes('/api/decide'),
     );
   }
+
+  // ---- ticks only cover what is shown -------------------------------------
+  // Review 2026-10-19: a tick a search had hidden was decided with the one
+  // shown. Tick A, narrow until only B shows, tick B, press: only B.
+  {
+    const [A, B] = [IPOLD(1), IPOLD(2)];
+    await pg.evaluate(() => (location.hash = '#/decide'));
+    await openGroups(pg);
+    await row(pg, A).locator('.kit-box').click();
+    const SEARCH = `${LIST} input[placeholder="search by key or title"]`;
+    await pg.fill(SEARCH, 'rd-old-2');
+    await until(
+      pg,
+      ([l, a, b]) =>
+        !document.querySelector(`${l} .kit-row[data-key="${a}"]`) &&
+        !!document.querySelector(`${l} .kit-row[data-key="${b}"]`),
+      [LIST, A, B],
+      8000,
+    );
+    await openGroups(pg);
+    await row(pg, B).locator('.kit-box').click();
+    const DEL = `${READ} .cb-mid-acts .cb-choice[data-d="delete"]:not([disabled])`;
+    await pg.waitForSelector(DEL, { timeout: 8000 });
+    await pg.click(DEL);
+    const bDone = await eventually(
+      async () => (await held(B)).d?.disposition === 'delete',
+      8000,
+    );
+    const a = await held(A);
+    check(
+      `tick A, search until only B shows, tick B, delete: only B is decided (B ${bDone}, A ${a.d?.disposition ?? 'undecided'})`,
+      bDone && a.d === null,
+    );
+    await pg.fill(SEARCH, '');
+  }
   await pg.close();
 }

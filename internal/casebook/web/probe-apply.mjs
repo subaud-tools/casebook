@@ -954,12 +954,25 @@ async function changedPlanScenario(context, t, s) {
         ),
     );
     // Another tab re-decides it with a new closing comment: the command
-    // changes, and this page still shows the first.
+    // changes, and this page still shows the first. The list reloads on
+    // the event (its buttons off until it is in); the press waits for it.
+    const reloaded = pg.waitForResponse(
+      (r) => r.url().includes('/api/items') && r.url().includes('to-apply'),
+    );
     await agent.api('POST', '/api/decide', {
       keys: [CPR],
       disposition: 'close',
       note: 'second note',
     });
+    await reloaded;
+    await until(
+      pg,
+      () =>
+        !!document.querySelector(
+          '[data-testid="run-group"] .kit-btn:not([disabled])',
+        ),
+    );
+    await pg.waitForTimeout(300); // kept: a window for the event's reloads to settle
     // The press stores the plan; its reply is held while "a" is pressed.
     let release;
     const held = new Promise((r) => (release = r));
@@ -1309,6 +1322,28 @@ async function frameScenario(context, t, s) {
 
     await go('decide');
     const head = `.cb-pane-decide ${groupOf.decide}`;
+    // Leaving a tab cleared its ticks: they covered what it showed.
+    check(
+      'frame: coming back to decide, its ticks were cleared when it was left',
+      await until(
+        pg,
+        (hd) =>
+          !!document.querySelector(hd) &&
+          !document.querySelector(
+            '.cb-pane-decide .kit-row .kit-box[aria-checked="true"]',
+          ) &&
+          !!document.querySelector(`${hd} .cb-group-ticked`)?.hidden,
+        head,
+      ),
+    );
+    await pg.click(
+      `.cb-pane-decide .kit-row[data-key="${tickKey.decide}"] .kit-box`,
+    );
+    await until(
+      pg,
+      (hd) => !document.querySelector(`${hd} .cb-group-ticked`)?.hidden,
+      head,
+    );
     check(
       "frame: decide's group head shows only its ticks",
       (await pg.$$(`${head} .kit-btn`)).length === 0 &&
