@@ -28,6 +28,7 @@ export interface SummaryView {
   synced_at: string;
   offline_queued: number;
   push_error?: string;
+  push_offline: boolean;
   counts: Record<string, number> | null;
   notices: string[] | null;
   sessions: number;

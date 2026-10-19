@@ -85,6 +85,11 @@ func raced(stderr string) bool {
 		if strings.HasPrefix(l, "! [rejected]") && (strings.Contains(l, "(fetch first)") || strings.Contains(l, "(non-fast-forward)")) {
 			return true
 		}
+		// GitHub's form of the same race: another push moved main while
+		// this one was landing.
+		if strings.HasPrefix(l, "! [remote rejected]") && strings.Contains(l, "cannot lock ref") {
+			return true
+		}
 	}
 	return false
 }

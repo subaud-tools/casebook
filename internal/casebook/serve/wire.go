@@ -34,10 +34,15 @@ type SummaryView struct {
 	// queued" and shows it. Cleared by the next push that succeeds, and
 	// whenever nothing is queued. Empty while pushes merely can't reach the
 	// remote ("offline · N queued").
-	PushError string         `json:"push_error,omitempty"`
-	Counts    map[string]int `json:"counts"`
-	Notices   []string       `json:"notices"`
-	Sessions  int            `json:"sessions"`
+	PushError string `json:"push_error,omitempty"`
+	// PushOffline: the last push couldn't reach the casebook remote (the
+	// page says "offline · N queued"). False while commits only wait for
+	// the background push (the page says "saving N"). Cleared by a push
+	// that succeeds.
+	PushOffline bool           `json:"push_offline"`
+	Counts      map[string]int `json:"counts"`
+	Notices     []string       `json:"notices"`
+	Sessions    int            `json:"sessions"`
 	// SyncIntervalMS is one sync interval: a plan refuses an index built
 	// longer ago than this (built_at), so the page can say how old the
 	// observations are.

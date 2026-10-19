@@ -154,3 +154,17 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// TestRacedIncludesGitHubsLockRace (Court, 2026-10-18): GitHub reports a push
+// that lost to another machine's as "[remote rejected] … (cannot lock ref …
+// is at X but expected Y)". That is a race, tried again after a rebase, not
+// a refusal to show.
+func TestRacedIncludesGitHubsLockRace(t *testing.T) {
+	lock := "To github.com:schuettc/casebook-data.git\n ! [remote rejected] HEAD -> main (cannot lock ref 'refs/heads/main': is at 750a6b9 but expected cd51b73)\nerror: failed to push some refs"
+	if !raced(lock) {
+		t.Fatal("a lost lock race is not treated as a race")
+	}
+	if raced(" ! [remote rejected] HEAD -> main (pre-receive hook declined)") {
+		t.Fatal("a hook's refusal is treated as a race")
+	}
+}

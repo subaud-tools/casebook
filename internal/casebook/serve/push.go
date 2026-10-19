@@ -180,6 +180,14 @@ func (s *Server) stopPushes() {
 // unless the push before it failed: a decision on its way out isn't
 // offline. Once nothing is queued (a push or a sync, serve's or another
 // process's, sent it all) the last failure is forgotten.
+// pushOffline reports whether the last push failed because it couldn't
+// reach the casebook remote.
+func (s *Server) pushOffline() bool {
+	s.pushMu.Lock()
+	defer s.pushMu.Unlock()
+	return s.pushFailed && s.pushError == ""
+}
+
 func (s *Server) pushState(ctx context.Context) (queued int, pushErr string) {
 	s.pushMu.Lock()
 	pushing, failed := s.pushRunning, s.pushFailed

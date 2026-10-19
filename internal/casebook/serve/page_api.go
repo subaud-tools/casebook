@@ -52,6 +52,7 @@ func (s *Server) getSummary(w http.ResponseWriter, r *http.Request) {
 		SyncedAt:       synced,
 		OfflineQueued:  queued,
 		PushError:      pushErr,
+		PushOffline:    queued > 0 && s.pushOffline(),
 		Counts:         s.Index.Counts(pending),
 		Notices:        s.Index.Notices(),
 		Sessions:       len(sessions),

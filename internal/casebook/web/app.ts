@@ -8,6 +8,7 @@
 // Later tasks import registerSection and registerDock to fill in the sections.
 
 import { browserShared } from './shared-stream.ts';
+import { pushStatus } from './status-text.ts';
 import {
   bar,
   type BarHandle,
@@ -686,7 +687,8 @@ function start(first: SummaryView | null): void {
   // ---- summary (counts, status) -------------------------------------------
 
   // The bar's counts and its status: "synced 4m ago · <machine>", or
-  // "offline · N queued" (danger) while decisions wait to be pushed. Asked
+  // the push status (status-text.ts: "saving N", or red "offline · N
+  // queued" / "push failed · N queued" when a push failed). Asked
   // at boot, again whenever the index moves (a decision moves it), whenever
   // serve's background push of decisions ends ("push": it follows serve's
   // answer to a decide, so a decision it couldn't push shows without a
@@ -723,11 +725,13 @@ function start(first: SummaryView | null): void {
     const s = summary;
     if (!s) return;
     paintPushError(s.push_error ?? '');
-    if (s.offline_queued > 0) {
-      const why = s.push_error ? 'push failed' : 'offline';
-      handle.setStatus(`${why} \u00b7 ${s.offline_queued} queued`, {
-        tone: 'danger',
-      });
+    const pushing = pushStatus({
+      queued: s.offline_queued,
+      offline: s.push_offline,
+      error: s.push_error ?? '',
+    });
+    if (pushing) {
+      handle.setStatus(pushing.text, { tone: pushing.tone });
       return;
     }
     const synced = s.synced_at ? Date.parse(s.synced_at) : NaN;

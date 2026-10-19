@@ -670,3 +670,34 @@ func TestWatchAnnouncesAPushMadeElsewhere(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestOfflineIsOnlyAPushThatCouldNotReachTheRemote (Court, 2026-10-18: the
+// bar said "offline" while a big accept's decisions were only waiting for
+// the background push): push_offline is true only after a push failed for
+// the network; commits merely waiting to be pushed are not offline.
+func TestOfflineIsOnlyAPushThatCouldNotReachTheRemote(t *testing.T) {
+	r := newRig(t)
+	// A commit no push has tried yet: waiting, not offline.
+	testgit.Commit(t, r.App.Repo.Dir, "notes/waiting.txt", "not pushed yet")
+	if sum := r.summary(t); sum.OfflineQueued != 1 || sum.PushOffline {
+		t.Fatalf("waiting commit: queued %d, offline %v; want 1 and not offline", sum.OfflineQueued, sum.PushOffline)
+	}
+	// A push that can't reach the remote: offline.
+	mid, _ := r.s.Bus.Head(ctx)
+	r.s.runPush = func(context.Context) error { return fmt.Errorf("%w: no route", store.ErrOffline) }
+	r.do(t, "POST", "/api/decide", map[string]any{"keys": []string{"issue:schuettc/hail#5"}, "disposition": "keep"}, nil)
+	waitPushes(t, r, mid, 1)
+	waitIdle(t, r)
+	if sum := r.summary(t); !sum.PushOffline || sum.PushError != "" {
+		t.Fatalf("after an offline push: offline %v, error %q; want offline, no error", sum.PushOffline, sum.PushError)
+	}
+	// One that reaches it clears it.
+	mid, _ = r.s.Bus.Head(ctx)
+	r.s.runPush = nil
+	r.do(t, "POST", "/api/decide", map[string]any{"keys": []string{"issue:schuettc/hail#6"}, "disposition": "keep"}, nil)
+	waitPushes(t, r, mid, 1)
+	waitIdle(t, r)
+	if sum := r.summary(t); sum.PushOffline {
+		t.Fatal("still offline after a push that succeeded")
+	}
+}
