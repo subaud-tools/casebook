@@ -320,15 +320,13 @@ function cameBack(
 
 // ---- public -----------------------------------------------------------------
 
-export function renderItem(
-  ctx: Ctx,
-  detail: ItemDetailView,
-  hooks: ItemHooks = {},
-): HTMLElement {
+/**
+ * itemHead is an item's head: its kicker (kind, key, relation), its title
+ * (the key when it has none) and its facts; with ctx, why it came back
+ * leads the facts.
+ */
+export function itemHead(detail: ItemDetailView, ctx?: Ctx): HTMLElement[] {
   const it = detail.item;
-
-  const el = h('article', { class: 'cb-item', dataset: { key: it.key } });
-
   // ---- kicker ---------------------------------------------------------------
   // Show the kind prefix once, then the key without its kind prefix. The key
   // links to the item's GitHub page (serve's url: a PR, an issue, a repo) in
@@ -345,7 +343,6 @@ export function renderItem(
     if (i > 0) kicker.append(' \u00b7 ');
     kicker.append(part);
   });
-  el.append(kicker);
 
   // ---- title ----------------------------------------------------------------
   // Fallback: use the display key (without kind prefix) so titleless items
@@ -354,7 +351,7 @@ export function renderItem(
   // Two lines are kept for it, and a longer one is cut there (whole in its
   // tooltip).
   const title = it.title ?? keyWithoutKind(it.key);
-  el.append(h('h1', { class: 'cb-title kit-h1', title }, title));
+  const titleEl = h('h1', { class: 'cb-title kit-h1', title }, title);
 
   // ---- facts: one line, "came back · ‹reason›" first when it came back -----
   const factPairs: Array<[string, string]> = [];
@@ -375,14 +372,30 @@ export function renderItem(
   if (it.landed) factPairs.push(['landed', it.landed_how ?? it.landed]);
   const factsEl = facts(factPairs);
   factsEl.title = factsEl.textContent ?? '';
-  el.append(factsEl);
-  void getVocab(ctx).then((vocab: DecisionVocabView) => {
-    const why = cameBack(vocab, it);
-    if (!why) return;
-    const line = vocab.came_back_fact.replaceAll('{reason}', why);
-    factsEl.prepend(h('span', { class: 'cb-came-back', title: line }, line));
-    factsEl.title = factsEl.textContent ?? '';
-  });
+  if (ctx)
+    void getVocab(ctx).then((vocab: DecisionVocabView) => {
+      const why = cameBack(vocab, it);
+      if (!why) return;
+      const line = vocab.came_back_fact.replaceAll('{reason}', why);
+      factsEl.prepend(h('span', { class: 'cb-came-back', title: line }, line));
+      factsEl.title = factsEl.textContent ?? '';
+    });
+
+  return [kicker, titleEl, factsEl];
+}
+
+export function renderItem(
+  ctx: Ctx,
+  detail: ItemDetailView,
+  hooks: ItemHooks = {},
+): HTMLElement {
+  const it = detail.item;
+
+  const el = h(
+    'article',
+    { class: 'cb-item', dataset: { key: it.key } },
+    ...itemHead(detail, ctx),
+  );
 
   // ---- decide: one row of buttons -------------------------------------------
   el.append(renderDecideRow(ctx, detail, hooks));

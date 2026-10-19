@@ -4,6 +4,7 @@
 
 import type {
   ItemView,
+  RunMark,
   Job,
   JobStep,
   NeedsYou,
@@ -109,7 +110,7 @@ const PAST: Record<string, string> = {
 };
 
 /** The verb a paused step would do if Court resumes it: "close anyway". */
-const VERB: Record<string, string> = {
+const RESUME: Record<string, string> = {
   'branch-delete-local': 'delete',
   'branch-delete-remote': 'delete',
   'worktree-remove': 'remove',
@@ -120,6 +121,23 @@ const VERB: Record<string, string> = {
   'issue-close': 'close',
 };
 
+export function resumeVerb(action: string): string {
+  return RESUME[action] ?? 'run';
+}
+
+/** What a step does, naming where a branch is deleted (which copy failed matters). */
+const VERB: Record<string, string> = {
+  'branch-delete-local': 'local delete',
+  'branch-delete-remote': 'GitHub delete',
+  'worktree-remove': 'worktree remove',
+  'repo-archive': 'archive',
+  'repo-delete': 'delete',
+  'pr-close': 'close',
+  'pr-merge': 'merge',
+  'issue-close': 'close',
+};
+
+/** actionVerb names what a step does: "GitHub delete", "merge". */
 export function actionVerb(action: string): string {
   return VERB[action] ?? 'run';
 }
@@ -624,4 +642,53 @@ export function otherHalf(key: string, steps: Pick<Step, 'key'>[]): string {
   return steps.some((s) => s.key === key)
     ? ' \u00b7 its other half runs above'
     : '';
+}
+
+// ---- run's items ----
+
+const NEEDS = new Set(['failed', 'needs_you', 'paused']);
+const UNFINISHED = new Set(['pending', 'running', 'reported']);
+
+/**
+ * standsStep is the step that says where an item stands in its job: the
+ * first that needs Court, else the first not finished, else the last.
+ */
+export function standsStep(m: RunMark): JobStep {
+  const steps = m.steps ?? [];
+  return (
+    steps.find((s) => NEEDS.has(s.state)) ??
+    steps.find((s) => UNFINISHED.has(s.state)) ??
+    steps[steps.length - 1]
+  );
+}
+
+/**
+ * ranLine is a run row's second line: what happened and in which job. A
+ * step that stopped names what it was ("GitHub delete failed · job #33");
+ * one that ran says how it ended ("deleted · verified · job #28").
+ */
+export function ranLine(m: RunMark): { text: string; tone: Tone } {
+  const s = standsStep(m);
+  if (!s) return { text: `job #${m.job}`, tone: 'muted' };
+  const mark = stepMark(s, false);
+  const stopped = NEEDS.has(s.state) || s.state === 'skipped';
+  const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
+  return { text: `${what} \u00b7 job #${m.job}`, tone: mark.tone };
+}
+
+/**
+ * aroundSteps is the steps of a job around key's first: span before and
+ * after it, and how many that leaves out.
+ */
+export function aroundSteps(
+  steps: JobStep[],
+  key: string,
+  span: number,
+): { steps: JobStep[]; hidden: number } {
+  const i = Math.max(
+    0,
+    steps.findIndex((s) => s.key === key),
+  );
+  const shown = steps.slice(Math.max(0, i - span), i + span + 1);
+  return { steps: shown, hidden: steps.length - shown.length };
 }

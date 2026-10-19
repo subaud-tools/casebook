@@ -251,17 +251,18 @@ async function e2eScenario(browser) {
     );
     await pg.click(RUN);
     const job = (await (await approved).json()).job ?? {};
-    const bar = (id) =>
-      `.cb-apply-list .kit-row[data-job="${id}"] .cb-pb[aria-valuenow="%"]`;
     check(
-      `run shows the job (#${job.id}), its progress at 0`,
+      `run shows the job (#${job.id}), and lists it running, 0 of 1`,
       await until(
         pg,
-        ([id, sel]) =>
+        (id) =>
           location.hash === `#/run/${id}` &&
           document.querySelector('.cb-job')?.dataset.job === String(id) &&
-          !!document.querySelector(sel),
-        [job.id, bar(job.id).replace('%', '0')],
+          (
+            document.querySelector(`.cb-pane-run .cb-run-job[data-job="${id}"]`)
+              ?.textContent ?? ''
+          ).endsWith('0 of 1'),
+        job.id,
         8000,
       ),
     );
@@ -273,11 +274,16 @@ async function e2eScenario(browser) {
         state,
       });
     check(
-      'its progress rises live as the agent reports the step, and serve verifies it',
+      'its step moves live as the agent reports it, and serve verifies it; run counts its item done',
       (await until(
         pg,
-        (sel) => !!document.querySelector(sel),
-        bar(job.id).replace('%', '1'),
+        (step) =>
+          document.querySelector(`.cb-job .cb-step[data-step="${step}"]`)
+            ?.dataset.state === 'verified' &&
+          document.querySelector(
+            '.cb-pane-run .cb-group[data-group="done"] .cb-group-n',
+          )?.textContent === '1',
+        job.steps[0].id,
         10000,
       )) &&
         (await eventually(

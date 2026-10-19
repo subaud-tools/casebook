@@ -393,22 +393,22 @@ var WALKTHROUGH_STEPS = [
 ];
 var MARGIN = 8;
 var clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
-function placeNote(target, card6, view, gap = 12) {
-  const maxX = Math.max(MARGIN, view.width - card6.width - MARGIN);
-  const maxY = Math.max(MARGIN, view.height - card6.height - MARGIN);
+function placeNote(target, card7, view, gap = 12) {
+  const maxX = Math.max(MARGIN, view.width - card7.width - MARGIN);
+  const maxY = Math.max(MARGIN, view.height - card7.height - MARGIN);
   const x = clamp(target.x, MARGIN, maxX);
   const y = clamp(target.y, MARGIN, maxY);
   const below = target.y + target.height + gap;
-  if (below + card6.height <= view.height - MARGIN) return { x, y: below };
-  const above = target.y - gap - card6.height;
+  if (below + card7.height <= view.height - MARGIN) return { x, y: below };
+  const above = target.y - gap - card7.height;
   if (above >= MARGIN) return { x, y: above };
-  const left = target.x - gap - card6.width;
+  const left = target.x - gap - card7.width;
   if (left >= MARGIN) return { x: left, y };
   const right = target.x + target.width + gap;
-  if (right + card6.width <= view.width - MARGIN) return { x: right, y };
+  if (right + card7.width <= view.width - MARGIN) return { x: right, y };
   return {
-    x: clamp((view.width - card6.width) / 2, MARGIN, maxX),
-    y: clamp((view.height - card6.height) / 2, MARGIN, maxY)
+    x: clamp((view.width - card7.width) / 2, MARGIN, maxX),
+    y: clamp((view.height - card7.height) / 2, MARGIN, maxY)
   };
 }
 function walkthroughSeen() {
@@ -459,7 +459,7 @@ function makeWalkthrough(ctx) {
     overlay.setAttribute("aria-modal", "true");
     overlay.setAttribute("aria-label", "walkthrough");
     const ring = el("div", "cb-walk-ring");
-    const card6 = el("div", "cb-walk-card");
+    const card7 = el("div", "cb-walk-card");
     const count2 = el("p", "cb-walk-count");
     const note = el("p", "cb-walk-note");
     const skipBtn = el("button", "kit-btn cb-walk-skip", "skip");
@@ -468,10 +468,10 @@ function makeWalkthrough(ctx) {
     nextBtn.type = "button";
     const acts = el("div", "cb-walk-acts");
     acts.append(skipBtn, nextBtn);
-    card6.append(count2, note, acts);
+    card7.append(count2, note, acts);
     ring.hidden = true;
-    card6.hidden = true;
-    overlay.append(ring, card6);
+    card7.hidden = true;
+    overlay.append(ring, card7);
     document.body.append(overlay);
     let steps = WALKTHROUGH_STEPS;
     let at2 = -1;
@@ -495,11 +495,11 @@ function makeWalkthrough(ctx) {
         ring.style.height = `${r.height}px`;
         const p = placeNote(
           r,
-          { width: card6.offsetWidth, height: card6.offsetHeight },
+          { width: card7.offsetWidth, height: card7.offsetHeight },
           { width: innerWidth, height: innerHeight }
         );
-        card6.style.left = `${p.x}px`;
-        card6.style.top = `${p.y}px`;
+        card7.style.left = `${p.x}px`;
+        card7.style.top = `${p.y}px`;
       }
       raf = requestAnimationFrame(place);
     }
@@ -527,7 +527,7 @@ function makeWalkthrough(ctx) {
         note.textContent = step.note;
         nextBtn.textContent = i === steps.length - 1 ? "done" : "next";
         ring.hidden = false;
-        card6.hidden = false;
+        card7.hidden = false;
         nextBtn.focus();
         return;
       }
@@ -1004,10 +1004,10 @@ function start(first) {
 import {
   ApiError as ApiError2,
   createSelection,
-  h as h8,
-  facts,
-  buttons as buttons3,
-  card as card2,
+  h as h10,
+  facts as facts3,
+  buttons as buttons4,
+  card as card3,
   sheet as sheet2
 } from "/_kit/kit.js";
 
@@ -1347,6 +1347,402 @@ function applyGroupLink(disposition, key) {
   return `#/review?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
 }
 
+// apply-text.ts
+function runOrder(jobs) {
+  const out = { running: [], done: [] };
+  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
+    if (j.state === "planned" || j.state === "cancelled") continue;
+    if (FINISHED_JOB.has(j.state)) out.done.push(j);
+    else out.running.push(j);
+  }
+  return out;
+}
+var FINISHED_JOB = /* @__PURE__ */ new Set(["done", "failed", "cancelled"]);
+function isRunning(job) {
+  return job.state !== "planned" && !FINISHED_JOB.has(job.state);
+}
+function applyLabel(many, noun, nouns, n) {
+  return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
+}
+var TITLES = {
+  "branch-delete-local": "Delete local branches",
+  "branch-delete-remote": "Delete remote branches",
+  "worktree-remove": "Remove worktrees",
+  "repo-archive": "Archive repos",
+  "repo-delete": "Delete repos",
+  "pr-close": "Close PRs",
+  "pr-merge": "Merge PRs",
+  "issue-close": "Close issues"
+};
+function actionTitle(action) {
+  return TITLES[action] ?? action;
+}
+function planTitle(job, nouns) {
+  const parts = groupSteps(job.steps ?? []).map((g) => {
+    const n = new Set(g.steps.map((s) => s.key)).size;
+    const kind = g.steps[0]?.key.slice(0, g.steps[0].key.indexOf(":")) ?? "";
+    const [one, many] = nouns(kind);
+    const words = actionTitle(g.action).split(" ");
+    const mid = words.slice(1, -1);
+    return [words[0], String(n), ...mid, n === 1 ? one : many].join(" ");
+  });
+  if (!parts.length) return `job #${job.id}`;
+  return parts.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
+}
+var PAST = {
+  "branch-delete-local": "deleted",
+  "branch-delete-remote": "deleted on the remote",
+  "worktree-remove": "removed",
+  "repo-archive": "archived",
+  "repo-delete": "deleted",
+  "pr-close": "closed",
+  "pr-merge": "merged",
+  "issue-close": "closed"
+};
+var RESUME = {
+  "branch-delete-local": "delete",
+  "branch-delete-remote": "delete",
+  "worktree-remove": "remove",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function resumeVerb(action) {
+  return RESUME[action] ?? "run";
+}
+var VERB = {
+  "branch-delete-local": "local delete",
+  "branch-delete-remote": "GitHub delete",
+  "worktree-remove": "worktree remove",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function actionVerb(action) {
+  return VERB[action] ?? "run";
+}
+function laneLabel(lane, agent) {
+  return lane === "agent" ? `${agent || "agent"} · outward` : "casebook · local";
+}
+function groupSteps(steps) {
+  const out = [];
+  const at2 = /* @__PURE__ */ new Map();
+  for (const s of steps) {
+    const k = `${s.action}\0${s.lane}`;
+    const i = at2.get(k);
+    if (i === void 0) {
+      at2.set(k, out.length);
+      out.push({
+        action: s.action,
+        lane: s.lane,
+        undo: s.undo_note ?? "",
+        steps: [s]
+      });
+    } else out[i].steps.push(s);
+  }
+  return out;
+}
+function jobTitle(job) {
+  const titles = [
+    ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action)))
+  ];
+  if (!titles.length) return `job #${job.id}`;
+  return titles.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
+}
+function jobLanes(job) {
+  const have = new Set((job.steps ?? []).map((s) => s.lane));
+  return ["casebook", "agent"].filter((l) => have.has(l));
+}
+var FINISHED = /* @__PURE__ */ new Set(["verified", "reported", "skipped", "failed"]);
+function progress(job) {
+  const p = {
+    total: 0,
+    finished: 0,
+    byLane: {},
+    verified: 0,
+    paused: 0,
+    skipped: 0,
+    failed: 0,
+    started: job.state === "running"
+  };
+  for (const s of job.steps ?? []) {
+    p.total++;
+    if (s.state !== "pending") p.started = true;
+    if (FINISHED.has(s.state)) {
+      p.finished++;
+      p.byLane[s.lane] = (p.byLane[s.lane] ?? 0) + 1;
+    }
+    if (s.state === "verified") p.verified++;
+    if (s.state === "paused") p.paused++;
+    if (s.state === "skipped") p.skipped++;
+    if (s.state === "failed") p.failed++;
+  }
+  return p;
+}
+function openCardsByJob(cards) {
+  const m = /* @__PURE__ */ new Map();
+  for (const c of cards) {
+    if (c.state !== "open") continue;
+    m.set(c.job_id, (m.get(c.job_id) ?? 0) + 1);
+  }
+  return m;
+}
+function stepMark(s, next) {
+  const past = PAST[s.action] ?? "done";
+  const why = (glyph, text, tone) => s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
+  if (s.undone_at) return { glyph: "↺", text: "undone", tone: "muted" };
+  switch (s.state) {
+    case "verified":
+      return { glyph: "✓", text: `${past} · verified`, tone: "ok" };
+    case "reported":
+      return {
+        glyph: "✓",
+        text: `${past} · reported`,
+        tone: "muted"
+      };
+    case "running":
+      return {
+        glyph: "▸",
+        text: "running",
+        tone: s.lane === "agent" ? "agent" : "signal"
+      };
+    case "paused":
+      return why("‖", "paused", "agent");
+    case "needs_you":
+      return { glyph: "!", text: "needs you", tone: "signal" };
+    case "failed":
+      return why("✗", "failed", "signal");
+    case "skipped":
+      return why("–", "skipped", "muted");
+    default:
+      return { glyph: "·", text: next ? "next" : "queued", tone: "wait" };
+  }
+}
+function nextSteps(steps) {
+  const out = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
+  for (const s of steps) {
+    if (s.state !== "pending" || seen2.has(s.lane)) continue;
+    seen2.add(s.lane);
+    out.add(s.id);
+  }
+  return out;
+}
+function needsSession(steps) {
+  return steps.some((s) => s.lane === "agent");
+}
+function makeSeq() {
+  let latest = 0;
+  return {
+    next: () => ++latest,
+    isLatest: (n) => n === latest
+  };
+}
+function startedKeys(jobs) {
+  const m = /* @__PURE__ */ new Map();
+  for (const j of jobs) {
+    if (!STARTED.has(j.state)) continue;
+    for (const s of j.steps ?? []) {
+      const was = m.get(s.key);
+      if (was === void 0 || j.id > was) m.set(s.key, j.id);
+    }
+  }
+  return m;
+}
+var STARTED = /* @__PURE__ */ new Set(["approved", "running", "paused"]);
+function runsThrough(steps, agent) {
+  if (!needsSession(steps)) return { text: "", can: true };
+  if (agent === null)
+    return { text: "Open casebook from an agent to run this.", can: false };
+  return { text: `runs through ${agent || "agent"}`, can: true };
+}
+function ageText(ms) {
+  const s = Math.max(0, Math.floor(ms / 1e3));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h18 = Math.floor(m / 60);
+  if (h18 < 24) return `${h18}h`;
+  return `${Math.floor(h18 / 24)}d`;
+}
+function observations(builtAt, intervalMs, now) {
+  const age = now - builtAt;
+  if (!intervalMs || age <= intervalMs)
+    return { text: "observations fresh", stale: false };
+  return { text: `observations ${ageText(age)} old`, stale: true };
+}
+var STEP_DISPOSITION = {
+  "branch-delete-local": "delete",
+  "branch-delete-remote": "delete",
+  "worktree-remove": "delete",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function stepGroup(s) {
+  return `${STEP_DISPOSITION[s.action] ?? ""}|${s.key.slice(0, s.key.indexOf(":"))}`;
+}
+function heldOutside(jobs, id, loaded) {
+  const held = /* @__PURE__ */ new Set();
+  for (const j of jobs) {
+    if (!STARTED.has(j.state)) continue;
+    for (const s of j.steps ?? [])
+      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
+  }
+  return held.size;
+}
+var ACTION_TAGS = {
+  "repo-delete": ["permanent"],
+  "pr-merge": ["permanent"],
+  "pr-close": ["github-undo"],
+  "issue-close": ["github-undo"],
+  "repo-archive": ["github-undo"]
+};
+function actionTags(action) {
+  return ACTION_TAGS[action] ?? [];
+}
+function stepTags(steps) {
+  const n = {
+    permanent: 0,
+    posts: 0,
+    "github-undo": 0
+  };
+  for (const s of steps) {
+    for (const k of actionTags(s.action)) n[k]++;
+    if (s.posts) n.posts++;
+  }
+  return ["permanent", "posts", "github-undo"].filter((k) => n[k] > 0).map((kind) => ({ kind, n: n[kind] }));
+}
+function tagText(t, of) {
+  const counted = of === 0 || t.n < of;
+  const lead = counted ? `${count(t.n)} ` : "";
+  switch (t.kind) {
+    case "permanent":
+      return `${lead}can't be undone`;
+    case "github-undo":
+      return `${lead}undo on GitHub`;
+    case "posts":
+      return `${lead}${counted && t.n > 1 ? "post" : "posts"} a public comment`;
+  }
+}
+function publicLine(s) {
+  return `posts publicly${s.public ? " on a public repo" : ""}: “${s.comment ?? ""}”`;
+}
+function count(n) {
+  return n.toLocaleString("en-US");
+}
+function runsNow(plan) {
+  const steps = plan.steps ?? [];
+  const by = (a) => steps.filter((s) => s.action === a).length;
+  const agent = steps.filter((s) => s.lane === "agent").length;
+  const wt = by("worktree-remove");
+  const remote = by("branch-delete-remote");
+  const local = by("branch-delete-local");
+  let first;
+  if (steps.length && agent === steps.length) {
+    first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
+  } else if (!steps.length) {
+    first = "Nothing runs now.";
+  } else {
+    const parts = [];
+    if (wt)
+      parts.push(
+        `${count(wt)} ${wt === 1 ? "worktree" : "worktrees"} removed${remote + local ? " first" : ""}`
+      );
+    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
+    if (local) parts.push(`${count(local)} deleted here`);
+    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
+    first = `Runs now: ${parts.join(", ")}.`;
+  }
+  const rest = [];
+  const waits = /* @__PURE__ */ new Map();
+  for (const w of plan.waiting ?? [])
+    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
+  for (const [m, n] of waits)
+    rest.push(
+      `Waits for ${m}: ${count(n)} ${n === 1 ? "local copy" : "local copies"}.`
+    );
+  const held = plan.held_back?.length ?? 0;
+  if (held) rest.push(`Held: ${count(held)}.`);
+  return rest.length ? `${first}
+${rest.join(" ")}` : first;
+}
+function reviewKick(n, groups) {
+  const where = groups.length === 1 ? groups[0] : `${groups.length} groups`;
+  return `review · ${n} ticked in ${where}`;
+}
+function reviewLine(it, done) {
+  const d = it.decision?.disposition ?? "";
+  const hold = (it.holds ?? []).find((x) => (x.stops ?? []).includes(d));
+  if (hold) return { text: `held: ${hold.text}`, tone: "agent" };
+  if (it.kind === "branch") {
+    const there = (it.copies ?? []).filter((c) => !c.absent);
+    const gh = there.some((c) => !c.machine);
+    const here = there.some((c) => !!c.machine);
+    if (gh || here)
+      return {
+        text: `deleted ${[gh ? "on GitHub" : "", here ? "here" : ""].filter(Boolean).join(" and ")}`,
+        tone: "muted"
+      };
+  }
+  return { text: done.toLowerCase(), tone: "muted" };
+}
+function untickHidden(ticked, shown) {
+  return ticked.filter((k) => !shown.has(k));
+}
+function waitBlocks(waits, steps) {
+  const github = new Set(
+    steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
+  );
+  const out = [];
+  for (const w of waits) {
+    const m = w.machine;
+    let text;
+    if (w.key.startsWith("worktree:"))
+      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
+    else if (github.has(w.key))
+      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
+    else
+      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
+    const block = out.find((b) => b.text === text);
+    if (block) block.waits.push(w);
+    else out.push({ text, waits: [w] });
+  }
+  return out;
+}
+var heldText = "Not run here. Each says what holds it; settle that and it joins the next run.";
+function otherHalf(key, steps) {
+  return steps.some((s) => s.key === key) ? " · its other half runs above" : "";
+}
+var NEEDS = /* @__PURE__ */ new Set(["failed", "needs_you", "paused"]);
+var UNFINISHED = /* @__PURE__ */ new Set(["pending", "running", "reported"]);
+function standsStep(m) {
+  const steps = m.steps ?? [];
+  return steps.find((s) => NEEDS.has(s.state)) ?? steps.find((s) => UNFINISHED.has(s.state)) ?? steps[steps.length - 1];
+}
+function ranLine(m) {
+  const s = standsStep(m);
+  if (!s) return { text: `job #${m.job}`, tone: "muted" };
+  const mark = stepMark(s, false);
+  const stopped = NEEDS.has(s.state) || s.state === "skipped";
+  const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
+  return { text: `${what} · job #${m.job}`, tone: mark.tone };
+}
+function aroundSteps(steps, key, span) {
+  const i = Math.max(
+    0,
+    steps.findIndex((s) => s.key === key)
+  );
+  const shown = steps.slice(Math.max(0, i - span), i + span + 1);
+  return { steps: shown, hidden: steps.length - shown.length };
+}
+
 // decide.ts
 import { sheet, h as h3, noteField as noteField2 } from "/_kit/kit.js";
 
@@ -1396,22 +1792,22 @@ function renderChoices(ctx, kind, opts) {
     notNow.append(...notNowPicker(vocab2.not_now ?? []));
   });
   function mark(d) {
-    for (const card6 of grid.querySelectorAll(
+    for (const card7 of grid.querySelectorAll(
       ".cb-choice[data-d]"
     )) {
-      card6.classList.toggle("on", card6.dataset.d === d);
-      const k = card6.querySelector(".cb-choice-mark");
-      if (k) k.textContent = markText(card6);
+      card7.classList.toggle("on", card7.dataset.d === d);
+      const k = card7.querySelector(".cb-choice-mark");
+      if (k) k.textContent = markText(card7);
     }
   }
-  function markText(card6) {
+  function markText(card7) {
     const parts = [];
-    if (card6.classList.contains("rec")) parts.push("recommended");
-    if (card6.classList.contains("on")) parts.push("chosen");
+    if (card7.classList.contains("rec")) parts.push("recommended");
+    if (card7.classList.contains("on")) parts.push("chosen");
     return parts.join(" · ");
   }
   function choiceCard(c, n, rec) {
-    const card6 = h2(
+    const card7 = h2(
       "button",
       {
         type: "button",
@@ -1438,9 +1834,9 @@ function renderChoices(ctx, kind, opts) {
       h2("span", { class: "cb-choice-mark" }),
       h2("span", { class: "cb-choice-label" }, c.label)
     );
-    const k = card6.querySelector(".cb-choice-mark");
-    if (k) k.textContent = markText(card6);
-    return card6;
+    const k = card7.querySelector(".cb-choice-mark");
+    if (k) k.textContent = markText(card7);
+    return card7;
   }
   function closeComment() {
     const field = noteField({
@@ -1651,377 +2047,6 @@ async function getVocab(ctx) {
   return _vocab;
 }
 var DANGER_DISPS = /* @__PURE__ */ new Set(["close", "delete", "archive"]);
-
-// apply-text.ts
-function runOrder(jobs) {
-  const out = { running: [], done: [] };
-  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
-    if (j.state === "planned" || j.state === "cancelled") continue;
-    if (FINISHED_JOB.has(j.state)) out.done.push(j);
-    else out.running.push(j);
-  }
-  return out;
-}
-var FINISHED_JOB = /* @__PURE__ */ new Set(["done", "failed", "cancelled"]);
-function isRunning(job) {
-  return job.state !== "planned" && !FINISHED_JOB.has(job.state);
-}
-function isFinished(job) {
-  return FINISHED_JOB.has(job.state);
-}
-function applyLabel(many, noun, nouns, n) {
-  return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
-}
-var TITLES = {
-  "branch-delete-local": "Delete local branches",
-  "branch-delete-remote": "Delete remote branches",
-  "worktree-remove": "Remove worktrees",
-  "repo-archive": "Archive repos",
-  "repo-delete": "Delete repos",
-  "pr-close": "Close PRs",
-  "pr-merge": "Merge PRs",
-  "issue-close": "Close issues"
-};
-function actionTitle(action) {
-  return TITLES[action] ?? action;
-}
-function planTitle(job, nouns) {
-  const parts = groupSteps(job.steps ?? []).map((g) => {
-    const n = new Set(g.steps.map((s) => s.key)).size;
-    const kind = g.steps[0]?.key.slice(0, g.steps[0].key.indexOf(":")) ?? "";
-    const [one, many] = nouns(kind);
-    const words = actionTitle(g.action).split(" ");
-    const mid = words.slice(1, -1);
-    return [words[0], String(n), ...mid, n === 1 ? one : many].join(" ");
-  });
-  if (!parts.length) return `job #${job.id}`;
-  return parts.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
-}
-var PAST = {
-  "branch-delete-local": "deleted",
-  "branch-delete-remote": "deleted on the remote",
-  "worktree-remove": "removed",
-  "repo-archive": "archived",
-  "repo-delete": "deleted",
-  "pr-close": "closed",
-  "pr-merge": "merged",
-  "issue-close": "closed"
-};
-var VERB = {
-  "branch-delete-local": "delete",
-  "branch-delete-remote": "delete",
-  "worktree-remove": "remove",
-  "repo-archive": "archive",
-  "repo-delete": "delete",
-  "pr-close": "close",
-  "pr-merge": "merge",
-  "issue-close": "close"
-};
-function actionVerb(action) {
-  return VERB[action] ?? "run";
-}
-function laneLabel(lane, agent) {
-  return lane === "agent" ? `${agent || "agent"} · outward` : "casebook · local";
-}
-function groupSteps(steps) {
-  const out = [];
-  const at2 = /* @__PURE__ */ new Map();
-  for (const s of steps) {
-    const k = `${s.action}\0${s.lane}`;
-    const i = at2.get(k);
-    if (i === void 0) {
-      at2.set(k, out.length);
-      out.push({
-        action: s.action,
-        lane: s.lane,
-        undo: s.undo_note ?? "",
-        steps: [s]
-      });
-    } else out[i].steps.push(s);
-  }
-  return out;
-}
-function jobTitle(job) {
-  const titles = [
-    ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action)))
-  ];
-  if (!titles.length) return `job #${job.id}`;
-  return titles.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
-}
-function jobLanes(job) {
-  const have = new Set((job.steps ?? []).map((s) => s.lane));
-  return ["casebook", "agent"].filter((l) => have.has(l));
-}
-var FINISHED = /* @__PURE__ */ new Set(["verified", "reported", "skipped", "failed"]);
-function progress(job) {
-  const p = {
-    total: 0,
-    finished: 0,
-    byLane: {},
-    verified: 0,
-    paused: 0,
-    skipped: 0,
-    failed: 0,
-    started: job.state === "running"
-  };
-  for (const s of job.steps ?? []) {
-    p.total++;
-    if (s.state !== "pending") p.started = true;
-    if (FINISHED.has(s.state)) {
-      p.finished++;
-      p.byLane[s.lane] = (p.byLane[s.lane] ?? 0) + 1;
-    }
-    if (s.state === "verified") p.verified++;
-    if (s.state === "paused") p.paused++;
-    if (s.state === "skipped") p.skipped++;
-    if (s.state === "failed") p.failed++;
-  }
-  return p;
-}
-function needsLine(needsYou, paused) {
-  const parts = [];
-  if (needsYou)
-    parts.push(`${needsYou} ${needsYou === 1 ? "needs" : "need"} you`);
-  if (paused) parts.push(`${paused} paused`);
-  return parts.join(" · ");
-}
-function openCardsByJob(cards) {
-  const m = /* @__PURE__ */ new Map();
-  for (const c of cards) {
-    if (c.state !== "open") continue;
-    m.set(c.job_id, (m.get(c.job_id) ?? 0) + 1);
-  }
-  return m;
-}
-function stepMark(s, next) {
-  const past = PAST[s.action] ?? "done";
-  const why = (glyph, text, tone) => s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
-  if (s.undone_at) return { glyph: "↺", text: "undone", tone: "muted" };
-  switch (s.state) {
-    case "verified":
-      return { glyph: "✓", text: `${past} · verified`, tone: "ok" };
-    case "reported":
-      return {
-        glyph: "✓",
-        text: `${past} · reported`,
-        tone: "muted"
-      };
-    case "running":
-      return {
-        glyph: "▸",
-        text: "running",
-        tone: s.lane === "agent" ? "agent" : "signal"
-      };
-    case "paused":
-      return why("‖", "paused", "agent");
-    case "needs_you":
-      return { glyph: "!", text: "needs you", tone: "signal" };
-    case "failed":
-      return why("✗", "failed", "signal");
-    case "skipped":
-      return why("–", "skipped", "muted");
-    default:
-      return { glyph: "·", text: next ? "next" : "queued", tone: "wait" };
-  }
-}
-function nextSteps(steps) {
-  const out = /* @__PURE__ */ new Set();
-  const seen2 = /* @__PURE__ */ new Set();
-  for (const s of steps) {
-    if (s.state !== "pending" || seen2.has(s.lane)) continue;
-    seen2.add(s.lane);
-    out.add(s.id);
-  }
-  return out;
-}
-function needsSession(steps) {
-  return steps.some((s) => s.lane === "agent");
-}
-function makeSeq() {
-  let latest = 0;
-  return {
-    next: () => ++latest,
-    isLatest: (n) => n === latest
-  };
-}
-function startedKeys(jobs) {
-  const m = /* @__PURE__ */ new Map();
-  for (const j of jobs) {
-    if (!STARTED.has(j.state)) continue;
-    for (const s of j.steps ?? []) {
-      const was = m.get(s.key);
-      if (was === void 0 || j.id > was) m.set(s.key, j.id);
-    }
-  }
-  return m;
-}
-var STARTED = /* @__PURE__ */ new Set(["approved", "running", "paused"]);
-function runsThrough(steps, agent) {
-  if (!needsSession(steps)) return { text: "", can: true };
-  if (agent === null)
-    return { text: "Open casebook from an agent to run this.", can: false };
-  return { text: `runs through ${agent || "agent"}`, can: true };
-}
-function ageText(ms) {
-  const s = Math.max(0, Math.floor(ms / 1e3));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h17 = Math.floor(m / 60);
-  if (h17 < 24) return `${h17}h`;
-  return `${Math.floor(h17 / 24)}d`;
-}
-function observations(builtAt, intervalMs, now) {
-  const age = now - builtAt;
-  if (!intervalMs || age <= intervalMs)
-    return { text: "observations fresh", stale: false };
-  return { text: `observations ${ageText(age)} old`, stale: true };
-}
-var STEP_DISPOSITION = {
-  "branch-delete-local": "delete",
-  "branch-delete-remote": "delete",
-  "worktree-remove": "delete",
-  "repo-archive": "archive",
-  "repo-delete": "delete",
-  "pr-close": "close",
-  "pr-merge": "merge",
-  "issue-close": "close"
-};
-function stepGroup(s) {
-  return `${STEP_DISPOSITION[s.action] ?? ""}|${s.key.slice(0, s.key.indexOf(":"))}`;
-}
-function heldOutside(jobs, id, loaded) {
-  const held = /* @__PURE__ */ new Set();
-  for (const j of jobs) {
-    if (!STARTED.has(j.state)) continue;
-    for (const s of j.steps ?? [])
-      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
-  }
-  return held.size;
-}
-var ACTION_TAGS = {
-  "repo-delete": ["permanent"],
-  "pr-merge": ["permanent"],
-  "pr-close": ["github-undo"],
-  "issue-close": ["github-undo"],
-  "repo-archive": ["github-undo"]
-};
-function actionTags(action) {
-  return ACTION_TAGS[action] ?? [];
-}
-function stepTags(steps) {
-  const n = {
-    permanent: 0,
-    posts: 0,
-    "github-undo": 0
-  };
-  for (const s of steps) {
-    for (const k of actionTags(s.action)) n[k]++;
-    if (s.posts) n.posts++;
-  }
-  return ["permanent", "posts", "github-undo"].filter((k) => n[k] > 0).map((kind) => ({ kind, n: n[kind] }));
-}
-function tagText(t, of) {
-  const counted = of === 0 || t.n < of;
-  const lead = counted ? `${count(t.n)} ` : "";
-  switch (t.kind) {
-    case "permanent":
-      return `${lead}can't be undone`;
-    case "github-undo":
-      return `${lead}undo on GitHub`;
-    case "posts":
-      return `${lead}${counted && t.n > 1 ? "post" : "posts"} a public comment`;
-  }
-}
-function publicLine(s) {
-  return `posts publicly${s.public ? " on a public repo" : ""}: “${s.comment ?? ""}”`;
-}
-function count(n) {
-  return n.toLocaleString("en-US");
-}
-function runsNow(plan) {
-  const steps = plan.steps ?? [];
-  const by = (a) => steps.filter((s) => s.action === a).length;
-  const agent = steps.filter((s) => s.lane === "agent").length;
-  const wt = by("worktree-remove");
-  const remote = by("branch-delete-remote");
-  const local = by("branch-delete-local");
-  let first;
-  if (steps.length && agent === steps.length) {
-    first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
-  } else if (!steps.length) {
-    first = "Nothing runs now.";
-  } else {
-    const parts = [];
-    if (wt)
-      parts.push(
-        `${count(wt)} ${wt === 1 ? "worktree" : "worktrees"} removed${remote + local ? " first" : ""}`
-      );
-    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
-    if (local) parts.push(`${count(local)} deleted here`);
-    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
-    first = `Runs now: ${parts.join(", ")}.`;
-  }
-  const rest = [];
-  const waits = /* @__PURE__ */ new Map();
-  for (const w of plan.waiting ?? [])
-    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
-  for (const [m, n] of waits)
-    rest.push(
-      `Waits for ${m}: ${count(n)} ${n === 1 ? "local copy" : "local copies"}.`
-    );
-  const held = plan.held_back?.length ?? 0;
-  if (held) rest.push(`Held: ${count(held)}.`);
-  return rest.length ? `${first}
-${rest.join(" ")}` : first;
-}
-function reviewKick(n, groups) {
-  const where = groups.length === 1 ? groups[0] : `${groups.length} groups`;
-  return `review · ${n} ticked in ${where}`;
-}
-function reviewLine(it, done) {
-  const d = it.decision?.disposition ?? "";
-  const hold = (it.holds ?? []).find((x) => (x.stops ?? []).includes(d));
-  if (hold) return { text: `held: ${hold.text}`, tone: "agent" };
-  if (it.kind === "branch") {
-    const there = (it.copies ?? []).filter((c) => !c.absent);
-    const gh = there.some((c) => !c.machine);
-    const here = there.some((c) => !!c.machine);
-    if (gh || here)
-      return {
-        text: `deleted ${[gh ? "on GitHub" : "", here ? "here" : ""].filter(Boolean).join(" and ")}`,
-        tone: "muted"
-      };
-  }
-  return { text: done.toLowerCase(), tone: "muted" };
-}
-function untickHidden(ticked, shown) {
-  return ticked.filter((k) => !shown.has(k));
-}
-function waitBlocks(waits, steps) {
-  const github = new Set(
-    steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
-  );
-  const out = [];
-  for (const w of waits) {
-    const m = w.machine;
-    let text;
-    if (w.key.startsWith("worktree:"))
-      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
-    else if (github.has(w.key))
-      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
-    else
-      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
-    const block = out.find((b) => b.text === text);
-    if (block) block.waits.push(w);
-    else out.push({ text, waits: [w] });
-  }
-  return out;
-}
-var heldText = "Not run here. Each says what holds it; settle that and it joins the next run.";
-function otherHalf(key, steps) {
-  return steps.some((s) => s.key === key) ? " · its other half runs above" : "";
-}
 
 // coalesce.ts
 function coalesced(load) {
@@ -3423,15 +3448,665 @@ function midHead(o) {
   ];
 }
 
+// ran.ts
+import { h as h9, facts as facts2, buttons as buttons3, card as card2 } from "/_kit/kit.js";
+
+// item.ts
+import { h as h8, facts, fold } from "/_kit/kit.js";
+
+// holds-text.ts
+function copyRow(c) {
+  const label = c.machine || "GitHub";
+  if (c.absent) return [label, "not there"];
+  const parts = [];
+  if (c.path) parts.push(c.path);
+  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
+  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
+  if (c.head) parts.push("checked out in the clone");
+  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
+  return [label, parts.join(" · ")];
+}
+function choiceTags(kind, disposition) {
+  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
+    return ["permanent"];
+  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
+    return ["github-undo"];
+  return [];
+}
+
+// item.ts
+var BODY_CAP = 600;
+function fmtDate(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+function fmtShortDate(s) {
+  if (!s)
+    return "def";
+  const d = new Date(s);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}-${dd}`;
+}
+function renderEvidence(evs) {
+  const section = h8("section", { class: "cb-evidence" });
+  section.append(h8("h3", { class: "kit-label" }, "evidence"));
+  if (evs.length === 0) {
+    section.append(h8("p", { class: "cb-empty" }, "no evidence"));
+    return section;
+  }
+  for (const ev of evs) {
+    const authorEl = ev.author ? h8("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
+    const time = h8(
+      "span",
+      { class: "cb-muted" },
+      ` · ${fmtShortDate(ev.created_at)}`
+    );
+    const item = h8(
+      "div",
+      { class: "cb-evidence-item" },
+      h8(
+        "p",
+        { class: "cb-evidence-meta" },
+        ...authorEl ? [authorEl] : [],
+        ev.text,
+        time
+      )
+    );
+    section.append(item);
+  }
+  return section;
+}
+function renderHistory(events, decisions, ownKey) {
+  const section = h8("section", { class: "cb-history" });
+  section.append(h8("h3", { class: "kit-label" }, "history"));
+  if (events.length === 0 && decisions.length === 0) {
+    section.append(h8("p", { class: "cb-empty" }, "no history"));
+    return section;
+  }
+  for (const entry of decisions) {
+    const display = stripOwnKey(entry.Subject, ownKey);
+    section.append(
+      h8(
+        "div",
+        { class: "cb-history-item cb-history-decision" },
+        h8("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
+        h8("span", { class: "cb-history-msg" }, display)
+      )
+    );
+  }
+  for (const ev of events) {
+    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
+    section.append(
+      h8(
+        "div",
+        { class: "cb-history-item" },
+        h8("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
+        h8("span", { class: "cb-history-msg" }, label)
+      )
+    );
+  }
+  return section;
+}
+function renderDecideRow(ctx, detail, hooks) {
+  const it = detail.item;
+  const section = h8("section", { class: "cb-decide", role: "group" });
+  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  const tag = (kind, text) => h8("span", { class: `cb-tag cb-tag-${kind}` }, text);
+  const cards = renderChoices(ctx, it.kind, {
+    recommended: pending?.disposition,
+    chosen: it.decision?.disposition,
+    note: it.decision?.note,
+    onPick(d, until, note) {
+      hooks.decide?.(d, until, note);
+    },
+    onCards(grid) {
+      const tagged = [];
+      for (const card7 of grid.querySelectorAll(
+        ".cb-choice[data-d]"
+      )) {
+        const kinds = choiceTags(it.kind, card7.dataset.d ?? "");
+        if (!kinds.length) continue;
+        tagged.push(
+          h8(
+            "span",
+            { class: "cb-choice-tagged" },
+            card7.querySelector(".cb-choice-label")?.textContent ?? "",
+            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
+          )
+        );
+      }
+      if (tagged.length) tagsLine.replaceChildren(...tagged);
+      tagsLine.hidden = !tagged.length;
+      hooks.cardsReady?.();
+    }
+  });
+  const tagsLine = h8("p", { class: "cb-choice-tags", hidden: true });
+  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
+  cards.querySelector(".cb-choices")?.after(tagsLine);
+  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
+    tag(
+      "posts",
+      `posts a public comment${it.public ? " · on a public repo" : ""}`
+    )
+  );
+  section.append(cards);
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    section.setAttribute("aria-label", kv?.question ?? "");
+  });
+  return section;
+}
+function renderRec(ctx, detail, hooks) {
+  const it = detail.item;
+  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  if (!p) return null;
+  const who = h8("p", { class: "cb-rec-who" });
+  const label = h8("p", { class: "cb-rec-label" }, p.disposition);
+  const el2 = h8(
+    "section",
+    { class: "cb-rec" },
+    who,
+    label,
+    p.note ? h8("p", { class: "cb-rec-note" }, p.note) : null,
+    p.until ? h8("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
+  );
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    const rec = asNotNow(p.disposition);
+    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
+    who.textContent = recommendsWho(
+      vocab2,
+      p.source,
+      hooks.sourceName?.(p.source) ?? ""
+    );
+  });
+  return el2;
+}
+function renderHolds(detail) {
+  const holds = detail.item.holds ?? [];
+  if (!holds.length) return null;
+  return h8(
+    "section",
+    { class: "cb-hold" },
+    h8("p", { class: "cb-hold-who" }, "in the way"),
+    ...holds.flatMap((hd) => [
+      h8(
+        "p",
+        { class: "cb-hold-line" },
+        hd.text,
+        hd.by ? h8(
+          "a",
+          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+          keyWithoutKind(hd.by)
+        ) : null
+      ),
+      hd.fix ? h8("p", { class: "cb-hold-sub" }, hd.fix) : null
+    ])
+  );
+}
+function renderWhere(detail) {
+  const copies = detail.item.copies ?? [];
+  if (!copies.length) return null;
+  return h8(
+    "section",
+    { class: "cb-where" },
+    h8("h3", { class: "kit-label" }, "where it is"),
+    ...copies.map((c) => {
+      const [label, text] = copyRow(c);
+      return h8(
+        "div",
+        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
+        h8("span", { class: "cb-wm" }, label),
+        h8("span", null, text)
+      );
+    })
+  );
+}
+function cameBack(vocab2, it) {
+  const status = vocab2.came_back?.[it.status ?? ""];
+  if (status) return it.due_reason || status;
+  return it.new_activity ? it.due_reason ?? "" : "";
+}
+function itemHead(detail, ctx) {
+  const it = detail.item;
+  const displayKey = keyWithoutKind(it.key);
+  const keyEl = it.url ? h8("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
+  const kicker = h8("p", { class: "cb-kicker kit-kick" });
+  const parts = [it.kind, keyEl, it.relation].filter(
+    (part) => !!part
+  );
+  parts.forEach((part, i) => {
+    if (i > 0) kicker.append(" · ");
+    kicker.append(part);
+  });
+  const title = it.title ?? keyWithoutKind(it.key);
+  const titleEl = h8("h1", { class: "cb-title kit-h1", title }, title);
+  const factPairs = [];
+  if (it.status)
+    factPairs.push([
+      "status",
+      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
+    ]);
+  if (it.repo) factPairs.push(["repo", it.repo]);
+  if (it.author)
+    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
+  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
+  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
+  if (it.labels && it.labels.length > 0)
+    factPairs.push(["labels", it.labels.join(", ")]);
+  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
+  const factsEl = facts(factPairs);
+  factsEl.title = factsEl.textContent ?? "";
+  if (ctx)
+    void getVocab(ctx).then((vocab2) => {
+      const why = cameBack(vocab2, it);
+      if (!why) return;
+      const line = vocab2.came_back_fact.replaceAll("{reason}", why);
+      factsEl.prepend(h8("span", { class: "cb-came-back", title: line }, line));
+      factsEl.title = factsEl.textContent ?? "";
+    });
+  return [kicker, titleEl, factsEl];
+}
+function renderItem(ctx, detail, hooks = {}) {
+  const it = detail.item;
+  const el2 = h8(
+    "article",
+    { class: "cb-item", dataset: { key: it.key } },
+    ...itemHead(detail, ctx)
+  );
+  el2.append(renderDecideRow(ctx, detail, hooks));
+  const looking = lookingLine(it.looking);
+  const reading = h8(
+    "div",
+    { class: "cb-reading" },
+    h8("p", { class: "cb-looking", hidden: !looking }, looking),
+    renderHolds(detail),
+    renderWhere(detail),
+    renderRec(ctx, detail, hooks)
+  );
+  if (it.body) {
+    const excerpt = it.body.slice(0, BODY_CAP);
+    const rest = it.body.slice(BODY_CAP);
+    reading.append(
+      h8(
+        "section",
+        { class: "cb-body" },
+        h8("p", null, excerpt),
+        rest ? fold("read more", h8("p", null, rest)) : null
+      )
+    );
+  }
+  reading.append(
+    h8(
+      "div",
+      { class: "cb-trail" },
+      renderEvidence(detail.evidence ?? []),
+      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
+    )
+  );
+  el2.append(reading);
+  return h8("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
+}
+
+// ran.ts
+var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
+function stepKeyLines(key) {
+  const at2 = key.indexOf("@");
+  if (at2 < 0) return [h9("span", { class: "cb-step-k" }, key)];
+  return [
+    h9("span", { class: "cb-step-repo" }, key.slice(0, at2)),
+    h9("span", { class: "cb-step-k" }, key.slice(at2 + 1))
+  ];
+}
+function renderJob(_ctx, v, hooks) {
+  const j = v.job;
+  const steps = j.steps ?? [];
+  const p = progress(j);
+  const agent = hooks.agent(j);
+  const open = (v.needs_you ?? []).filter((c) => c.state === "open");
+  const stepOf = (id) => steps.find((s) => s.id === id);
+  const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
+  const state = j.paused && isRunning(j) ? "paused" : j.state;
+  const doc = h9(
+    "article",
+    { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
+    h9(
+      "p",
+      { class: "kit-kick" },
+      [lanes.join(" + "), `job #${j.id}`, state].filter(Boolean).join(" · ")
+    ),
+    h9("h1", { class: "kit-h1" }, jobTitle(j))
+  );
+  const pairs = [
+    ["done", `${p.verified} of ${p.total}`],
+    ["needs you", String(open.filter((c) => c.kind !== "paused").length)],
+    ["paused", String(p.paused)]
+  ];
+  if (p.skipped) pairs.push(["skipped", String(p.skipped)]);
+  if (p.failed) pairs.push(["failed", String(p.failed)]);
+  const restores = steps.filter((s) => s.restore).length;
+  if (restores) pairs.push(["restore records", String(restores)]);
+  doc.append(facts2(pairs));
+  const cardsEl = h9("div", { class: "cb-needs", "data-testid": "needs-you" });
+  for (const c of open)
+    cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
+  doc.append(cardsEl);
+  const note = hooks.note();
+  if (note)
+    doc.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
+  const next = nextSteps(steps);
+  const shown = steps.slice(0, hooks.stepsShown());
+  doc.append(
+    h9("h3", { class: "kit-label" }, "steps"),
+    h9(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "steps" },
+      ...shown.map((s) => stepRow(s, next.has(s.id), hooks)),
+      steps.length > shown.length ? h9(
+        "div",
+        { class: "kit-tr cb-steps-more" },
+        h9("span"),
+        h9(
+          "span",
+          { class: "cb-step-k" },
+          `… ${pluralize(steps.length - shown.length, "more step")}`
+        ),
+        h9(
+          "button",
+          {
+            type: "button",
+            class: "cb-link",
+            onclick() {
+              hooks.showMore();
+            }
+          },
+          "show more"
+        )
+      ) : null
+    )
+  );
+  return doc;
+}
+function needsCard(c, step, j, agent, hooks) {
+  const key = step ? keyWithoutKind(step.key) : "";
+  const verb = step ? resumeVerb(step.action) : "run";
+  const answer = (action, text = "") => hooks.answer(c, action, text);
+  let el2;
+  switch (c.kind) {
+    case "text": {
+      const quote = h9("blockquote", { class: "cb-needs-text" }, c.text);
+      const body = h9(
+        "div",
+        null,
+        h9(
+          "p",
+          { class: "cb-needs-what" },
+          h9("code", null, key),
+          ` · ${verb} with comment`
+        ),
+        quote
+      );
+      const four = [
+        {
+          label: "post and close",
+          fill: true,
+          run: () => answer("post-and-close", c.text)
+        },
+        {
+          label: "edit text",
+          run() {
+            hooks.edit(c.id, c.text);
+            startEdit(c.text, true);
+          }
+        },
+        {
+          label: "close without comment",
+          run: () => answer("close-without-comment")
+        },
+        { label: "skip", run: () => answer("skip") }
+      ];
+      el2 = card2({
+        edge: "signal",
+        head: c.question ? `needs you · ${c.question}` : "needs you",
+        body,
+        actions: four
+      });
+      const startEdit = (text, focus) => {
+        const field = h9("textarea", {
+          class: "cb-needs-edit",
+          "aria-label": "comment",
+          rows: 4
+        });
+        field.value = text;
+        field.addEventListener("input", () => hooks.edit(c.id, field.value));
+        quote.replaceWith(field);
+        el2.querySelector(".kit-btns")?.replaceWith(
+          buttons3([
+            {
+              label: "save text",
+              fill: true,
+              run: () => hooks.answer(
+                c,
+                "edit-text",
+                field.value,
+                () => hooks.edit(c.id, null)
+              )
+            },
+            {
+              label: "cancel",
+              run() {
+                hooks.edit(c.id, null);
+                field.replaceWith(quote);
+                el2.querySelector(".kit-btns")?.replaceWith(buttons3(four));
+              }
+            }
+          ])
+        );
+        if (focus) field.focus();
+      };
+      const draft = hooks.editing(c.id);
+      if (draft !== void 0) startEdit(draft, false);
+      break;
+    }
+    case "batch":
+      el2 = card2({
+        edge: "signal",
+        head: "needs you · confirm the batch",
+        body: h9("p", null, c.question),
+        actions: [
+          { label: "confirm", fill: true, run: () => answer("confirm") },
+          { label: "skip batch", run: () => answer("skip-batch") }
+        ]
+      });
+      break;
+    case "failed": {
+      const bs = [];
+      if (j.session)
+        bs.push({
+          label: "hand to agent",
+          run: () => answer("hand-to-agent")
+        });
+      bs.push({ label: "skip", run: () => answer("skip") });
+      el2 = card2({
+        edge: "signal",
+        head: `needs you · ${key || "a step"} failed`,
+        body: h9(
+          "div",
+          null,
+          h9("p", null, c.question),
+          step ? h9("code", { class: "cb-cmd" }, step.command) : null
+        ),
+        actions: bs
+      });
+      break;
+    }
+    case "paused":
+      el2 = card2({
+        edge: "agent",
+        head: `${agent} paused`,
+        body: h9(
+          "p",
+          null,
+          key ? h9("code", null, key) : null,
+          key ? ": " : "",
+          c.question
+        ),
+        actions: [
+          {
+            label: `${verb} anyway`,
+            danger: dangerVerb(verb),
+            run: () => answer("resume")
+          },
+          { label: "skip", run: () => answer("skip") }
+        ]
+      });
+      break;
+    default:
+      el2 = card2({
+        edge: "signal",
+        head: `needs you · ${c.kind}`,
+        body: c.question
+      });
+  }
+  el2.classList.add("cb-needs-card");
+  el2.dataset.card = String(c.id);
+  el2.dataset.kind = c.kind;
+  return el2;
+}
+function stepRow(s, next, hooks, o = {}) {
+  const m = stepMark(s, next);
+  const text = o.what ? `${o.what} · ${m.text}` : m.text;
+  return h9(
+    "div",
+    {
+      class: "kit-tr cb-step" + (o.here ? " cb-here" : ""),
+      "data-step": String(s.id),
+      "data-state": s.state,
+      "data-key": s.key
+    },
+    h9("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
+    ...stepKeyLines(keyWithoutKind(s.key)),
+    h9(
+      "span",
+      { class: "cb-step-w" },
+      h9("span", { class: "cb-step-t" }, text),
+      o.job ? h9(
+        "a",
+        { class: "cb-link cb-step-job", href: `#/run/${s.job_id}` },
+        `job #${s.job_id}`
+      ) : null,
+      o.here ? h9("span", { class: "cb-step-here" }, "this item") : null,
+      s.undoable ? h9(
+        "button",
+        {
+          type: "button",
+          class: "kit-btn cb-undo",
+          onclick() {
+            hooks.undo(s);
+          }
+        },
+        "undo"
+      ) : null
+    ),
+    m.why ? h9("span", { class: "cb-step-why" }, m.why) : null
+  );
+}
+function renderRan(ctx, detail, job, cards, hooks) {
+  const key = detail.item.key;
+  const steps = detail.steps ?? [];
+  const doc = h9(
+    "article",
+    { class: "cb-apply-doc cb-ran", "data-key": key },
+    ...itemHead(detail, ctx)
+  );
+  doc.append(
+    h9("h3", { class: "kit-label" }, "what ran on this item"),
+    h9(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "what-ran" },
+      ...steps.map(
+        (s) => stepRow(s, false, hooks, { what: actionVerb(s.action), job: true })
+      )
+    )
+  );
+  const mine = new Set(steps.map((s) => s.id));
+  const open = cards.filter((c) => c.state === "open" && mine.has(c.step_id));
+  if (open.length) {
+    const cardsEl = h9("div", { class: "cb-needs", "data-testid": "needs-you" });
+    for (const c of open) {
+      const s = steps.find((x) => x.id === c.step_id);
+      const j2 = job && job.job.id === c.job_id ? job.job : null;
+      cardsEl.append(
+        needsCard(
+          c,
+          s,
+          j2 ?? {
+            id: c.job_id,
+            machine: "",
+            session: "",
+            state: "",
+            paused: false,
+            created_at: "",
+            steps: []
+          },
+          j2 ? hooks.agent(j2) : "agent",
+          hooks
+        )
+      );
+    }
+    doc.append(cardsEl);
+  }
+  const note = hooks.note();
+  if (note)
+    doc.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
+  if (!job) return doc;
+  const j = job.job;
+  const all = j.steps ?? [];
+  const around = aroundSteps(all, key, 3);
+  const next = nextSteps(all);
+  doc.append(
+    h9(
+      "h3",
+      { class: "kit-label cb-its-job" },
+      "its job · ",
+      h9("a", { class: "cb-link", href: `#/run/${j.id}` }, `job #${j.id}`),
+      ` · ${jobTitle(j)}`
+    ),
+    h9(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "its-job" },
+      ...around.steps.map(
+        (s) => stepRow(s, next.has(s.id), hooks, { here: s.key === key })
+      ),
+      around.hidden ? h9(
+        "div",
+        { class: "kit-tr cb-steps-more" },
+        h9("span"),
+        h9(
+          "a",
+          { class: "cb-link cb-step-k", href: `#/run/${j.id}` },
+          `all ${all.length} steps →`
+        )
+      ) : null
+    )
+  );
+  return doc;
+}
+
 // apply.ts
 var PAGE = 200;
 var STEPS_PAGE = 200;
+var NEEDS_YOU = "needs-you";
 var RUNNING = "running";
-var DONE = "done";
 function message2(err) {
   return err instanceof Error ? err.message : String(err);
 }
-var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
 function focusKey(el2) {
   const host = el2.closest(
     "[data-card],[data-step],[data-session],[data-testid]"
@@ -3465,7 +4140,7 @@ function focusRestore(root, snap) {
   }
 }
 function makeApply(ctx) {
-  const readEl = h8("div", { class: "kit-read cb-apply-read" });
+  const readEl = h10("div", { class: "kit-read cb-apply-read" });
   let mode = "review";
   let jobs = [];
   let cards = [];
@@ -3476,7 +4151,7 @@ function makeApply(ctx) {
   let groups = [];
   let vocab2 = null;
   const flipped = /* @__PURE__ */ new Set();
-  const startsOpen = (id) => id === RUNNING;
+  const startsOpen = (id) => id === RUNNING || id === NEEDS_YOU;
   const collapsed = {
     has: (id) => startsOpen(id) === flipped.has(id),
     delete(id) {
@@ -3561,7 +4236,16 @@ function makeApply(ctx) {
   }
   const tickedIn = (id) => reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
   const tickedKeys = () => groups.flatMap((g) => tickedIn(g.id).sort());
-  let shownRun = [];
+  let runItems = [];
+  let runTotal = 0;
+  let runGroups = [];
+  const runGroupOfKey = /* @__PURE__ */ new Map();
+  const runSeq = makeSeq();
+  let ranKey = "";
+  let ranDetail = null;
+  let ranJob = null;
+  const ranSeq = makeSeq();
+  const runItemQuery = () => ranKey ? `item=${encodeURIComponent(ranKey)}` : "";
   const reviewPane = makePane(
     ctx,
     "review",
@@ -3608,37 +4292,41 @@ function makeApply(ctx) {
     }
   );
   const runPane = makePane(ctx, "run", runSel, {
-    row(j) {
-      const p = progress(j);
-      const needs = needsLine(cardsFor(j.id), p.paused);
+    row(it) {
+      const st = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
       return {
-        id: `job:${j.id}`,
-        key: `job:${j.id}`,
-        title: titleOf(j),
-        stands: [
-          needs,
-          p.started || isFinished(j) ? `${p.finished}/${p.total}` : "queued"
-        ].filter(Boolean).join(" · "),
-        tone: needs ? "signal" : "muted",
-        selectable: false
+        id: it.key,
+        key: it.key,
+        title: it.title || void 0,
+        stands: st.text,
+        tone: st.tone
       };
     },
-    groupOf: (j) => isFinished(j) ? DONE : RUNNING,
-    onOpen(j) {
-      if (!painting) ctx.route.go("run", String(j.id));
+    groupOf: (it) => it.group,
+    onOpen(it) {
+      if (painting) return;
+      ctx.route.go(
+        "run",
+        "",
+        withPane(`item=${encodeURIComponent(it.key)}`, runQ)
+      );
     },
     onQuery(q) {
       runQ = q;
+      setHashQuery(withPane(runItemQuery(), runQ));
+      void loadRun(0, true);
     },
     onToggle(id) {
       if (collapsed.has(id)) collapsed.delete(id);
       else collapsed.add(id);
       paintList();
     },
-    onTickGroup() {
+    onTickGroup(id) {
+      void tickRunGroup(id);
     },
-    tickedIn: () => [],
+    tickedIn: (id) => runSel.ids().filter((k) => runGroupOfKey.get(k) === id),
     onMore() {
+      void loadRun(runItems.length);
     },
     onFilterOpen(row) {
       ctx.route.go("decide", "", `filters=${row.filter.id}`);
@@ -3649,7 +4337,7 @@ function makeApply(ctx) {
   });
   reviewPane.el.classList.add("cb-apply-list");
   runPane.el.classList.add("cb-apply-list");
-  const listEl = h8(
+  const listEl = h10(
     "div",
     { class: "kit-list cb-panes" },
     reviewPane.el,
@@ -3687,29 +4375,20 @@ function makeApply(ctx) {
         new Set(gs.filter((g) => !collapsed.has(g.id)).map((g) => g.id))
       );
       reviewPane.setMore(Math.min(PAGE, itemsTotal - items.length));
-      const o = order();
-      const rgs = [];
-      if (o.running.length)
-        rgs.push({
-          id: RUNNING,
-          label: "running",
-          n: o.running.length,
-          box: false
-        });
-      if (o.done.length)
-        rgs.push({ id: DONE, label: "done", n: o.done.length, box: false });
-      shownRun = runPane.setRows(
-        [...o.running, ...o.done],
+      const rgs = runGroups.map((g) => ({
+        id: g.id,
+        label: g.label,
+        n: g.total,
+        box: true
+      }));
+      const shownRun = runPane.setRows(
+        runItems,
         rgs,
         new Set(rgs.filter((g) => !collapsed.has(g.id)).map((g) => g.id))
       );
-      const els = runPane.el.querySelectorAll(
-        ".kit-rows > .kit-row"
-      );
-      shownRun.forEach((j, i) => {
-        if (els[i]) decorateJobRow(els[i], j);
-      });
-      const openAt = mode === "run" ? shownRun.findIndex((j) => j.id === openId) : -1;
+      runPane.setMore(Math.min(PAGE, runTotal - runItems.length));
+      paintRunning();
+      const openAt = mode === "run" && ranKey ? shownRun.findIndex((it) => it.key === ranKey) : -1;
       if (openAt >= 0) runPane.handle.open(openAt);
     } finally {
       painting = false;
@@ -3717,45 +4396,30 @@ function makeApply(ctx) {
     paintObs();
     drawOverview();
   }
-  function decorateJobRow(rowEl, j) {
-    rowEl.dataset.job = String(j.id);
-    rowEl.classList.add("cb-job-row");
-    const p = progress(j);
-    const kicker = rowEl.querySelector(".kit-kicker");
-    const lanes = jobLanes(j);
-    if (kicker && lanes.length) {
-      kicker.replaceChildren(
-        ...lanes.flatMap((l, i) => [
-          i ? " + " : "",
-          h8(
-            "span",
-            { class: `cb-lanename cb-lanename-${l}`, "data-lane": l },
-            laneLabel(l, agentOf(j))
-          )
-        ])
-      );
-    }
-    const meta = rowEl.querySelector(".kit-meta");
-    if (meta?.textContent === "queued") meta.classList.add("cb-queued");
-    rowEl.querySelector(".kit-sub")?.classList.add("cb-needs-line");
-    const bar2 = h8("div", {
-      class: "cb-pb",
-      role: "progressbar",
-      "aria-valuemin": "0",
-      "aria-valuemax": String(p.total),
-      "aria-valuenow": String(p.finished)
-    });
-    for (const l of lanes) {
-      const n = p.byLane[l] ?? 0;
-      if (!n) continue;
-      bar2.append(
-        h8("span", {
-          class: `cb-pb-${l}`,
-          style: `width:${100 * n / Math.max(1, p.total)}%`
+  function paintRunning() {
+    const running = order().running;
+    runPane.ownRow.replaceChildren(
+      ...running.length ? [
+        h10("span", { class: "cb-bar-label" }, "running"),
+        ...running.map((j) => {
+          const p = progress(j);
+          const text = `job #${j.id} · ${titleOf(j)} · ${p.finished} of ${p.total}`;
+          return h10(
+            "button",
+            {
+              type: "button",
+              class: "kit-chip cb-run-job",
+              "data-job": String(j.id),
+              title: text,
+              onclick() {
+                ctx.route.go("run", String(j.id));
+              }
+            },
+            text
+          );
         })
-      );
-    }
-    rowEl.querySelector(".kit-title")?.after(bar2);
+      ] : []
+    );
   }
   function paintObs() {
     const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
@@ -3771,6 +4435,7 @@ function makeApply(ctx) {
     items: false,
     sessions: false,
     summary: false,
+    run: false,
     jobs: /* @__PURE__ */ new Set()
   };
   let flushing = false;
@@ -3793,9 +4458,10 @@ function makeApply(ctx) {
           items: dirty.items,
           sessions: dirty.sessions,
           summary: dirty.summary,
+          run: dirty.run,
           jobs: [...dirty.jobs]
         };
-        dirty.all = dirty.items = dirty.sessions = dirty.summary = false;
+        dirty.all = dirty.items = dirty.sessions = dirty.summary = dirty.run = false;
         dirty.jobs.clear();
         const some = d.all && openId !== null ? [openId] : d.all ? [] : d.jobs;
         await Promise.all([
@@ -3803,7 +4469,9 @@ function makeApply(ctx) {
           some.length ? loadSome(some) : null,
           d.items ? loadItems() : null,
           d.sessions ? loadSessions() : null,
-          d.summary ? loadSummary() : null
+          d.summary ? loadSummary() : null,
+          d.run ? loadRun(0) : null,
+          d.run && ranKey ? loadRan(ranKey) : null
         ]);
       } while (queued);
     } finally {
@@ -3874,7 +4542,7 @@ function makeApply(ctx) {
       groups = v.groups ?? [];
       for (const it of got) groupOfKey.set(it.key, it.group);
       if (offset === 0 && reviewSel.ids().length) {
-        const shown = itemsTotal <= items.length ? items.map((it) => it.key) : await viewKeys();
+        const shown = itemsTotal <= items.length ? items.map((it) => it.key) : await viewKeys("to-apply", reviewQ, groupOfKey);
         if (!itemsSeq.isLatest(mine)) return;
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
@@ -3945,11 +4613,11 @@ function makeApply(ctx) {
       if (!jobSeq.isLatest(mine) || openId !== id) return;
       open = null;
       readEl.replaceChildren(
-        h8(
+        h10(
           "div",
           { class: "cb-read-empty" },
-          h8("p", { class: "cb-read-empty-section kit-label" }, "run"),
-          h8("p", { class: "cb-read-empty-prompt" }, message2(err))
+          h10("p", { class: "cb-read-empty-section kit-label" }, "run"),
+          h10("p", { class: "cb-read-empty-prompt" }, message2(err))
         )
       );
       feed();
@@ -3958,8 +4626,6 @@ function makeApply(ctx) {
   function setOpen(v) {
     const first = open?.job.id !== v.job.id;
     open = v;
-    if (isFinished(v.job) && v.job.state !== "cancelled")
-      collapsed.delete(DONE);
     patchJob(v);
     for (const id of [...editors.keys()]) {
       if (!(v.needs_you ?? []).some((c) => c.id === id && c.state === "open"))
@@ -3988,9 +4654,11 @@ function makeApply(ctx) {
         const id = openId;
         mark((d) => d.jobs.add(id));
       }
+      if (ranKey) mark((d) => d.run = true);
     } catch (err) {
       note = message2(err);
       drawOpen();
+      drawRan();
     } finally {
       busy = false;
     }
@@ -4062,41 +4730,120 @@ function makeApply(ctx) {
     drawReview();
     feed();
   }
-  async function viewKeys() {
+  async function viewKeys(view, q, groupOf, group = "") {
     const keys = [];
     for (let total = Infinity; keys.length < total; ) {
       const v = await ctx.api.get("/items", {
-        view: "to-apply",
-        ...paneParams(reviewQ),
+        view,
+        ...paneParams(q),
+        ...group ? { group } : {},
         limit: "500",
         offset: String(keys.length)
       });
       const got = v.items ?? [];
       total = v.total;
       if (!got.length) break;
-      for (const it of got) groupOfKey.set(it.key, it.group);
+      for (const it of got) groupOf.set(it.key, it.group);
       keys.push(...got.map((i) => i.key));
     }
     return keys;
   }
   async function groupKeys2(id) {
     const h0 = held();
-    const keys = [];
-    for (let total = Infinity; keys.length < total; ) {
-      const v = await ctx.api.get("/items", {
-        view: "to-apply",
-        ...paneParams(reviewQ),
-        group: id,
-        limit: "500",
-        offset: String(keys.length)
-      });
-      const got = v.items ?? [];
-      total = v.total;
-      if (!got.length) break;
-      for (const it of got) groupOfKey.set(it.key, it.group);
-      keys.push(...got.map((i) => i.key));
-    }
+    const keys = await viewKeys("to-apply", reviewQ, groupOfKey, id);
     return keys.filter((k) => !h0.has(k));
+  }
+  async function loadRun(offset = 0, narrowed = false) {
+    const mine = runSeq.next();
+    try {
+      const v = await ctx.api.get("/items", {
+        view: "run",
+        ...paneParams(runQ),
+        limit: String(
+          offset ? PAGE : Math.min(500, Math.max(PAGE, runItems.length))
+        ),
+        offset: String(offset)
+      });
+      if (!runSeq.isLatest(mine)) return;
+      runPane.setFilterError(null);
+      const got = v.items ?? [];
+      runItems = offset ? [...runItems, ...got] : got;
+      runTotal = v.total;
+      runGroups = v.groups ?? [];
+      for (const it of got) runGroupOfKey.set(it.key, it.group);
+      if (offset === 0 && runSel.ids().length) {
+        const shown = runTotal <= runItems.length ? runItems.map((it) => it.key) : await viewKeys("run", runQ, runGroupOfKey);
+        if (!runSeq.isLatest(mine)) return;
+        const gone = untickHidden(runSel.ids(), new Set(shown));
+        if (gone.length) runSel.deselect(gone);
+      }
+      paintList();
+    } catch (err) {
+      if (!runSeq.isLatest(mine)) return;
+      if (err instanceof ApiError2 && err.status === 400 && narrowed) {
+        runPane.setFilterError(err.message);
+        runItems = [];
+        runTotal = 0;
+        runGroups = [];
+        paintList();
+      }
+    }
+  }
+  async function tickRunGroup(id) {
+    const g = runGroups.find((x) => x.id === id);
+    if (!g) return;
+    const ticked = runSel.ids().filter((k) => runGroupOfKey.get(k) === id);
+    if (g.total > 0 && ticked.length >= g.total) {
+      runSel.deselect(ticked);
+      return;
+    }
+    let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
+    if (keys.length < g.total) {
+      try {
+        keys = await viewKeys("run", runQ, runGroupOfKey, id);
+      } catch {
+        return;
+      }
+    }
+    runSel.all(keys);
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+    }
+  }
+  async function loadRan(key) {
+    const mine = ranSeq.next();
+    try {
+      const d = await ctx.api.get("/item", { key });
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      const never = new Set(
+        jobs.filter((j) => j.state === "planned" || j.state === "cancelled").map((j) => j.id)
+      );
+      const steps = (d.steps ?? []).filter((x) => !never.has(x.job_id));
+      const jobId = runItems.find((it) => it.key === key)?.ran?.job ?? Math.max(0, ...steps.map((x) => x.job_id));
+      const jv = jobId ? await ctx.api.get("/job", { id: String(jobId) }).catch(() => null) : null;
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      if (jv) patchJob(jv);
+      ranDetail = { ...d, steps };
+      ranJob = jv;
+      drawRan();
+      paintList();
+    } catch (err) {
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      ranDetail = null;
+      paint(
+        h10(
+          "article",
+          { class: "cb-apply-doc" },
+          h10("p", { class: "cb-apply-note", role: "status" }, message2(err))
+        )
+      );
+    }
+  }
+  function drawRan() {
+    if (!active || mode !== "run" || !ranKey || openId !== null || !ranDetail)
+      return;
+    paint(renderRan(ctx, ranDetail, ranJob, cards, jobHooks));
   }
   function closeReview() {
     planSeq.next();
@@ -4164,18 +4911,18 @@ function makeApply(ctx) {
     const keys = [...new Set(permanent.map((s) => s.key))];
     const sh = sheet2({
       title: `${title}?`,
-      body: h8(
+      body: h10(
         "div",
         { class: "cb-confirm", "data-testid": "confirm-permanent" },
-        h8(
+        h10(
           "p",
           { class: "cb-confirm-warn" },
           "This cannot be undone. These run on GitHub as soon as you confirm:"
         ),
-        h8(
+        h10(
           "ul",
           { class: "cb-confirm-list" },
-          ...keys.map((k) => h8("li", {}, keyWithoutKind(k)))
+          ...keys.map((k) => h10("li", {}, keyWithoutKind(k)))
         )
       ),
       actions: [
@@ -4230,14 +4977,14 @@ function makeApply(ctx) {
     }
   }
   function refusalCard() {
-    const body = h8(
+    const body = h10(
       "div",
       null,
-      h8("p", { "data-testid": "plan-refused" }, refusal)
+      h10("p", { "data-testid": "plan-refused" }, refusal)
     );
     if (syncing) {
       body.append(
-        h8(
+        h10(
           "p",
           { class: "cb-apply-note", role: "status", "data-testid": "syncing" },
           "syncing… the group opens again when the sync is done"
@@ -4245,7 +4992,7 @@ function makeApply(ctx) {
       );
     } else if (syncError) {
       body.append(
-        h8(
+        h10(
           "p",
           {
             class: "cb-apply-note",
@@ -4256,7 +5003,7 @@ function makeApply(ctx) {
         )
       );
     }
-    const el2 = card2({
+    const el2 = card3({
       edge: "signal",
       head: "not ready",
       body,
@@ -4267,7 +5014,7 @@ function makeApply(ctx) {
   }
   function paint(doc) {
     const keep = focusSnapshot(readEl);
-    readEl.replaceChildren(h8("div", { class: "kit-doc" }, doc));
+    readEl.replaceChildren(h10("div", { class: "kit-doc" }, doc));
     focusRestore(readEl, keep);
   }
   function drawOverview() {
@@ -4276,15 +5023,15 @@ function makeApply(ctx) {
       if (reviewOpen) return;
       const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
       paint(
-        h8(
+        h10(
           "article",
           { class: "cb-apply-doc", "data-testid": "review-overview" },
-          h8(
+          h10(
             "h1",
             { class: "kit-h1" },
             waitingN ? `${pluralize(waitingN, "decision")} waiting` : "Nothing decided is waiting"
           ),
-          h8(
+          h10(
             "p",
             null,
             "Tick items, or a whole group, to review them here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them."
@@ -4293,27 +5040,27 @@ function makeApply(ctx) {
       );
       return;
     }
-    if (openId !== null) return;
+    if (openId !== null || ranKey) return;
     const o = order();
     const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
     paint(
-      h8(
+      h10(
         "article",
         { class: "cb-apply-doc", "data-testid": "run-overview" },
-        h8(
+        h10(
           "h1",
           { class: "kit-h1" },
           o.running.length ? `${pluralize(o.running.length, "job")} running` : "Nothing is running"
         ),
-        facts([
+        facts3([
           ["running", String(o.running.length)],
           ["needs you", String(needs)],
           ["done", String(o.done.length)]
         ]),
-        h8(
+        h10(
           "p",
           null,
-          "A group's button in review starts a job here. A job's row opens it: each step as it runs, and anything that needs you."
+          "Running a plan in review starts a job: its items show here by what happened to them. An item opens what ran on it and its job; a running job's line opens the job."
         )
       )
     );
@@ -4328,7 +5075,7 @@ function makeApply(ctx) {
     const runs = !!v && !!j?.steps?.length && !refusal && !reviewNote;
     if (runs) drawnView = v;
     const [first] = v ? runsNow(v.plan).split("\n") : [""];
-    const doc = h8(
+    const doc = h10(
       "article",
       {
         class: "cb-apply-doc cb-plan",
@@ -4351,7 +5098,7 @@ function makeApply(ctx) {
     }
     if (reviewNote) {
       doc.append(
-        h8(
+        h10(
           "p",
           {
             class: "cb-apply-note",
@@ -4369,7 +5116,7 @@ function makeApply(ctx) {
     const waits = v.plan.waiting ?? [];
     if (!steps.length && !held2.length && !waits.length) {
       doc.append(
-        h8(
+        h10(
           "p",
           { "data-testid": "plan-empty" },
           "Nothing in this group runs from this machine: no step is on it, and nothing outward."
@@ -4393,10 +5140,10 @@ function makeApply(ctx) {
       const title = github ? "Delete on GitHub" : first2 ? "Remove worktrees first" : actionTitle(p.action);
       const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first2 ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
       doc.append(
-        h8(
+        h10(
           "h3",
           { class: "kit-label cb-group-label" },
-          h8(
+          h10(
             "span",
             { class: `cb-lanename cb-lanename-${p.lane}` },
             github ? "casebook · github" : laneLabel(p.lane, agent)
@@ -4404,17 +5151,17 @@ function makeApply(ctx) {
           ` · ${title} · ${p.steps.length}`,
           ...tagEls(stepTags(p.steps), p.steps.length)
         ),
-        h8(
+        h10(
           "p",
           { class: "cb-plan-where", "data-testid": "plan-where" },
           where,
-          p.undo ? h8(
+          p.undo ? h10(
             "span",
             { class: "cb-plan-undo", "data-testid": "plan-undo" },
             ` ${p.undo}`
           ) : null
         ),
-        h8(
+        h10(
           "div",
           {
             class: "kit-table cb-plan-group",
@@ -4422,21 +5169,21 @@ function makeApply(ctx) {
             "data-lane": p.lane
           },
           ...p.steps.map(
-            (s) => h8(
+            (s) => h10(
               "div",
               { class: "kit-tr cb-plan-step", "data-key": s.key },
-              h8("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
-              h8(
+              h10("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
+              h10(
                 "code",
                 { class: "cb-cmd", "data-cmd": s.command },
                 s.command,
-                github && s.expected_tip ? h8(
+                github && s.expected_tip ? h10(
                   "span",
                   { class: "cb-cmd-if" },
                   ` (if still at ${s.expected_tip.slice(0, 7)})`
                 ) : null
               ),
-              s.posts && s.comment ? h8("span", { class: "cb-publine" }, publicLine(s)) : null
+              s.posts && s.comment ? h10("span", { class: "cb-publine" }, publicLine(s)) : null
             )
           )
         )
@@ -4452,25 +5199,25 @@ function makeApply(ctx) {
       byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
     for (const [m, ws] of byMachine) {
       doc.append(
-        h8(
+        h10(
           "h3",
           { class: "kit-label cb-group-label cb-wait-h" },
           `Waits for ${m} · ${ws.length}`
         ),
         ...waitBlocks(ws, steps).flatMap((b) => [
-          h8("p", { class: "cb-plan-where" }, b.text),
-          h8(
+          h10("p", { class: "cb-plan-where" }, b.text),
+          h10(
             "div",
             {
               class: "kit-table cb-plan-group cb-waits",
               "data-testid": "plan-waits"
             },
             ...b.waits.map(
-              (w) => h8(
+              (w) => h10(
                 "div",
                 { class: "kit-tr cb-plan-step" },
-                h8("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
-                h8(
+                h10("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
+                h10(
                   "span",
                   { class: "cb-cmd" },
                   `on ${m}${w.path ? ` · ${w.path}` : ""}`
@@ -4485,13 +5232,13 @@ function makeApply(ctx) {
   function drawHeld(doc, held2, steps) {
     if (!held2.length) return;
     doc.append(
-      h8(
+      h10(
         "h3",
         { class: "kit-label cb-group-label cb-held-h" },
         `Held · ${held2.length}`
       ),
-      h8("p", { class: "cb-plan-where" }, heldText),
-      h8(
+      h10("p", { class: "cb-plan-where" }, heldText),
+      h10(
         "div",
         {
           class: "kit-table cb-plan-group cb-held",
@@ -4503,7 +5250,7 @@ function makeApply(ctx) {
           for (const hd of holds) {
             if (hd.by)
               links.push(
-                h8(
+                h10(
                   "a",
                   { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
                   keyWithoutKind(hd.by)
@@ -4511,18 +5258,18 @@ function makeApply(ctx) {
               );
             else if (hd.kind === "long-lived")
               links.push(
-                h8(
+                h10(
                   "a",
                   { class: "cb-link", href: `#/decide/${pathEscape(x.key)}` },
                   "decide again"
                 )
               );
           }
-          return h8(
+          return h10(
             "div",
             { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
-            h8("span", { class: "cb-step-k" }, keyWithoutKind(x.key)),
-            h8(
+            h10("span", { class: "cb-step-k" }, keyWithoutKind(x.key)),
+            h10(
               "span",
               { class: "cb-held-why" },
               holds.map((hd) => hd.text).join(" · "),
@@ -4536,15 +5283,15 @@ function makeApply(ctx) {
   }
   function tagEls(tags, of) {
     return tags.map(
-      (t) => h8("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
+      (t) => h10("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
     );
   }
   function runActs(v) {
     const rc = runCheck();
-    return h8(
+    return h10(
       "div",
       { class: "cb-run-acts", "data-testid": "run-group" },
-      buttons3([
+      buttons4([
         {
           label: titleOf(v.job),
           fill: true,
@@ -4552,7 +5299,7 @@ function makeApply(ctx) {
           run: () => runGroup()
         }
       ]),
-      rc?.text ? h8(
+      rc?.text ? h10(
         "span",
         {
           class: rc.can || busy ? "cb-approve-lab" : "cb-approve-none",
@@ -4565,14 +5312,14 @@ function makeApply(ctx) {
   }
   function planLines(v) {
     const steps = v.job.steps ?? [];
-    const el2 = h8("div", { class: "cb-approve" });
+    const el2 = h10("div", { class: "cb-approve" });
     const [, rest] = runsNow(v.plan).split("\n");
-    if (rest) el2.append(h8("p", { class: "cb-approve-what" }, rest));
+    if (rest) el2.append(h10("p", { class: "cb-approve-what" }, rest));
     const tags = stepTags(steps);
     if (tags.length)
-      el2.append(h8("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
+      el2.append(h10("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
     if (note)
-      el2.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
+      el2.append(h10("p", { class: "cb-apply-note", role: "status" }, note));
     return el2;
   }
   function drawOpen() {
@@ -4580,12 +5327,12 @@ function makeApply(ctx) {
     const j = open.job;
     if (j.state === "planned" || j.state === "cancelled") {
       paint(
-        h8(
+        h10(
           "article",
           { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-          h8("p", { class: "kit-kick" }, `job #${j.id}`),
-          h8("h1", { class: "kit-h1" }, titleOf(j)),
-          h8(
+          h10("p", { class: "kit-kick" }, `job #${j.id}`),
+          h10("h1", { class: "kit-h1" }, titleOf(j)),
+          h10(
             "p",
             { class: "cb-approve-none", "data-testid": "never-ran" },
             j.state === "planned" ? "This has not run: its decisions wait in review." : "This was replaced before it ran: nothing in it ran."
@@ -4610,10 +5357,10 @@ function makeApply(ctx) {
       drawOpen();
     },
     note: () => note,
-    answer(card6, action, text, ok) {
+    answer(card7, action, text, ok) {
       void act(
         "/jobs/answer",
-        { needs_you: card6.id, action, text },
+        { needs_you: card7.id, action, text },
         ok
       );
     },
@@ -4641,6 +5388,7 @@ function makeApply(ctx) {
     if (!active) return;
     if (mode === "run" && open && openId !== null)
       ctx.setAttached({ job: String(openId) }, jobTitle(open.job));
+    else if (mode === "run" && ranKey) ctx.setAttached({ open: ranKey });
     else ctx.setAttached({});
     ctx.setPrimary(primary());
   }
@@ -4685,6 +5433,7 @@ function makeApply(ctx) {
   void loadFilters();
   void loadJobs();
   void loadItems();
+  void loadRun();
   void loadSessions();
   void loadSummary();
   const loadVocab = () => {
@@ -4704,7 +5453,7 @@ function makeApply(ctx) {
     id: "apply",
     list: listEl,
     read: readEl,
-    listKeys: () => mode === "review" ? { nav: reviewPane.handle, selects: true } : { nav: runPane.handle, selects: false },
+    listKeys: () => mode === "review" ? { nav: reviewPane.handle, selects: true } : { nav: runPane.handle, selects: true },
     keys: () => mode === "review" ? reviewBindings : runBindings,
     show(sub, query) {
       active = true;
@@ -4714,11 +5463,11 @@ function makeApply(ctx) {
       showPane();
       if (mode === "review") {
         closeJob();
-        const pq = paneQuery(query ?? "");
-        if (pq.q !== reviewQ.q || pq.filters.join(",") !== reviewQ.filters.join(",")) {
-          reviewQ = pq;
-          reviewPane.setFilters(filterRows, pq.filters);
-          reviewPane.setSearch(pq.q);
+        const pq2 = paneQuery(query ?? "");
+        if (pq2.q !== reviewQ.q || pq2.filters.join(",") !== reviewQ.filters.join(",")) {
+          reviewQ = pq2;
+          reviewPane.setFilters(filterRows, pq2.filters);
+          reviewPane.setSearch(pq2.q);
           void loadItems(0, true);
         }
         const group = new URLSearchParams(query ?? "").get("group") ?? "";
@@ -4734,9 +5483,31 @@ function makeApply(ctx) {
         return;
       }
       wantGroup = "";
+      const pq = paneQuery(query ?? "");
+      if (pq.q !== runQ.q || pq.filters.join(",") !== runQ.filters.join(",")) {
+        runQ = pq;
+        runPane.setFilters(filterRows, pq.filters);
+        runPane.setSearch(pq.q);
+        void loadRun(0, true);
+      }
+      const item = new URLSearchParams(query ?? "").get("item") ?? "";
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, "")) : NaN;
-      if (!sub || !Number.isFinite(id)) {
+      if (sub && Number.isFinite(id)) ranKey = "";
+      if ((!sub || !Number.isFinite(id)) && item) {
         closeJob();
+        if (item !== ranKey) {
+          ranKey = item;
+          ranDetail = null;
+          ranJob = null;
+          paint(h10("article", { class: "cb-apply-doc cb-ran" }));
+        }
+        paintList();
+        drawRan();
+        void loadRan(item);
+        feed();
+      } else if (!sub || !Number.isFinite(id)) {
+        closeJob();
+        ranKey = "";
         paintList();
         feed();
       } else if (id !== openId) {
@@ -4762,21 +5533,24 @@ function makeApply(ctx) {
         mark((d) => {
           if (about === null) d.all = true;
           else d.jobs.add(about);
+          d.run = true;
         });
       } else if (type === "index" || type === "decided") {
         mark((d) => {
           d.items = true;
+          d.run = true;
           if (type === "index") d.summary = true;
         });
       } else if (type === "sessions") {
         mark((d) => d.sessions = true);
       } else if (type === "gap") {
         mark((d) => {
-          d.all = d.items = d.sessions = d.summary = true;
+          d.all = d.items = d.sessions = d.summary = d.run = true;
         });
       } else if (type === "filters") {
         void loadFilters().then(() => {
           if (reviewQ.filters.length) mark((d) => d.items = true);
+          if (runQ.filters.length) mark((d) => d.run = true);
         });
       } else if (type === "sync") {
         onSync(data ?? {});
@@ -4785,569 +5559,20 @@ function makeApply(ctx) {
     primary
   };
 }
-function stepKeyLines(key) {
-  const at2 = key.indexOf("@");
-  if (at2 < 0) return [h8("span", { class: "cb-step-k" }, key)];
-  return [
-    h8("span", { class: "cb-step-repo" }, key.slice(0, at2)),
-    h8("span", { class: "cb-step-k" }, key.slice(at2 + 1))
-  ];
-}
-function renderJob(_ctx, v, hooks) {
-  const j = v.job;
-  const steps = j.steps ?? [];
-  const p = progress(j);
-  const agent = hooks.agent(j);
-  const open = (v.needs_you ?? []).filter((c) => c.state === "open");
-  const stepOf = (id) => steps.find((s) => s.id === id);
-  const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
-  const state = j.paused && isRunning(j) ? "paused" : j.state;
-  const doc = h8(
-    "article",
-    { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-    h8(
-      "p",
-      { class: "kit-kick" },
-      [lanes.join(" + "), `job #${j.id}`, state].filter(Boolean).join(" · ")
-    ),
-    h8("h1", { class: "kit-h1" }, jobTitle(j))
-  );
-  const pairs = [
-    ["done", `${p.verified} of ${p.total}`],
-    ["needs you", String(open.filter((c) => c.kind !== "paused").length)],
-    ["paused", String(p.paused)]
-  ];
-  if (p.skipped) pairs.push(["skipped", String(p.skipped)]);
-  if (p.failed) pairs.push(["failed", String(p.failed)]);
-  const restores = steps.filter((s) => s.restore).length;
-  if (restores) pairs.push(["restore records", String(restores)]);
-  doc.append(facts(pairs));
-  const cardsEl = h8("div", { class: "cb-needs", "data-testid": "needs-you" });
-  for (const c of open)
-    cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
-  doc.append(cardsEl);
-  const note = hooks.note();
-  if (note)
-    doc.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
-  const next = nextSteps(steps);
-  const shown = steps.slice(0, hooks.stepsShown());
-  doc.append(
-    h8("h3", { class: "kit-label" }, "steps"),
-    h8(
-      "div",
-      { class: "kit-table cb-steps", "data-testid": "steps" },
-      ...shown.map((s) => {
-        const m = stepMark(s, next.has(s.id));
-        return h8(
-          "div",
-          {
-            class: "kit-tr cb-step",
-            "data-step": String(s.id),
-            "data-state": s.state,
-            "data-key": s.key
-          },
-          h8("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-          ...stepKeyLines(keyWithoutKind(s.key)),
-          h8(
-            "span",
-            { class: "cb-step-w" },
-            h8("span", { class: "cb-step-t" }, m.text),
-            s.undoable ? h8(
-              "button",
-              {
-                type: "button",
-                class: "kit-btn cb-undo",
-                onclick() {
-                  hooks.undo(s);
-                }
-              },
-              "undo"
-            ) : null
-          ),
-          m.why ? h8("span", { class: "cb-step-why" }, m.why) : null
-        );
-      }),
-      steps.length > shown.length ? h8(
-        "div",
-        { class: "kit-tr cb-steps-more" },
-        h8("span"),
-        h8(
-          "span",
-          { class: "cb-step-k" },
-          `… ${pluralize(steps.length - shown.length, "more step")}`
-        ),
-        h8(
-          "button",
-          {
-            type: "button",
-            class: "cb-link",
-            onclick() {
-              hooks.showMore();
-            }
-          },
-          "show more"
-        )
-      ) : null
-    )
-  );
-  return doc;
-}
-function needsCard(c, step, j, agent, hooks) {
-  const key = step ? keyWithoutKind(step.key) : "";
-  const verb = step ? actionVerb(step.action) : "run";
-  const answer = (action, text = "") => hooks.answer(c, action, text);
-  let el2;
-  switch (c.kind) {
-    case "text": {
-      const quote = h8("blockquote", { class: "cb-needs-text" }, c.text);
-      const body = h8(
-        "div",
-        null,
-        h8(
-          "p",
-          { class: "cb-needs-what" },
-          h8("code", null, key),
-          ` · ${verb} with comment`
-        ),
-        quote
-      );
-      const four = [
-        {
-          label: "post and close",
-          fill: true,
-          run: () => answer("post-and-close", c.text)
-        },
-        {
-          label: "edit text",
-          run() {
-            hooks.edit(c.id, c.text);
-            startEdit(c.text, true);
-          }
-        },
-        {
-          label: "close without comment",
-          run: () => answer("close-without-comment")
-        },
-        { label: "skip", run: () => answer("skip") }
-      ];
-      el2 = card2({
-        edge: "signal",
-        head: c.question ? `needs you · ${c.question}` : "needs you",
-        body,
-        actions: four
-      });
-      const startEdit = (text, focus) => {
-        const field = h8("textarea", {
-          class: "cb-needs-edit",
-          "aria-label": "comment",
-          rows: 4
-        });
-        field.value = text;
-        field.addEventListener("input", () => hooks.edit(c.id, field.value));
-        quote.replaceWith(field);
-        el2.querySelector(".kit-btns")?.replaceWith(
-          buttons3([
-            {
-              label: "save text",
-              fill: true,
-              run: () => hooks.answer(
-                c,
-                "edit-text",
-                field.value,
-                () => hooks.edit(c.id, null)
-              )
-            },
-            {
-              label: "cancel",
-              run() {
-                hooks.edit(c.id, null);
-                field.replaceWith(quote);
-                el2.querySelector(".kit-btns")?.replaceWith(buttons3(four));
-              }
-            }
-          ])
-        );
-        if (focus) field.focus();
-      };
-      const draft = hooks.editing(c.id);
-      if (draft !== void 0) startEdit(draft, false);
-      break;
-    }
-    case "batch":
-      el2 = card2({
-        edge: "signal",
-        head: "needs you · confirm the batch",
-        body: h8("p", null, c.question),
-        actions: [
-          { label: "confirm", fill: true, run: () => answer("confirm") },
-          { label: "skip batch", run: () => answer("skip-batch") }
-        ]
-      });
-      break;
-    case "failed": {
-      const bs = [];
-      if (j.session)
-        bs.push({
-          label: "hand to agent",
-          run: () => answer("hand-to-agent")
-        });
-      bs.push({ label: "skip", run: () => answer("skip") });
-      el2 = card2({
-        edge: "signal",
-        head: `needs you · ${key || "a step"} failed`,
-        body: h8(
-          "div",
-          null,
-          h8("p", null, c.question),
-          step ? h8("code", { class: "cb-cmd" }, step.command) : null
-        ),
-        actions: bs
-      });
-      break;
-    }
-    case "paused":
-      el2 = card2({
-        edge: "agent",
-        head: `${agent} paused`,
-        body: h8(
-          "p",
-          null,
-          key ? h8("code", null, key) : null,
-          key ? ": " : "",
-          c.question
-        ),
-        actions: [
-          {
-            label: `${verb} anyway`,
-            danger: dangerVerb(verb),
-            run: () => answer("resume")
-          },
-          { label: "skip", run: () => answer("skip") }
-        ]
-      });
-      break;
-    default:
-      el2 = card2({
-        edge: "signal",
-        head: `needs you · ${c.kind}`,
-        body: c.question
-      });
-  }
-  el2.classList.add("cb-needs-card");
-  el2.dataset.card = String(c.id);
-  el2.dataset.kind = c.kind;
-  return el2;
-}
 
 // decide-list.ts
 import {
   createSelection as createSelection2,
-  h as h13,
+  h as h14,
   ApiError as ApiError4
 } from "/_kit/kit.js";
 
-// item.ts
-import { h as h9, facts as facts2, fold } from "/_kit/kit.js";
-
-// holds-text.ts
-function copyRow(c) {
-  const label = c.machine || "GitHub";
-  if (c.absent) return [label, "not there"];
-  const parts = [];
-  if (c.path) parts.push(c.path);
-  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
-  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
-  if (c.head) parts.push("checked out in the clone");
-  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
-  return [label, parts.join(" · ")];
-}
-function choiceTags(kind, disposition) {
-  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
-    return ["permanent"];
-  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
-    return ["github-undo"];
-  return [];
-}
-
-// item.ts
-var BODY_CAP = 600;
-function fmtDate(s) {
-  if (!s) return "—";
-  const d = new Date(s);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  });
-}
-function fmtShortDate(s) {
-  if (!s)
-    return "def";
-  const d = new Date(s);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${mm}-${dd}`;
-}
-function renderEvidence(evs) {
-  const section = h9("section", { class: "cb-evidence" });
-  section.append(h9("h3", { class: "kit-label" }, "evidence"));
-  if (evs.length === 0) {
-    section.append(h9("p", { class: "cb-empty" }, "no evidence"));
-    return section;
-  }
-  for (const ev of evs) {
-    const authorEl = ev.author ? h9("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
-    const time = h9(
-      "span",
-      { class: "cb-muted" },
-      ` · ${fmtShortDate(ev.created_at)}`
-    );
-    const item = h9(
-      "div",
-      { class: "cb-evidence-item" },
-      h9(
-        "p",
-        { class: "cb-evidence-meta" },
-        ...authorEl ? [authorEl] : [],
-        ev.text,
-        time
-      )
-    );
-    section.append(item);
-  }
-  return section;
-}
-function renderHistory(events, decisions, ownKey) {
-  const section = h9("section", { class: "cb-history" });
-  section.append(h9("h3", { class: "kit-label" }, "history"));
-  if (events.length === 0 && decisions.length === 0) {
-    section.append(h9("p", { class: "cb-empty" }, "no history"));
-    return section;
-  }
-  for (const entry of decisions) {
-    const display = stripOwnKey(entry.Subject, ownKey);
-    section.append(
-      h9(
-        "div",
-        { class: "cb-history-item cb-history-decision" },
-        h9("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
-        h9("span", { class: "cb-history-msg" }, display)
-      )
-    );
-  }
-  for (const ev of events) {
-    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
-    section.append(
-      h9(
-        "div",
-        { class: "cb-history-item" },
-        h9("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
-        h9("span", { class: "cb-history-msg" }, label)
-      )
-    );
-  }
-  return section;
-}
-function renderDecideRow(ctx, detail, hooks) {
-  const it = detail.item;
-  const section = h9("section", { class: "cb-decide", role: "group" });
-  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  const tag = (kind, text) => h9("span", { class: `cb-tag cb-tag-${kind}` }, text);
-  const cards = renderChoices(ctx, it.kind, {
-    recommended: pending?.disposition,
-    chosen: it.decision?.disposition,
-    note: it.decision?.note,
-    onPick(d, until, note) {
-      hooks.decide?.(d, until, note);
-    },
-    onCards(grid) {
-      const tagged = [];
-      for (const card6 of grid.querySelectorAll(
-        ".cb-choice[data-d]"
-      )) {
-        const kinds = choiceTags(it.kind, card6.dataset.d ?? "");
-        if (!kinds.length) continue;
-        tagged.push(
-          h9(
-            "span",
-            { class: "cb-choice-tagged" },
-            card6.querySelector(".cb-choice-label")?.textContent ?? "",
-            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
-          )
-        );
-      }
-      if (tagged.length) tagsLine.replaceChildren(...tagged);
-      tagsLine.hidden = !tagged.length;
-      hooks.cardsReady?.();
-    }
-  });
-  const tagsLine = h9("p", { class: "cb-choice-tags", hidden: true });
-  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
-  cards.querySelector(".cb-choices")?.after(tagsLine);
-  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
-    tag(
-      "posts",
-      `posts a public comment${it.public ? " · on a public repo" : ""}`
-    )
-  );
-  section.append(cards);
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    section.setAttribute("aria-label", kv?.question ?? "");
-  });
-  return section;
-}
-function renderRec(ctx, detail, hooks) {
-  const it = detail.item;
-  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  if (!p) return null;
-  const who = h9("p", { class: "cb-rec-who" });
-  const label = h9("p", { class: "cb-rec-label" }, p.disposition);
-  const el2 = h9(
-    "section",
-    { class: "cb-rec" },
-    who,
-    label,
-    p.note ? h9("p", { class: "cb-rec-note" }, p.note) : null,
-    p.until ? h9("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
-  );
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    const rec = asNotNow(p.disposition);
-    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
-    who.textContent = recommendsWho(
-      vocab2,
-      p.source,
-      hooks.sourceName?.(p.source) ?? ""
-    );
-  });
-  return el2;
-}
-function renderHolds(detail) {
-  const holds = detail.item.holds ?? [];
-  if (!holds.length) return null;
-  return h9(
-    "section",
-    { class: "cb-hold" },
-    h9("p", { class: "cb-hold-who" }, "in the way"),
-    ...holds.flatMap((hd) => [
-      h9(
-        "p",
-        { class: "cb-hold-line" },
-        hd.text,
-        hd.by ? h9(
-          "a",
-          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
-          keyWithoutKind(hd.by)
-        ) : null
-      ),
-      hd.fix ? h9("p", { class: "cb-hold-sub" }, hd.fix) : null
-    ])
-  );
-}
-function renderWhere(detail) {
-  const copies = detail.item.copies ?? [];
-  if (!copies.length) return null;
-  return h9(
-    "section",
-    { class: "cb-where" },
-    h9("h3", { class: "kit-label" }, "where it is"),
-    ...copies.map((c) => {
-      const [label, text] = copyRow(c);
-      return h9(
-        "div",
-        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
-        h9("span", { class: "cb-wm" }, label),
-        h9("span", null, text)
-      );
-    })
-  );
-}
-function cameBack(vocab2, it) {
-  const status = vocab2.came_back?.[it.status ?? ""];
-  if (status) return it.due_reason || status;
-  return it.new_activity ? it.due_reason ?? "" : "";
-}
-function renderItem(ctx, detail, hooks = {}) {
-  const it = detail.item;
-  const el2 = h9("article", { class: "cb-item", dataset: { key: it.key } });
-  const displayKey = keyWithoutKind(it.key);
-  const keyEl = it.url ? h9("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
-  const kicker = h9("p", { class: "cb-kicker kit-kick" });
-  const parts = [it.kind, keyEl, it.relation].filter(
-    (part) => !!part
-  );
-  parts.forEach((part, i) => {
-    if (i > 0) kicker.append(" · ");
-    kicker.append(part);
-  });
-  el2.append(kicker);
-  const title = it.title ?? keyWithoutKind(it.key);
-  el2.append(h9("h1", { class: "cb-title kit-h1", title }, title));
-  const factPairs = [];
-  if (it.status)
-    factPairs.push([
-      "status",
-      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
-    ]);
-  if (it.repo) factPairs.push(["repo", it.repo]);
-  if (it.author)
-    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
-  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
-  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
-  if (it.labels && it.labels.length > 0)
-    factPairs.push(["labels", it.labels.join(", ")]);
-  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
-  const factsEl = facts2(factPairs);
-  factsEl.title = factsEl.textContent ?? "";
-  el2.append(factsEl);
-  void getVocab(ctx).then((vocab2) => {
-    const why = cameBack(vocab2, it);
-    if (!why) return;
-    const line = vocab2.came_back_fact.replaceAll("{reason}", why);
-    factsEl.prepend(h9("span", { class: "cb-came-back", title: line }, line));
-    factsEl.title = factsEl.textContent ?? "";
-  });
-  el2.append(renderDecideRow(ctx, detail, hooks));
-  const looking = lookingLine(it.looking);
-  const reading = h9(
-    "div",
-    { class: "cb-reading" },
-    h9("p", { class: "cb-looking", hidden: !looking }, looking),
-    renderHolds(detail),
-    renderWhere(detail),
-    renderRec(ctx, detail, hooks)
-  );
-  if (it.body) {
-    const excerpt = it.body.slice(0, BODY_CAP);
-    const rest = it.body.slice(BODY_CAP);
-    reading.append(
-      h9(
-        "section",
-        { class: "cb-body" },
-        h9("p", null, excerpt),
-        rest ? fold("read more", h9("p", null, rest)) : null
-      )
-    );
-  }
-  reading.append(
-    h9(
-      "div",
-      { class: "cb-trail" },
-      renderEvidence(detail.evidence ?? []),
-      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
-    )
-  );
-  el2.append(reading);
-  return h9("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
-}
-
 // proposals.ts
-import { sheet as sheet3, h as h10 } from "/_kit/kit.js";
+import { sheet as sheet3, h as h11 } from "/_kit/kit.js";
 function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
   let submitting = false;
   let sh = null;
-  const errEl = h10("p", { class: "cb-sheet-err" });
+  const errEl = h11("p", { class: "cb-sheet-err" });
   errEl.hidden = true;
   async function doDiscard() {
     if (submitting) return;
@@ -5365,10 +5590,10 @@ function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
   }
   sh = sheet3({
     title: vocab2.discard_title,
-    body: h10(
+    body: h11(
       "div",
       { class: "cb-sheet-body cb-discard-confirm" },
-      h10("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
+      h11("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
       errEl
     ),
     actions: [
@@ -5393,7 +5618,7 @@ function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
 }
 
 // rule-editor.ts
-import { h as h11, ApiError as ApiError3 } from "/_kit/kit.js";
+import { h as h12, ApiError as ApiError3 } from "/_kit/kit.js";
 
 // menu-nav.ts
 function menuNav(menu, selector, opener, close) {
@@ -5460,7 +5685,7 @@ function dispositionLabel(vocab2, types, d) {
 function ruleMenu(row, hooks) {
   const id = row.rule.id;
   const off = row.rule.status !== "active";
-  const more = h11("button", {
+  const more = h12("button", {
     type: "button",
     class: "cb-filter-more cb-rule-more",
     "aria-label": `${row.rule.name || id}: edit, turn ${off ? "on" : "off"}`,
@@ -5472,7 +5697,7 @@ function ruleMenu(row, hooks) {
     }
   });
   more.textContent = "⋯";
-  const item = (label, run) => h11(
+  const item = (label, run) => h12(
     "button",
     {
       type: "button",
@@ -5487,7 +5712,7 @@ function ruleMenu(row, hooks) {
     },
     label
   );
-  const menu = h11(
+  const menu = h12(
     "div",
     { class: "cb-filter-menu", role: "menu", hidden: true },
     item("edit", () => hooks.onEdit()),
@@ -5516,7 +5741,7 @@ function ruleMenu(row, hooks) {
     }
   }
   menuNav(menu, ".cb-filter-menu-item", more, () => setMenu(false));
-  const wrap = h11(
+  const wrap = h12(
     "span",
     { class: "cb-filter-item cb-rule-menu", "data-id": id },
     more,
@@ -5531,11 +5756,11 @@ async function toggleRule(ctx, row) {
   });
 }
 function makeRuleRow(_ctx, hooks) {
-  const chipsEl = h11("div", {
+  const chipsEl = h12("div", {
     class: "kit-chips cb-filter-chips",
     "data-group": "rules"
   });
-  const addBtn = h11(
+  const addBtn = h12(
     "button",
     {
       type: "button",
@@ -5547,17 +5772,17 @@ function makeRuleRow(_ctx, hooks) {
     },
     "+ rule"
   );
-  const el2 = h11(
+  const el2 = h12(
     "div",
     { class: "cb-filters cb-rule-row", "aria-label": "rules" },
-    h11("span", { class: "cb-bar-label" }, "rules"),
+    h12("span", { class: "cb-bar-label" }, "rules"),
     chipsEl
   );
   function chip(row, selected) {
     const id = row.rule.id;
     const on = selected === id;
     const off = row.rule.status !== "active";
-    const b = h11(
+    const b = h12(
       "button",
       {
         type: "button",
@@ -5592,24 +5817,24 @@ function ruleEditor(ctx, row, seed, hooks) {
   let offered = [];
   let kinds = null;
   let seq = 0;
-  const dispEl = h11("span", {
+  const dispEl = h12("span", {
     class: "cb-cond-picks cb-rule-disps",
     role: "group",
     "aria-label": "what it proposes"
   });
-  const note = h11("input", {
+  const note = h12("input", {
     class: "cb-filter-name cb-rule-propose-note",
     type: "text",
     placeholder: "note, e.g. landed {how}; nothing unpushed",
     "aria-label": "note"
   });
   note.value = row?.rule.propose.note ?? "";
-  const proposeErr = h11("p", { class: "cb-filter-name-err", hidden: true });
+  const proposeErr = h12("p", { class: "cb-filter-name-err", hidden: true });
   function paintDisps() {
     const types = kinds ?? typesOf(match, KINDS);
     dispEl.replaceChildren(
       ...offered.map(
-        (d) => h11(
+        (d) => h12(
           "button",
           {
             type: "button",
@@ -5628,7 +5853,7 @@ function ruleEditor(ctx, row, seed, hooks) {
     );
     if (!offered.length) {
       dispEl.append(
-        h11(
+        h12(
           "span",
           { class: "cb-rule-hint" },
           "add a condition to see what it can propose"
@@ -5670,7 +5895,7 @@ function ruleEditor(ctx, row, seed, hooks) {
   if (row?.invalid) {
     setConditionError(editor, conditionErrorIndex(row.invalid), row.invalid);
   }
-  const name = h11("input", {
+  const name = h12("input", {
     class: "cb-filter-name",
     type: "text",
     placeholder: "name",
@@ -5683,7 +5908,7 @@ function ruleEditor(ctx, row, seed, hooks) {
     }
   });
   name.value = row?.rule.name ?? seed?.name ?? "";
-  const nameErr = h11("p", { class: "cb-filter-name-err", hidden: true });
+  const nameErr = h12("p", { class: "cb-filter-name-err", hidden: true });
   const showNameError = (msg) => {
     nameErr.hidden = msg === null;
     nameErr.textContent = msg ?? "";
@@ -5737,22 +5962,22 @@ function ruleEditor(ctx, row, seed, hooks) {
       setConditionError(editor, i, msg);
     }
   }
-  const el2 = h11(
+  const el2 = h12(
     "div",
     { class: "kit-doc" },
-    h11(
+    h12(
       "article",
       { class: "cb-filter-edit", "data-testid": "rule-editor" },
-      h11(
+      h12(
         "h1",
         { class: "kit-h1 cb-filter-title" },
         row ? `edit ${row.rule.name || row.rule.id}` : "new rule"
       ),
-      h11(
+      h12(
         "div",
         { class: "cb-filter-acts" },
         name,
-        h11(
+        h12(
           "button",
           {
             type: "button",
@@ -5763,7 +5988,7 @@ function ruleEditor(ctx, row, seed, hooks) {
           },
           "save"
         ),
-        h11(
+        h12(
           "button",
           {
             type: "button",
@@ -5776,15 +6001,15 @@ function ruleEditor(ctx, row, seed, hooks) {
         )
       ),
       nameErr,
-      h11(
+      h12(
         "div",
         { class: "cb-rule-propose" },
-        h11("span", { class: "cb-rule-propose-l" }, "propose"),
+        h12("span", { class: "cb-rule-propose-l" }, "propose"),
         dispEl,
         note
       ),
       proposeErr,
-      h11(
+      h12(
         "p",
         { class: "cb-rule-hint" },
         "Saving turns it on: matching items get this recommendation now and after every sync. Nothing is decided until you accept it."
@@ -5807,7 +6032,7 @@ function ruleEditor(ctx, row, seed, hooks) {
 }
 
 // rules.ts
-import { h as h12, facts as facts3, buttons as buttons4, card as card3, sheet as sheet4 } from "/_kit/kit.js";
+import { h as h13, facts as facts4, buttons as buttons5, card as card4, sheet as sheet4 } from "/_kit/kit.js";
 var PREVIEW_DEBOUNCE_MS = 300;
 var PAGE2 = 200;
 function message4(err) {
@@ -5822,24 +6047,24 @@ function renderRule(ctx, detail, hooks) {
   let shown = preview.page ?? [];
   let grouped = false;
   let seq = 0;
-  const doc = h12("article", {
+  const doc = h13("article", {
     class: "cb-rule",
     "data-rule": id,
     "data-status": rule.status
   });
   doc.toggleAttribute("data-invalid", !!detail.invalid);
-  const el2 = h12("div", { class: "kit-doc" }, doc);
-  let factsEl = h12("div");
-  const heading = h12("h3", { class: "kit-label cb-matches-label" });
-  const groupChips = h12("span", { class: "cb-matches-view" });
-  const matchesEl = h12("div", {
+  const el2 = h13("div", { class: "kit-doc" }, doc);
+  let factsEl = h13("div");
+  const heading = h13("h3", { class: "kit-label cb-matches-label" });
+  const groupChips = h13("span", { class: "cb-matches-view" });
+  const matchesEl = h13("div", {
     class: "kit-table cb-matches",
     "data-testid": "matches"
   });
-  const note = h12("p", { class: "cb-rule-note", role: "status" });
+  const note = h13("p", { class: "cb-rule-note", role: "status" });
   function drawFacts() {
     const who = authorOf(rule.created_by);
-    const byEl = h12("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
+    const byEl = h13("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
     const rows = [
       [
         "status",
@@ -5851,33 +6076,33 @@ function renderRule(ctx, detail, hooks) {
     ];
     const rec = trackRecord(detail.record);
     if (rec) rows.push(["record", rec]);
-    const next = facts3(rows);
+    const next = facts4(rows);
     factsEl.replaceWith(next);
     factsEl = next;
   }
-  const invalidEl = detail.invalid ? card3({
+  const invalidEl = detail.invalid ? card4({
     edge: "signal",
     head: "not valid",
-    body: h12(
+    body: h13(
       "div",
       null,
-      h12("p", { class: "cb-invalid-msg" }, detail.invalid),
-      h12(
+      h13("p", { class: "cb-invalid-msg" }, detail.invalid),
+      h13(
         "p",
         { class: "cb-invalid-help" },
         "casebook recommends nothing from this rule until it is valid. Edit it to fix it."
       )
     )
-  }) : h12("div");
+  }) : h13("div");
   const p = rule.propose;
-  const tr = (label, value) => h12(
+  const tr = (label, value) => h13(
     "div",
     { class: "kit-tr" },
-    h12("span", { class: "cb-cond-f" }, label),
-    h12("span"),
+    h13("span", { class: "cb-cond-f" }, label),
+    h13("span"),
     value
   );
-  const dispEl = h12(
+  const dispEl = h13(
     "span",
     {
       class: "cb-cond-v cb-disp-ro" + (DANGER_DISPS.has(p.disposition) ? " cb-danger" : ""),
@@ -5893,15 +6118,15 @@ function renderRule(ctx, detail, hooks) {
     );
   }).catch(() => {
   });
-  const proposeEl = h12(
+  const proposeEl = h13(
     "div",
     { class: "kit-table cb-propose", "data-testid": "propose" },
     tr("decision", dispEl),
-    p.until ? tr("until", h12("span", { class: "cb-cond-v" }, p.until)) : null,
-    p.note ? tr("note", h12("span", { class: "cb-cond-v" }, p.note)) : null
+    p.until ? tr("until", h13("span", { class: "cb-cond-v" }, p.until)) : null,
+    p.note ? tr("note", h13("span", { class: "cb-cond-v" }, p.note)) : null
   );
   function box(on, label, run) {
-    return h12("span", {
+    return h13("span", {
       class: "kit-box",
       role: "checkbox",
       tabindex: 0,
@@ -5921,21 +6146,21 @@ function renderRule(ctx, detail, hooks) {
   }
   function matchRow(m) {
     const why = m.reason === "matched" ? m.title || m.status : m.reason.toLowerCase();
-    return h12(
+    return h13(
       "div",
       { class: "cb-mr on", "data-key": m.key, title: m.title || m.key },
       box(true, `exclude ${m.key}`, () => untick(m.key)),
-      h12("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
-      h12("span", { class: "cb-mr-w" }, why)
+      h13("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
+      h13("span", { class: "cb-mr-w" }, why)
     );
   }
   function excludedRow(x) {
-    return h12(
+    return h13(
       "div",
       { class: "cb-mr x", "data-key": x.key },
       box(false, `include ${x.key}`, () => void include(x.key)),
-      h12("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
-      h12(
+      h13("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
+      h13(
         "span",
         { class: "cb-mr-w" },
         x.reason ? `excluded · ${x.reason}` : "excluded"
@@ -5943,12 +6168,12 @@ function renderRule(ctx, detail, hooks) {
     );
   }
   function waitRow(text) {
-    return h12(
+    return h13(
       "div",
       { class: "cb-mr cb-mr-wait" },
-      h12("span"),
-      h12("span", { class: "cb-mr-k" }, text),
-      h12("span")
+      h13("span"),
+      h13("span", { class: "cb-mr-k" }, text),
+      h13("span")
     );
   }
   function drawMatches() {
@@ -5961,11 +6186,11 @@ function renderRule(ctx, detail, hooks) {
         for (const m of mine) rest.splice(rest.indexOf(m), 1);
         const why = reasonSummary(g.reasons);
         out.push(
-          h12(
+          h13(
             "div",
             { class: "cb-mgroup", "data-repo": g.repo },
-            h12("span", { class: "cb-mgroup-repo" }, g.repo),
-            h12(
+            h13("span", { class: "cb-mgroup-repo" }, g.repo),
+            h13(
               "span",
               { class: "cb-mr-w" },
               String(g.count) + (why ? ` · ${why}` : "")
@@ -5982,12 +6207,12 @@ function renderRule(ctx, detail, hooks) {
     const more = preview.total - shown.length;
     if (more > 0) {
       out.push(
-        h12(
+        h13(
           "div",
           { class: "cb-mr cb-mr-more" },
-          h12("span"),
-          h12("span", { class: "cb-mr-k" }, `… ${more} more`),
-          h12(
+          h13("span"),
+          h13("span", { class: "cb-mr-k" }, `… ${more} more`),
+          h13(
             "button",
             {
               type: "button",
@@ -6005,7 +6230,7 @@ function renderRule(ctx, detail, hooks) {
     matchesEl.replaceChildren(...out);
   }
   function drawGroupChips() {
-    const chip = (label, on) => h12(
+    const chip = (label, on) => h13(
       "button",
       {
         type: "button",
@@ -6050,13 +6275,13 @@ function renderRule(ctx, detail, hooks) {
     hooks.onChanged?.();
   }
   function untick(key) {
-    const reason = h12("input", {
+    const reason = h13("input", {
       class: "kit-note",
       type: "text",
       placeholder: "reason (optional)",
       "aria-label": "reason"
     });
-    const err = h12("p", { class: "cb-sheet-err", hidden: true });
+    const err = h13("p", { class: "cb-sheet-err", hidden: true });
     let sending = false;
     const go2 = async () => {
       if (sending) return;
@@ -6083,18 +6308,18 @@ function renderRule(ctx, detail, hooks) {
     });
     const sh = sheet4({
       title: `exclude ${keyWithoutKind(key)}`,
-      body: h12(
+      body: h13(
         "div",
         { class: "cb-sheet-body" },
-        h12(
+        h13(
           "p",
           { class: "cb-sheet-preview" },
           "This rule skips it from now on. It stays listed here, unticked."
         ),
-        h12(
+        h13(
           "div",
           { class: "cb-sheet-row" },
-          h12("label", { class: "cb-sheet-label" }, "reason"),
+          h13("label", { class: "cb-sheet-label" }, "reason"),
           reason
         ),
         err
@@ -6130,27 +6355,27 @@ function renderRule(ctx, detail, hooks) {
       }
     }
   ];
-  const actionsEl = h12("div", { class: "cb-rule-actions" }, buttons4(bs), note);
+  const actionsEl = h13("div", { class: "cb-rule-actions" }, buttons5(bs), note);
   doc.replaceChildren(
-    h12("p", { class: "kit-kick" }, `rule · ${off ? "off" : "on"}`),
-    h12("h1", { class: "kit-h1" }, rule.name || id),
+    h13("p", { class: "kit-kick" }, `rule · ${off ? "off" : "on"}`),
+    h13("h1", { class: "kit-h1" }, rule.name || id),
     factsEl,
-    h12(
+    h13(
       "p",
       null,
       off ? "Off: it recommends nothing until you turn it on." : "On: undecided items that match get this recommendation, now and after every sync. Nothing is decided until you accept it."
     ),
     invalidEl,
-    h12("h3", { class: "kit-label" }, "when an undecided item matches all of"),
+    h13("h3", { class: "kit-label" }, "when an undecided item matches all of"),
     conditionEditor(
       ctx,
       { match: rule.match, status: rule.status, editable: false },
       () => {
       }
     ),
-    h12("h3", { class: "kit-label" }, "recommend"),
+    h13("h3", { class: "kit-label" }, "recommend"),
     proposeEl,
-    h12("div", { class: "cb-matches-head" }, heading, groupChips),
+    h13("div", { class: "cb-matches-head" }, heading, groupChips),
     matchesEl,
     actionsEl
   );
@@ -6187,7 +6412,7 @@ function isLeftOpen(it) {
   return it.status === "left-open";
 }
 function makeDecide(ctx) {
-  const readEl = h13("div", { class: "kit-read" });
+  const readEl = h14("div", { class: "kit-read" });
   let offset = 0;
   let totalItems = 0;
   let loadedItems = [];
@@ -6212,7 +6437,7 @@ function makeDecide(ctx) {
   let lastUndo = [];
   let vocab2 = null;
   let syncingOpen = false;
-  const discardAllBtn = h13("button", {
+  const discardAllBtn = h14("button", {
     class: "kit-btn cb-discard-all",
     type: "button",
     hidden: true,
@@ -6221,13 +6446,13 @@ function makeDecide(ctx) {
     }
   });
   function renderReadEmpty() {
-    const prompt = h13(
+    const prompt = h14(
       "p",
       { class: "cb-read-empty-prompt" },
       "Select an item to see it here."
     );
     if (!vocab2)
-      return h13(
+      return h14(
         "div",
         { class: "cb-read-empty", "data-testid": "decide-summary" },
         prompt
@@ -6244,14 +6469,14 @@ function makeDecide(ctx) {
         "{n}",
         String(viewRecs)
       );
-    return h13(
+    return h14(
       "div",
       { class: "cb-read-empty", "data-testid": "decide-summary" },
-      h13("p", { class: "cb-read-empty-count" }, head ?? ""),
-      h13(
+      h14("p", { class: "cb-read-empty-count" }, head ?? ""),
+      h14(
         "ul",
         { class: "cb-summary-lines" },
-        ...rest.map((l) => h13("li", null, l))
+        ...rest.map((l) => h14("li", null, l))
       ),
       discardAllBtn,
       prompt
@@ -6419,7 +6644,7 @@ function makeDecide(ctx) {
     headActs: (id) => groupActs(id)
   });
   const handle = pane.handle;
-  const groupSwitch = h13(
+  const groupSwitch = h14(
     "button",
     {
       type: "button",
@@ -6481,7 +6706,7 @@ function makeDecide(ctx) {
   let draftHash = "";
   let draftTimer = null;
   let before = null;
-  const previewLine = h13("span", { class: "cb-preview-line", hidden: true });
+  const previewLine = h14("span", { class: "cb-preview-line", hidden: true });
   const rowsScroller = () => handle.el.querySelector(".kit-rows");
   function paintPreviewLine(text) {
     previewLine.hidden = text === null;
@@ -6851,7 +7076,7 @@ function makeDecide(ctx) {
       const g = navOrder().find((r) => r.key === k)?.group ?? "";
       return navGroups().find((x) => x.id === g)?.label ?? "";
     };
-    const button = (which, glyph, tip, target2, name, later) => h13(
+    const button = (which, glyph, tip, target2, name, later) => h14(
       "button",
       {
         type: "button",
@@ -6871,7 +7096,7 @@ function makeDecide(ctx) {
       glyph
     );
     const pos = words.position.replaceAll("{pos}", String(n.pos)).replaceAll("{total}", String(n.total)).replaceAll("{group}", n.label);
-    return h13(
+    return h14(
       "nav",
       { class: "cb-nav" },
       button(
@@ -6883,7 +7108,7 @@ function makeDecide(ctx) {
         false
       ),
       button("prev", "‹", words.prev_item, n.prev, shortKey, false),
-      h13("span", { class: "cb-nav-pos" }, pos),
+      h14("span", { class: "cb-nav-pos" }, pos),
       button("next", "›", words.next_item, n.next, shortKey, more),
       button(
         "nextGroup",
@@ -7002,7 +7227,7 @@ function makeDecide(ctx) {
     return el2;
   }
   function groupButton(id, cls, label, run, off = false) {
-    return h13(
+    return h14(
       "button",
       {
         type: "button",
@@ -7046,7 +7271,7 @@ ${k}`)
       }
       if (t && g.id === "none" && !filtered()) {
         if (asked === askedKey(t.id))
-          return [h13("span", { class: "cb-group-note" }, vocab2.asked)];
+          return [h14("span", { class: "cb-group-note" }, vocab2.asked)];
         return [button("fill cb-group-ask", vocab2.suggest_rules, askRules)];
       }
       return [];
@@ -7296,7 +7521,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const w = lookIntoCard(words, t.name, key);
     const looking = lookingLine(shownDetail.item.looking);
     const n = Number(grid.dataset.cards) + 1;
-    const card6 = h13(
+    const card7 = h14(
       "button",
       {
         type: "button",
@@ -7305,11 +7530,11 @@ ${JSON.stringify(listAttached("none"))}`;
         dataset: { n: String(n) },
         disabled: !!looking || askingKey === key,
         async onclick() {
-          if (card6.disabled) return;
+          if (card7.disabled) return;
           const wrap = grid.closest(".cb-choices-wrap");
           if (wrap) showChoiceError(wrap, "");
           askingKey = key;
-          card6.disabled = true;
+          card7.disabled = true;
           const why = await ctx.askSession(
             w.message,
             { keys: [key] },
@@ -7317,16 +7542,16 @@ ${JSON.stringify(listAttached("none"))}`;
           );
           askingKey = "";
           if (why) {
-            card6.disabled = false;
+            card7.disabled = false;
             if (wrap) showChoiceError(wrap, why);
           } else void refreshLooking(key);
         }
       },
-      h13("span", { class: "cb-choice-mark" }),
-      h13("span", { class: "cb-choice-label" }, w.label)
+      h14("span", { class: "cb-choice-mark" }),
+      h14("span", { class: "cb-choice-label" }, w.label)
     );
-    if (old) old.replaceWith(card6);
-    else grid.append(card6);
+    if (old) old.replaceWith(card7);
+    else grid.append(card7);
   }
   ctx.onDockTarget(() => renderAsk());
   let lookingSeq = 0;
@@ -7388,7 +7613,7 @@ ${JSON.stringify(listAttached("none"))}`;
       p.disposition,
       ruleNameOf(p.source)
     ) : "the recommendation changed";
-    const show2 = h13(
+    const show2 = h14(
       "button",
       {
         type: "button",
@@ -7397,10 +7622,10 @@ ${JSON.stringify(listAttached("none"))}`;
       },
       "show"
     );
-    const line = h13(
+    const line = h14(
       "p",
       { class: "cb-rec-fresh" },
-      h13("span", { class: "cb-rec-fresh-says" }, says),
+      h14("span", { class: "cb-rec-fresh-says" }, says),
       " · ",
       show2
     );
@@ -7425,17 +7650,17 @@ ${JSON.stringify(listAttached("none"))}`;
       return;
     }
     readEl.firstElementChild?.append(
-      h13("p", { class: "cb-choice-err" }, message5)
+      h14("p", { class: "cb-choice-err" }, message5)
     );
   }
   function showDone() {
     currentOpenKey = null;
     shownDetail = null;
     readEl.replaceChildren(
-      h13(
+      h14(
         "div",
         { class: "cb-read-empty" },
-        h13(
+        h14(
           "p",
           { class: "cb-read-done" },
           filtered() ? `Nothing left in ${viewLabel()}.` : "Nothing left to decide."
@@ -7456,7 +7681,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const expect = made?.[key];
     lastUndo = expect ? [{ key, prev: previous?.[key] ?? null, expect }] : [];
   }
-  const strip = h13("div", {
+  const strip = h14("div", {
     class: "cb-strip",
     role: "status",
     hidden: true
@@ -7471,7 +7696,7 @@ ${JSON.stringify(listAttached("none"))}`;
     if (!vocab2) return;
     strip.replaceChildren(
       ...waitingStrip(vocab2.waiting, text).map(
-        (part) => typeof part === "string" ? part : "link" in part ? h13("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h13(
+        (part) => typeof part === "string" ? part : "link" in part ? h14("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h14(
           "button",
           {
             type: "button",
@@ -7657,11 +7882,11 @@ ${JSON.stringify(listAttached("none"))}`;
     group: "page",
     run() {
       if (!currentOpenKey) return false;
-      const card6 = readEl.querySelectorAll(
+      const card7 = readEl.querySelectorAll(
         ".cb-choices .cb-choice"
       )[n - 1];
-      if (!card6) return false;
-      card6.click();
+      if (!card7) return false;
+      card7.click();
     }
   }));
   const jumpKeys = groupKeys((d) => {
@@ -7832,7 +8057,7 @@ function latestInOrder(send) {
 }
 
 // dock.ts
-import { h as h16, card as card5 } from "/_kit/kit.js";
+import { h as h17, card as card6 } from "/_kit/kit.js";
 
 // time-utils.ts
 function ageMs(ts) {
@@ -7844,9 +8069,9 @@ function fmtAge(ts) {
   if (s < 60) return "now";
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h17 = Math.floor(m / 60);
-  if (h17 < 24) return `${h17}h`;
-  const d = Math.floor(h17 / 24);
+  const h18 = Math.floor(m / 60);
+  if (h18 < 24) return `${h18}h`;
+  const d = Math.floor(h18 / 24);
   if (d < 30) return `${d}d`;
   const mo = Math.floor(d / 30);
   if (mo < 12) return `${mo}mo`;
@@ -7872,7 +8097,7 @@ function dockOpen(hasMessages, focused, manual) {
 }
 
 // composer.ts
-import { h as h14, ApiError as ApiError5 } from "/_kit/kit.js";
+import { h as h15, ApiError as ApiError5 } from "/_kit/kit.js";
 
 // attached.ts
 var KIND_PLURAL = { branch: "branches" };
@@ -7999,7 +8224,7 @@ function makeComposer(ctx, dock) {
   let override = null;
   let sending = false;
   const effective = () => override ?? context;
-  const value = h14("span", {
+  const value = h15("span", {
     class: "cb-comp-attached-value",
     contenteditable: "true",
     role: "textbox",
@@ -8007,10 +8232,10 @@ function makeComposer(ctx, dock) {
     spellcheck: false,
     "data-testid": "composer-attached"
   });
-  const line = h14(
+  const line = h15(
     "div",
     { class: "cb-comp-attached" },
-    h14("span", { class: "cb-comp-attached-prefix" }, "attached: "),
+    h15("span", { class: "cb-comp-attached-prefix" }, "attached: "),
     value
   );
   let editing = false;
@@ -8056,7 +8281,7 @@ function makeComposer(ctx, dock) {
       value.blur();
     }
   });
-  const input = h14("textarea", {
+  const input = h15("textarea", {
     class: "cb-comp-input",
     rows: 1,
     placeholder: "Message the agent…",
@@ -8074,14 +8299,14 @@ function makeComposer(ctx, dock) {
     e.preventDefault();
     void send(false);
   });
-  const note = h14("span", { class: "cb-comp-note", role: "status" });
-  const footer = h14(
+  const note = h15("span", { class: "cb-comp-note", role: "status" });
+  const footer = h15(
     "div",
     { class: "cb-comp-foot" },
-    h14("span", {}, "↵ send · ⌘↵ add to batch"),
+    h15("span", {}, "↵ send · ⌘↵ add to batch"),
     note
   );
-  const el2 = h14(
+  const el2 = h15(
     "div",
     { class: "cb-comp", "data-testid": "composer" },
     line,
@@ -8199,26 +8424,26 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h15, card as card4, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
+import { h as h16, card as card5, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
   let drafts = [];
   let loadSeq = 0;
-  const label = h15("span", { class: "kit-card-head cb-batch-label" });
-  const sendBtn = h15("button", {
+  const label = h16("span", { class: "kit-card-head cb-batch-label" });
+  const sendBtn = h16("button", {
     class: "kit-btn fill cb-batch-send",
     "data-testid": "batch-send",
     onclick() {
       void sendBatch();
     }
   });
-  const list2 = h15("div", { class: "cb-batch-drafts" });
-  const el2 = card4({
-    body: h15(
+  const list2 = h16("div", { class: "cb-batch-drafts" });
+  const el2 = card5({
+    body: h16(
       "div",
       {},
-      h15("div", { class: "cb-batch-head" }, label, sendBtn),
+      h16("div", { class: "cb-batch-head" }, label, sendBtn),
       list2
     )
   });
@@ -8239,7 +8464,7 @@ function makeBatchTray(ctx, dock) {
     list2.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
   }
   function actionBtn(text, action, aria, run, disabled = false) {
-    return h15(
+    return h16(
       "button",
       {
         class: "cb-batch-act",
@@ -8252,12 +8477,12 @@ function makeBatchTray(ctx, dock) {
     );
   }
   function draftRow(d, i) {
-    const text = h15("span", { class: "cb-batch-text" }, d.body);
-    const row = h15(
+    const text = h16("span", { class: "cb-batch-text" }, d.body);
+    const row = h16(
       "div",
       { class: "cb-batch-draft", "data-draft-id": String(d.id) },
       text,
-      h15(
+      h16(
         "span",
         { class: "cb-batch-acts" },
         actionBtn(
@@ -8416,17 +8641,17 @@ function countText(n, total) {
 function makeProgressLine() {
   let prog = null;
   let at2 = 0;
-  const text = h15("span", { class: "cb-prog-text" });
-  const age = h15("span", { class: "cb-prog-age" });
-  const fill = h15("span", { class: "cb-prog-fill" });
-  const bar2 = h15("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
-  const el2 = h15(
+  const text = h16("span", { class: "cb-prog-text" });
+  const age = h16("span", { class: "cb-prog-age" });
+  const fill = h16("span", { class: "cb-prog-fill" });
+  const bar2 = h16("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
+  const el2 = h16(
     "div",
     { class: "cb-prog", "data-testid": "progress-line" },
-    h15(
+    h16(
       "div",
       { class: "cb-prog-row" },
-      h15("span", { class: "cb-prog-dot" }),
+      h16("span", { class: "cb-prog-dot" }),
       text,
       age
     ),
@@ -8465,11 +8690,11 @@ function makeProgressLine() {
   };
 }
 function makeWaitingStrip() {
-  const count2 = h15("span", {});
-  const el2 = h15(
+  const count2 = h16("span", {});
+  const el2 = h16(
     "div",
     { class: "cb-wait", "data-testid": "waiting-strip" },
-    h15("span", { class: "cb-wait-word" }, "waiting"),
+    h16("span", { class: "cb-wait-word" }, "waiting"),
     count2
   );
   el2.hidden = true;
@@ -8491,15 +8716,15 @@ function clock(ts) {
 }
 function workedFold(msg) {
   const lines = msg.worked?.lines ?? [];
-  const history2 = h15(
+  const history2 = h16(
     "ol",
     { class: "cb-worked-lines" },
     ...lines.map(
-      (l) => h15(
+      (l) => h16(
         "li",
         { class: "cb-worked-line" },
-        h15("span", { class: "cb-worked-at" }, clock(l.at)),
-        h15("span", {}, l.text + countText(l.n, l.total))
+        h16("span", { class: "cb-worked-at" }, clock(l.at)),
+        h16("span", {}, l.text + countText(l.n, l.total))
       )
     )
   );
@@ -8558,19 +8783,19 @@ function stateLabel(msg) {
   return base;
 }
 function sessionItem(s, extra = "") {
-  const el2 = h16(
+  const el2 = h17(
     "button",
     { class: "cb-dock-pick-item", "data-session": s.id },
-    h16("span", { class: "cb-dock-dot" }),
-    h16("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
+    h17("span", { class: "cb-dock-dot" }),
+    h17("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
   );
   const meta = [sessionMeta(s), extra].filter(Boolean).join(" · ");
-  if (meta) el2.append(h16("span", { class: "cb-dock-pick-meta" }, meta));
+  if (meta) el2.append(h17("span", { class: "cb-dock-pick-meta" }, meta));
   return el2;
 }
 function renderAgentBody(msg) {
-  const wrap = h16("div", { class: "cb-dock-body" });
-  const bodyP = h16("p", { class: "cb-dock-bodytext" });
+  const wrap = h17("div", { class: "cb-dock-body" });
+  const bodyP = h17("p", { class: "cb-dock-bodytext" });
   bodyP.textContent = msg.body;
   wrap.append(bodyP);
   const { attached } = msg;
@@ -8579,7 +8804,7 @@ function renderAgentBody(msg) {
     if (attached.keys && attached.keys.length > 0) {
       const shown = attached.keys.slice(0, 5);
       for (const k of shown) {
-        const a = h16("a", {
+        const a = h17("a", {
           class: "cb-dock-link",
           href: "#",
           onclick(e) {
@@ -8592,7 +8817,7 @@ function renderAgentBody(msg) {
       }
       if (attached.keys.length > 5) {
         links.push(
-          h16(
+          h17(
             "span",
             { class: "cb-dock-link-more" },
             `+${attached.keys.length - 5} more`
@@ -8602,7 +8827,7 @@ function renderAgentBody(msg) {
     }
     if (attached.open) {
       const k = attached.open;
-      const a = h16("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8615,7 +8840,7 @@ function renderAgentBody(msg) {
     }
     if (attached.rule) {
       const id = attached.rule;
-      const a = h16("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8628,7 +8853,7 @@ function renderAgentBody(msg) {
     }
     if (attached.job) {
       const id = attached.job;
-      const a = h16("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8640,7 +8865,7 @@ function renderAgentBody(msg) {
       links.push(a);
     }
     if (links.length > 0) {
-      const linkRow = h16("div", { class: "cb-dock-links" }, ...links);
+      const linkRow = h17("div", { class: "cb-dock-links" }, ...links);
       wrap.append(linkRow);
     }
   }
@@ -8651,24 +8876,24 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
   const isAgent = msg.author !== "court";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
   const age = fmtAge(msg.created_at);
-  const headEl = h16(
+  const headEl = h17(
     "div",
     { class: "cb-dock-ch" },
-    h16(
+    h17(
       "span",
       {
         class: isAgent ? "cb-dock-ch-name cb-dock-ch-agent" : "cb-dock-ch-name"
       },
       authorLabel
     ),
-    h16("span", { class: "cb-dock-ch-age" }, age)
+    h17("span", { class: "cb-dock-ch-age" }, age)
   );
   let bodyContent;
   if (isAgent) {
     bodyContent = renderAgentBody(msg);
   } else {
-    const bodyEl = h16("div", { class: "cb-dock-body" });
-    const bodyP = h16("p", { class: "cb-dock-bodytext" });
+    const bodyEl = h17("div", { class: "cb-dock-body" });
+    const bodyP = h17("p", { class: "cb-dock-bodytext" });
     bodyP.textContent = msg.body;
     bodyEl.append(bodyP);
     bodyContent = bodyEl;
@@ -8687,7 +8912,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       "interrupted"
     ];
     if (validStates.includes(msg.state)) {
-      stateEl = h16("div", {
+      stateEl = h17("div", {
         class: "cb-dock-state",
         "data-state": msg.state,
         style: `color:${stateColor(msg.state)}`
@@ -8695,7 +8920,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       stateEl.textContent = stateLabel(msg);
     }
   }
-  const fullBody = h16(
+  const fullBody = h17(
     "div",
     { class: "cb-dock-card-body" },
     headEl,
@@ -8709,12 +8934,12 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
       stateEl.textContent = "";
       stateEl.setAttribute("data-state", "stuck");
-      const stuckBold = h16("strong", { style: "font-weight:600" });
+      const stuckBold = h17("strong", { style: "font-weight:600" });
       stuckBold.textContent = "stuck";
       stateEl.append(`delivered ${ageStr} · `, stuckBold);
     }
     const d = delivery;
-    const releaseBtn = h16("button", {
+    const releaseBtn = h17("button", {
       class: "kit-btn",
       "data-action": "release",
       onclick() {
@@ -8725,7 +8950,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     const otherSessions = pickable(sessions).filter(
       (s) => s.id !== d.session_id
     );
-    const moveBtn = h16("button", {
+    const moveBtn = h17("button", {
       class: "kit-btn",
       "data-action": "move",
       onclick() {
@@ -8733,9 +8958,9 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       }
     });
     moveBtn.textContent = "move to another session";
-    fullBody.append(h16("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
+    fullBody.append(h17("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
   }
-  const el2 = card5({
+  const el2 = card6({
     edge: isAgent ? "agent" : "signal",
     body: fullBody
   });
@@ -8768,16 +8993,16 @@ function openMoveSheet(ctx, delivery, targets) {
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h16(
+    const noOther = h17(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h16("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet5 = {
-    el: h16("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8812,16 +9037,16 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h16(
+    const noOther = h17(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h16("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet5 = {
-    el: h16("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8848,10 +9073,10 @@ function buildSessionPicker(sessions, currentId, onSelect) {
   });
   if (items.length === 0) {
     items.push(
-      h16("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
+      h17("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
     );
   }
-  const picker = h16(
+  const picker = h17(
     "div",
     { class: "cb-dock-picker", role: "listbox" },
     ...items
@@ -8881,16 +9106,16 @@ function makeDock(ctx) {
   let currentDelivery = null;
   let urlRead = false;
   let auto = false;
-  const sessionDot = h16("span", { class: "cb-dock-dot" });
-  const sessionLabelEl = h16("span", {
+  const sessionDot = h17("span", { class: "cb-dock-dot" });
+  const sessionLabelEl = h17("span", {
     class: "cb-dock-session-label",
     "data-testid": "dock-session-name"
   });
-  const sessionMetaEl = h16("div", {
+  const sessionMetaEl = h17("div", {
     class: "cb-dock-meta-row",
     "data-testid": "dock-session-meta"
   });
-  const sessionPickerBtn = h16("button", {
+  const sessionPickerBtn = h17("button", {
     class: "cb-dock-agent-btn",
     "aria-label": "pick agent session",
     onclick(e) {
@@ -8906,7 +9131,7 @@ function makeDock(ctx) {
     }
   });
   sessionPickerBtn.textContent = "AGENT ▾";
-  const collapseBtn = h16(
+  const collapseBtn = h17(
     "button",
     {
       type: "button",
@@ -8919,7 +9144,7 @@ function makeDock(ctx) {
     },
     "›"
   );
-  const opener = h16(
+  const opener = h17(
     "button",
     {
       type: "button",
@@ -8930,31 +9155,31 @@ function makeDock(ctx) {
         setManual(true);
       }
     },
-    h16("span", { class: "cb-dock-opener-dot" }),
-    h16("span", { class: "cb-dock-opener-label" }, "agent")
+    h17("span", { class: "cb-dock-opener-dot" }),
+    h17("span", { class: "cb-dock-opener-label" }, "agent")
   );
-  const leftStatusRow = h16("div", { class: "cb-dock-left-row" });
+  const leftStatusRow = h17("div", { class: "cb-dock-left-row" });
   leftStatusRow.hidden = true;
-  const sessionHeader = h16(
+  const sessionHeader = h17(
     "div",
     { class: "cb-dock-header" },
-    h16(
+    h17(
       "div",
       { class: "cb-dock-header-row" },
-      h16("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
+      h17("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
       sessionPickerBtn,
       collapseBtn
     ),
     sessionMetaEl,
     leftStatusRow
   );
-  const chooser = h16("div", {
+  const chooser = h17("div", {
     class: "cb-dock-chooser",
     "data-testid": "dock-chooser"
   });
   chooser.hidden = true;
-  const threadChips = h16("div", { class: "cb-dock-threads" });
-  const messageArea = h16("div", {
+  const threadChips = h17("div", { class: "cb-dock-threads" });
+  const messageArea = h17("div", {
     class: "cb-dock-messages",
     "data-testid": "dock-messages"
   });
@@ -8988,7 +9213,7 @@ function makeDock(ctx) {
       void batchTray.load(t.id);
     }
   });
-  const rail = h16("div", { class: "cb-dock-inner" });
+  const rail = h17("div", { class: "cb-dock-inner" });
   rail.append(
     opener,
     sessionHeader,
@@ -9043,7 +9268,7 @@ function makeDock(ctx) {
     sessionHeader.title = sess.id;
     if (stale) {
       leftStatusRow.textContent = "";
-      const moveLink = h16("button", {
+      const moveLink = h17("button", {
         class: "cb-dock-move-link",
         "data-testid": "dock-move-link",
         onclick(e) {
@@ -9053,12 +9278,12 @@ function makeDock(ctx) {
         }
       });
       moveLink.textContent = "move to…";
-      const parts = [h16("span", {}, "left")];
+      const parts = [h17("span", {}, "left")];
       if (sess.queued > 0) {
-        parts.push(h16("span", { class: "cb-dock-sep" }, "·"));
-        parts.push(h16("span", {}, `${sess.queued} queued`));
+        parts.push(h17("span", { class: "cb-dock-sep" }, "·"));
+        parts.push(h17("span", {}, `${sess.queued} queued`));
       }
-      parts.push(h16("span", { class: "cb-dock-sep" }, "·"));
+      parts.push(h17("span", { class: "cb-dock-sep" }, "·"));
       parts.push(moveLink);
       leftStatusRow.append(...parts);
       leftStatusRow.hidden = false;
@@ -9082,7 +9307,7 @@ function makeDock(ctx) {
     chooser.hidden = false;
     chooser.setAttribute("data-state", state);
     const offered = pickable(sessions).filter((s) => s.id !== currentSessionId);
-    const lead = h16("p", {
+    const lead = h17("p", {
       class: "cb-dock-chooser-lead",
       "data-testid": "dock-chooser-lead"
     });
@@ -9104,7 +9329,7 @@ function makeDock(ctx) {
   function renderThreadChips() {
     threadChips.innerHTML = "";
     for (const t of threads) {
-      const chip = h16("button", {
+      const chip = h17("button", {
         class: "kit-chip" + (t.id === currentThreadId ? " on" : ""),
         "data-thread": String(t.id),
         onclick() {
@@ -9114,7 +9339,7 @@ function makeDock(ctx) {
       chip.textContent = t.name;
       threadChips.append(chip);
     }
-    const addChip = h16("button", {
+    const addChip = h17("button", {
       class: "kit-chip cb-dock-add",
       "data-testid": "dock-add-thread",
       onclick() {
@@ -9133,7 +9358,7 @@ function makeDock(ctx) {
     }
     const cards = [];
     if (messages.length === 0) {
-      cards.push(h16("p", { class: "cb-dock-empty" }, "no messages"));
+      cards.push(h17("p", { class: "cb-dock-empty" }, "no messages"));
     }
     const name = agentName();
     for (const msg of messages) {

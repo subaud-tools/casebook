@@ -37,6 +37,10 @@ import {
   waitBlocks,
   heldText,
   otherHalf,
+  ranLine,
+  standsStep,
+  aroundSteps,
+  actionVerb,
 } from './apply-text.ts';
 import type { ItemView, Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
@@ -691,5 +695,66 @@ describe('waits and held wording', () => {
     const steps = [plan(a.key, 'branch-delete-local')];
     assert.equal(otherHalf(a.key, steps), ' \u00b7 its other half runs above');
     assert.equal(otherHalf(b.key, steps), '');
+  });
+});
+
+describe('run rows', () => {
+  const mk = (over: Partial<JobStep>): JobStep =>
+    step(over.action ?? 'pr-close', over.lane ?? 'casebook', over.state, over);
+  test('ranLine names what failed and the job', () =>
+    assert.deepEqual(
+      ranLine({
+        job: 33,
+        group: 'needs-you',
+        steps: [mk({ action: 'branch-delete-remote', state: 'failed' })],
+      }),
+      { text: 'GitHub delete failed \u00b7 job #33', tone: 'signal' },
+    ));
+  test('ranLine on a verified step', () =>
+    assert.equal(
+      ranLine({
+        job: 28,
+        group: 'done',
+        steps: [mk({ action: 'branch-delete-local', state: 'verified' })],
+      }).text,
+      'deleted \u00b7 verified \u00b7 job #28',
+    ));
+  test('actionVerb names where a branch is deleted', () => {
+    assert.equal(actionVerb('branch-delete-remote'), 'GitHub delete');
+    assert.equal(actionVerb('branch-delete-local'), 'local delete');
+    assert.equal(actionVerb('worktree-remove'), 'worktree remove');
+    assert.equal(actionVerb('pr-merge'), 'merge');
+  });
+  test('standsStep: what needs you, else what has not finished, else the last', () => {
+    const v = mk({ state: 'verified' });
+    const f = mk({ state: 'failed' });
+    const p = mk({ state: 'pending' });
+    assert.equal(standsStep({ job: 1, group: '', steps: [v, p, f] }), f);
+    assert.equal(standsStep({ job: 1, group: '', steps: [v, p] }), p);
+    assert.equal(
+      standsStep({ job: 1, group: '', steps: [v, mk({ state: 'skipped' })] })
+        .state,
+      'skipped',
+    );
+  });
+  test('aroundSteps keeps the steps around the item in a large job', () => {
+    const r = aroundSteps(
+      Array.from({ length: 215 }, (_, i) => mk({ key: `k${i}` })),
+      'k100',
+      3,
+    );
+    assert.deepEqual(
+      r.steps.map((s) => s.key),
+      ['k97', 'k98', 'k99', 'k100', 'k101', 'k102', 'k103'],
+    );
+    assert.equal(r.hidden, 208);
+  });
+  test('aroundSteps at the start of a job, and a small job whole', () => {
+    const steps = Array.from({ length: 5 }, (_, i) => mk({ key: `k${i}` }));
+    assert.deepEqual(
+      aroundSteps(steps, 'k0', 3).steps.map((s) => s.key),
+      ['k0', 'k1', 'k2', 'k3'],
+    );
+    assert.equal(aroundSteps(steps, 'k0', 3).hidden, 1);
   });
 });

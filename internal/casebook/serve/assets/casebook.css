@@ -2686,3 +2686,21 @@ button.cb-cond-menu-row[aria-disabled=true] {
   font: 12px/32px var(--kit-mono);
   color: var(--kit-muted);
 }
+.cb-run-job.kit-chip {
+  flex: none;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-step-job {
+  font: 12px var(--kit-mono);
+}
+.cb-step.cb-here {
+  background: var(--kit-signal-soft);
+  box-shadow: inset 3px 0 0 var(--kit-signal);
+}
+.cb-step-here {
+  font: 12px var(--kit-mono);
+  color: var(--kit-signal);
+}

@@ -51,7 +51,6 @@ import {
   buttons,
   card,
   sheet,
-  type Button,
   type KeyBinding,
   type Primary,
   type Selection,
@@ -63,6 +62,7 @@ import type {
   FiltersView,
   GroupView,
   HeldBack,
+  ItemDetailView,
   ItemView,
   ItemsView,
   Job,
@@ -83,18 +83,13 @@ import type {
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
 import { keyWithoutKind, pluralize } from './decide-math.ts';
-import { DANGER_DISPS } from './decide.ts';
 import {
   actionTitle,
-  actionVerb,
   groupSteps,
-  jobLanes,
   jobTitle,
   laneLabel,
   makeSeq,
-  needsLine,
   needsSession,
-  nextSteps,
   observations,
   openCardsByJob,
   progress,
@@ -102,6 +97,7 @@ import {
   reviewKick,
   reviewLine,
   untickHidden,
+  ranLine,
   waitBlocks,
   heldText,
   otherHalf,
@@ -109,14 +105,12 @@ import {
   stepTags,
   tagText,
   type Tag,
-  stepMark,
   applyLabel,
   runOrder,
   runsThrough,
   startedKeys,
   heldOutside,
   planTitle,
-  isFinished,
   isRunning,
   type StepGroup,
 } from './apply-text.ts';
@@ -136,25 +130,23 @@ import {
   type PaneQuery,
 } from './list-pane-text.ts';
 import { midHead } from './mid.ts';
+import { renderJob, renderRan, type JobHooks } from './ran.ts';
 
 // Decided items are fetched 200 at a time (serve's cap, like decide).
 const PAGE = 200;
 // The steps table shows this many rows at a time.
 const STEPS_PAGE = 200;
 
-// run's parts (a waiting group's id is serve's, "<disposition>|<kind>").
+// run's groups that start open (serve's ids; a waiting group's id is
+// serve's too, "<disposition>|<kind>").
+const NEEDS_YOU = 'needs-you';
 const RUNNING = 'running';
-const DONE = 'done';
 
 type Mode = 'review' | 'run';
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
-// A destructive verb reads in danger text (delete, close, archive).
-const dangerVerb = (verb: string) =>
-  DANGER_DISPS.has(verb) || verb === 'remove';
 
 // ---- keeping focus across a redraw ------------------------------------------
 //
@@ -234,7 +226,8 @@ export function makeApply(ctx: Ctx): Section {
   // Running starts open; Done and every waiting group start collapsed
   // (Court, 2026-10-17: what a group is about stands out).
   const flipped = new Set<string>();
-  const startsOpen = (id: string): boolean => id === RUNNING;
+  const startsOpen = (id: string): boolean =>
+    id === RUNNING || id === NEEDS_YOU;
   const collapsed = {
     has: (id: string): boolean => startsOpen(id) === flipped.has(id),
     delete(id: string): boolean {
@@ -372,8 +365,21 @@ export function makeApply(ctx: Ctx): Section {
   const tickedKeys = (): string[] =>
     groups.flatMap((g) => tickedIn(g.id).sort());
 
-  // The jobs run's pane shows now, in its order.
-  let shownRun: Job[] = [];
+  // run's items (GET /api/items view=run: each item a job ran on, grouped by
+  // what happened), its groups, and each item's group (a tick on a page not
+  // loaded is counted from here).
+  let runItems: ItemView[] = [];
+  let runTotal = 0;
+  let runGroups: GroupView[] = [];
+  const runGroupOfKey = new Map<string, string>();
+  const runSeq = makeSeq();
+  // The item run shows (#/run?item=<key>): what ran on it, and its job.
+  let ranKey = '';
+  let ranDetail: ItemDetailView | null = null;
+  let ranJob: JobView | null = null;
+  const ranSeq = makeSeq();
+  const runItemQuery = (): string =>
+    ranKey ? `item=${encodeURIComponent(ranKey)}` : '';
 
   const reviewPane: Pane<ItemView> = makePane<ItemView>(
     ctx,
@@ -422,39 +428,46 @@ export function makeApply(ctx: Ctx): Section {
     },
   );
 
-  const runPane: Pane<Job> = makePane<Job>(ctx, 'run', runSel, {
-    row(j: Job) {
-      const p = progress(j);
-      const needs = needsLine(cardsFor(j.id), p.paused);
+  const runPane: Pane<ItemView> = makePane<ItemView>(ctx, 'run', runSel, {
+    row(it: ItemView) {
+      const st = it.ran
+        ? ranLine(it.ran)
+        : { text: '', tone: 'muted' as const };
       return {
-        id: `job:${j.id}`,
-        key: `job:${j.id}`,
-        title: titleOf(j),
-        stands: [
-          needs,
-          p.started || isFinished(j) ? `${p.finished}/${p.total}` : 'queued',
-        ]
-          .filter(Boolean)
-          .join(' \u00b7 '),
-        tone: needs ? 'signal' : 'muted',
-        selectable: false,
+        id: it.key,
+        key: it.key,
+        title: it.title || undefined,
+        stands: st.text,
+        tone: st.tone,
       };
     },
-    groupOf: (j: Job) => (isFinished(j) ? DONE : RUNNING),
-    onOpen(j: Job) {
-      if (!painting) ctx.route.go('run', String(j.id));
+    groupOf: (it: ItemView) => it.group,
+    onOpen(it: ItemView) {
+      if (painting) return;
+      ctx.route.go(
+        'run',
+        '',
+        withPane(`item=${encodeURIComponent(it.key)}`, runQ),
+      );
     },
     onQuery(q: PaneQuery) {
       runQ = q;
+      setHashQuery(withPane(runItemQuery(), runQ));
+      void loadRun(0, true);
     },
     onToggle(id: string) {
       if (collapsed.has(id)) collapsed.delete(id);
       else collapsed.add(id);
       paintList();
     },
-    onTickGroup() {},
-    tickedIn: () => [],
-    onMore() {},
+    onTickGroup(id: string) {
+      void tickRunGroup(id);
+    },
+    tickedIn: (id: string) =>
+      runSel.ids().filter((k) => runGroupOfKey.get(k) === id),
+    onMore() {
+      void loadRun(runItems.length);
+    },
     onFilterOpen(row: FilterRow) {
       ctx.route.go('decide', '', `filters=${row.filter.id}`);
     },
@@ -518,30 +531,23 @@ export function makeApply(ctx: Ctx): Section {
         new Set(gs.filter((g) => !collapsed.has(g.id)).map((g) => g.id)),
       );
       reviewPane.setMore(Math.min(PAGE, itemsTotal - items.length));
-      const o = order();
-      const rgs: PaneGroup[] = [];
-      if (o.running.length)
-        rgs.push({
-          id: RUNNING,
-          label: 'running',
-          n: o.running.length,
-          box: false,
-        });
-      if (o.done.length)
-        rgs.push({ id: DONE, label: 'done', n: o.done.length, box: false });
-      shownRun = runPane.setRows(
-        [...o.running, ...o.done],
+      const rgs: PaneGroup[] = runGroups.map((g) => ({
+        id: g.id,
+        label: g.label,
+        n: g.total,
+        box: true,
+      }));
+      const shownRun = runPane.setRows(
+        runItems,
         rgs,
         new Set(rgs.filter((g) => !collapsed.has(g.id)).map((g) => g.id)),
       );
-      const els = runPane.el.querySelectorAll<HTMLElement>(
-        '.kit-rows > .kit-row',
-      );
-      shownRun.forEach((j, i) => {
-        if (els[i]) decorateJobRow(els[i], j);
-      });
+      runPane.setMore(Math.min(PAGE, runTotal - runItems.length));
+      paintRunning();
       const openAt =
-        mode === 'run' ? shownRun.findIndex((j) => j.id === openId) : -1;
+        mode === 'run' && ranKey
+          ? shownRun.findIndex((it) => it.key === ranKey)
+          : -1;
       if (openAt >= 0) runPane.handle.open(openAt);
     } finally {
       painting = false;
@@ -551,47 +557,34 @@ export function makeApply(ctx: Ctx): Section {
     drawOverview();
   }
 
-  // A job row: its lanes in their colours, the progress bar under the
-  // title (one segment per lane), the signal line.
-  function decorateJobRow(rowEl: HTMLElement, j: Job): void {
-    rowEl.dataset.job = String(j.id);
-    rowEl.classList.add('cb-job-row');
-    const p = progress(j);
-    const kicker = rowEl.querySelector<HTMLElement>('.kit-kicker');
-    const lanes = jobLanes(j);
-    if (kicker && lanes.length) {
-      kicker.replaceChildren(
-        ...lanes.flatMap((l, i) => [
-          i ? ' + ' : '',
-          h(
-            'span',
-            { class: `cb-lanename cb-lanename-${l}`, 'data-lane': l },
-            laneLabel(l, agentOf(j)),
-          ),
-        ]),
-      );
-    }
-    const meta = rowEl.querySelector<HTMLElement>('.kit-meta');
-    if (meta?.textContent === 'queued') meta.classList.add('cb-queued');
-    rowEl.querySelector('.kit-sub')?.classList.add('cb-needs-line');
-    const bar = h('div', {
-      class: 'cb-pb',
-      role: 'progressbar',
-      'aria-valuemin': '0',
-      'aria-valuemax': String(p.total),
-      'aria-valuenow': String(p.finished),
-    });
-    for (const l of lanes) {
-      const n = p.byLane[l] ?? 0;
-      if (!n) continue;
-      bar.append(
-        h('span', {
-          class: `cb-pb-${l}`,
-          style: `width:${(100 * n) / Math.max(1, p.total)}%`,
-        }),
-      );
-    }
-    rowEl.querySelector('.kit-title')?.after(bar);
+  // paintRunning is run's own row: one line per running job, which opens
+  // it ("job #35 · Delete 215 branches · 87 of 215").
+  function paintRunning(): void {
+    const running = order().running;
+    runPane.ownRow.replaceChildren(
+      ...(running.length
+        ? [
+            h('span', { class: 'cb-bar-label' }, 'running'),
+            ...running.map((j) => {
+              const p = progress(j);
+              const text = `job #${j.id} \u00b7 ${titleOf(j)} \u00b7 ${p.finished} of ${p.total}`;
+              return h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'kit-chip cb-run-job',
+                  'data-job': String(j.id),
+                  title: text,
+                  onclick() {
+                    ctx.route.go('run', String(j.id));
+                  },
+                },
+                text,
+              );
+            }),
+          ]
+        : []),
+    );
   }
 
   function paintObs(): void {
@@ -620,6 +613,7 @@ export function makeApply(ctx: Ctx): Section {
     items: false,
     sessions: false,
     summary: false,
+    run: false,
     jobs: new Set<number>(),
   };
   let flushing = false;
@@ -645,9 +639,15 @@ export function makeApply(ctx: Ctx): Section {
           items: dirty.items,
           sessions: dirty.sessions,
           summary: dirty.summary,
+          run: dirty.run,
           jobs: [...dirty.jobs],
         };
-        dirty.all = dirty.items = dirty.sessions = dirty.summary = false;
+        dirty.all =
+          dirty.items =
+          dirty.sessions =
+          dirty.summary =
+          dirty.run =
+            false;
         dirty.jobs.clear();
         // An event that names no job reloads the list, and the open job.
         const some = d.all && openId !== null ? [openId] : d.all ? [] : d.jobs;
@@ -657,6 +657,8 @@ export function makeApply(ctx: Ctx): Section {
           d.items ? loadItems() : null,
           d.sessions ? loadSessions() : null,
           d.summary ? loadSummary() : null,
+          d.run ? loadRun(0) : null,
+          d.run && ranKey ? loadRan(ranKey) : null,
         ]);
       } while (queued);
     } finally {
@@ -744,7 +746,7 @@ export function makeApply(ctx: Ctx): Section {
         const shown =
           itemsTotal <= items.length
             ? items.map((it) => it.key)
-            : await viewKeys();
+            : await viewKeys('to-apply', reviewQ, groupOfKey);
         if (!itemsSeq.isLatest(mine)) return;
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
@@ -845,9 +847,6 @@ export function makeApply(ctx: Ctx): Section {
   function setOpen(v: JobView): void {
     const first = open?.job.id !== v.job.id;
     open = v;
-    // A job opened by URL shows in its part: a collapsed Done opens.
-    if (isFinished(v.job) && v.job.state !== 'cancelled')
-      collapsed.delete(DONE);
     patchJob(v);
     // An edit whose card has closed has nothing left to edit.
     for (const id of [...editors.keys()]) {
@@ -885,9 +884,11 @@ export function makeApply(ctx: Ctx): Section {
         const id = openId;
         mark((d) => d.jobs.add(id));
       }
+      if (ranKey) mark((d) => (d.run = true));
     } catch (err) {
       note = message(err);
       drawOpen();
+      drawRan();
     } finally {
       busy = false;
     }
@@ -981,21 +982,28 @@ export function makeApply(ctx: Ctx): Section {
     feed();
   }
 
-  // viewKeys is every key review lists now (its filters and search), every
-  // page.
-  async function viewKeys(): Promise<string[]> {
+  // viewKeys is every key a view lists now (review's to-apply or run's,
+  // with its filters and search; group: one group of it), every page,
+  // each one's group noted in groupOf.
+  async function viewKeys(
+    view: 'to-apply' | 'run',
+    q: PaneQuery,
+    groupOf: Map<string, string>,
+    group = '',
+  ): Promise<string[]> {
     const keys: string[] = [];
     for (let total = Infinity; keys.length < total;) {
       const v = await ctx.api.get<ItemsView>('/items', {
-        view: 'to-apply',
-        ...paneParams(reviewQ),
+        view,
+        ...paneParams(q),
+        ...(group ? { group } : {}),
         limit: '500',
         offset: String(keys.length),
       });
       const got = v.items ?? [];
       total = v.total;
       if (!got.length) break;
-      for (const it of got) groupOfKey.set(it.key, it.group);
+      for (const it of got) groupOf.set(it.key, it.group);
       keys.push(...got.map((i) => i.key));
     }
     return keys;
@@ -1005,22 +1013,125 @@ export function makeApply(ctx: Ctx): Section {
   // list's filters and search apply).
   async function groupKeys(id: string): Promise<string[]> {
     const h0 = held();
-    const keys: string[] = [];
-    for (let total = Infinity; keys.length < total;) {
-      const v = await ctx.api.get<ItemsView>('/items', {
-        view: 'to-apply',
-        ...paneParams(reviewQ),
-        group: id,
-        limit: '500',
-        offset: String(keys.length),
-      });
-      const got = v.items ?? [];
-      total = v.total;
-      if (!got.length) break;
-      for (const it of got) groupOfKey.set(it.key, it.group);
-      keys.push(...got.map((i) => i.key));
-    }
+    const keys = await viewKeys('to-apply', reviewQ, groupOfKey, id);
     return keys.filter((k) => !h0.has(k));
+  }
+
+  // ---- run: its items ----
+
+  // loadRun loads run's items (serve's view=run, narrowed by its filters
+  // and search). A first page reloads as many rows as were shown; a tick
+  // the list no longer shows is taken off.
+  async function loadRun(offset = 0, narrowed = false): Promise<void> {
+    const mine = runSeq.next();
+    try {
+      const v = await ctx.api.get<ItemsView>('/items', {
+        view: 'run',
+        ...paneParams(runQ),
+        limit: String(
+          offset ? PAGE : Math.min(500, Math.max(PAGE, runItems.length)),
+        ),
+        offset: String(offset),
+      });
+      if (!runSeq.isLatest(mine)) return;
+      runPane.setFilterError(null);
+      const got = v.items ?? [];
+      runItems = offset ? [...runItems, ...got] : got;
+      runTotal = v.total;
+      runGroups = v.groups ?? [];
+      for (const it of got) runGroupOfKey.set(it.key, it.group);
+      if (offset === 0 && runSel.ids().length) {
+        const shown =
+          runTotal <= runItems.length
+            ? runItems.map((it) => it.key)
+            : await viewKeys('run', runQ, runGroupOfKey);
+        if (!runSeq.isLatest(mine)) return;
+        const gone = untickHidden(runSel.ids(), new Set(shown));
+        if (gone.length) runSel.deselect(gone);
+      }
+      paintList();
+    } catch (err) {
+      if (!runSeq.isLatest(mine)) return;
+      if (err instanceof ApiError && err.status === 400 && narrowed) {
+        runPane.setFilterError(err.message);
+        runItems = [];
+        runTotal = 0;
+        runGroups = [];
+        paintList();
+      }
+    }
+  }
+
+  // tickRunGroup ticks every item of run's group id (every page), or, all
+  // ticked, unticks them; a collapsed group expands.
+  async function tickRunGroup(id: string): Promise<void> {
+    const g = runGroups.find((x) => x.id === id);
+    if (!g) return;
+    const ticked = runSel.ids().filter((k) => runGroupOfKey.get(k) === id);
+    if (g.total > 0 && ticked.length >= g.total) {
+      runSel.deselect(ticked);
+      return;
+    }
+    let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
+    if (keys.length < g.total) {
+      try {
+        keys = await viewKeys('run', runQ, runGroupOfKey, id);
+      } catch {
+        return;
+      }
+    }
+    runSel.all(keys);
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+    }
+  }
+
+  // loadRan loads the item run shows: every step on it (those of a job
+  // that never ran left out) and its latest job that ran.
+  async function loadRan(key: string): Promise<void> {
+    const mine = ranSeq.next();
+    try {
+      const d = await ctx.api.get<ItemDetailView>('/item', { key });
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      const never = new Set(
+        jobs
+          .filter((j) => j.state === 'planned' || j.state === 'cancelled')
+          .map((j) => j.id),
+      );
+      const steps = (d.steps ?? []).filter((x) => !never.has(x.job_id));
+      const jobId =
+        runItems.find((it) => it.key === key)?.ran?.job ??
+        Math.max(0, ...steps.map((x) => x.job_id));
+      const jv = jobId
+        ? await ctx.api
+            .get<JobView>('/job', { id: String(jobId) })
+            .catch(() => null)
+        : null;
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      if (jv) patchJob(jv);
+      ranDetail = { ...d, steps };
+      ranJob = jv;
+      drawRan();
+      paintList();
+    } catch (err) {
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      ranDetail = null;
+      paint(
+        h(
+          'article',
+          { class: 'cb-apply-doc' },
+          h('p', { class: 'cb-apply-note', role: 'status' }, message(err)),
+        ),
+      );
+    }
+  }
+
+  // drawRan draws the item run shows.
+  function drawRan(): void {
+    if (!active || mode !== 'run' || !ranKey || openId !== null || !ranDetail)
+      return;
+    paint(renderRan(ctx, ranDetail, ranJob, cards, jobHooks));
   }
 
   function closeReview(): void {
@@ -1251,7 +1362,7 @@ export function makeApply(ctx: Ctx): Section {
       );
       return;
     }
-    if (openId !== null) return;
+    if (openId !== null || ranKey) return;
     const o = order();
     const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
     paint(
@@ -1273,7 +1384,7 @@ export function makeApply(ctx: Ctx): Section {
         h(
           'p',
           null,
-          "A group's button in review starts a job here. A job's row opens it: each step as it runs, and anything that needs you.",
+          "Running a plan in review starts a job: its items show here by what happened to them. An item opens what ran on it and its job; a running job's line opens the job.",
         ),
       ),
     );
@@ -1671,6 +1782,7 @@ export function makeApply(ctx: Ctx): Section {
     if (!active) return;
     if (mode === 'run' && open && openId !== null)
       ctx.setAttached({ job: String(openId) }, jobTitle(open.job));
+    else if (mode === 'run' && ranKey) ctx.setAttached({ open: ranKey });
     else ctx.setAttached({});
     ctx.setPrimary(primary());
   }
@@ -1727,6 +1839,7 @@ export function makeApply(ctx: Ctx): Section {
   void loadFilters();
   void loadJobs();
   void loadItems();
+  void loadRun();
   void loadSessions();
   void loadSummary();
   // The vocabulary words the waiting groups for a count.
@@ -1757,7 +1870,7 @@ export function makeApply(ctx: Ctx): Section {
     listKeys: () =>
       mode === 'review'
         ? { nav: reviewPane.handle, selects: true }
-        : { nav: runPane.handle, selects: false },
+        : { nav: runPane.handle, selects: true },
     keys: () => (mode === 'review' ? reviewBindings : runBindings),
     show(sub: string, query: string) {
       active = true;
@@ -1793,9 +1906,33 @@ export function makeApply(ctx: Ctx): Section {
         return;
       }
       wantGroup = '';
+      // The address names run's filters and search, and the item open
+      // (#/run?item=<key>) or the job (#/run/<id>).
+      const pq = paneQuery(query ?? '');
+      if (pq.q !== runQ.q || pq.filters.join(',') !== runQ.filters.join(',')) {
+        runQ = pq;
+        runPane.setFilters(filterRows, pq.filters);
+        runPane.setSearch(pq.q);
+        void loadRun(0, true);
+      }
+      const item = new URLSearchParams(query ?? '').get('item') ?? '';
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, '')) : NaN;
-      if (!sub || !Number.isFinite(id)) {
+      if (sub && Number.isFinite(id)) ranKey = '';
+      if ((!sub || !Number.isFinite(id)) && item) {
         closeJob();
+        if (item !== ranKey) {
+          ranKey = item;
+          ranDetail = null;
+          ranJob = null;
+          paint(h('article', { class: 'cb-apply-doc cb-ran' }));
+        }
+        paintList();
+        drawRan();
+        void loadRan(item);
+        feed();
+      } else if (!sub || !Number.isFinite(id)) {
+        closeJob();
+        ranKey = '';
         paintList();
         feed();
       } else if (id !== openId) {
@@ -1821,10 +1958,12 @@ export function makeApply(ctx: Ctx): Section {
         mark((d) => {
           if (about === null) d.all = true;
           else d.jobs.add(about);
+          d.run = true;
         });
       } else if (type === 'index' || type === 'decided') {
         mark((d) => {
           d.items = true;
+          d.run = true;
           if (type === 'index') d.summary = true;
         });
       } else if (type === 'sessions') {
@@ -1832,11 +1971,12 @@ export function makeApply(ctx: Ctx): Section {
       } else if (type === 'gap') {
         // Events this page never heard were pruned: reload all it shows.
         mark((d) => {
-          d.all = d.items = d.sessions = d.summary = true;
+          d.all = d.items = d.sessions = d.summary = d.run = true;
         });
       } else if (type === 'filters') {
         void loadFilters().then(() => {
           if (reviewQ.filters.length) mark((d) => (d.items = true));
+          if (runQ.filters.length) mark((d) => (d.run = true));
         });
       } else if (type === 'sync') {
         onSync((data ?? {}) as SyncEvent);
@@ -1844,304 +1984,4 @@ export function makeApply(ctx: Ctx): Section {
     },
     primary,
   };
-}
-
-// ---- a job --------------------------------------------------------------------
-
-export interface JobHooks {
-  agent(job: Job): string;
-  stepsShown(): number;
-  showMore(): void;
-  note(): string;
-  answer(card: NeedsYou, action: string, text: string, ok?: () => void): void;
-  undo(step: JobStep): void;
-  /** An open "edit text" field's text for a card (undefined: not editing). */
-  editing(card: number): string | undefined;
-  /** Keep (text) or drop (null) a card's open edit across redraws. */
-  edit(card: number, text: string | null): void;
-}
-
-/**
- * renderJob draws a running or finished job: its facts, the cards that need
- * Court (signal edge) or say the agent paused (amber), and the steps table.
- */
-/**
- * stepKeyLines is a step's key in the steps table: for a branch, the repo
- * (muted, the row's full width) over the branch, which shares its line with
- * the state; neither wraps mid-word (Court, 2026-10-18). Any other key is the
- * one line beside the state.
- */
-function stepKeyLines(key: string): HTMLElement[] {
-  const at = key.indexOf('@');
-  if (at < 0) return [h('span', { class: 'cb-step-k' }, key)];
-  return [
-    h('span', { class: 'cb-step-repo' }, key.slice(0, at)),
-    h('span', { class: 'cb-step-k' }, key.slice(at + 1)),
-  ];
-}
-
-export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
-  const j = v.job;
-  const steps = j.steps ?? [];
-  const p = progress(j);
-  const agent = hooks.agent(j);
-  const open = (v.needs_you ?? []).filter((c) => c.state === 'open');
-  const stepOf = (id: number) => steps.find((s) => s.id === id);
-  const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
-  const state = j.paused && isRunning(j) ? 'paused' : j.state;
-
-  const doc = h(
-    'article',
-    { class: 'cb-apply-doc cb-job', 'data-job': String(j.id) },
-    h(
-      'p',
-      { class: 'kit-kick' },
-      [lanes.join(' + '), `job #${j.id}`, state]
-        .filter(Boolean)
-        .join(' \u00b7 '),
-    ),
-    h('h1', { class: 'kit-h1' }, jobTitle(j)),
-  );
-  const pairs: Array<[string, string]> = [
-    ['done', `${p.verified} of ${p.total}`],
-    ['needs you', String(open.filter((c) => c.kind !== 'paused').length)],
-    ['paused', String(p.paused)],
-  ];
-  if (p.skipped) pairs.push(['skipped', String(p.skipped)]);
-  if (p.failed) pairs.push(['failed', String(p.failed)]);
-  const restores = steps.filter((s) => s.restore).length;
-  if (restores) pairs.push(['restore records', String(restores)]);
-  doc.append(facts(pairs));
-
-  const cardsEl = h('div', { class: 'cb-needs', 'data-testid': 'needs-you' });
-  for (const c of open)
-    cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
-  doc.append(cardsEl);
-  const note = hooks.note();
-  if (note)
-    doc.append(h('p', { class: 'cb-apply-note', role: 'status' }, note));
-
-  // The steps table.
-  const next = nextSteps(steps);
-  const shown = steps.slice(0, hooks.stepsShown());
-  doc.append(
-    h('h3', { class: 'kit-label' }, 'steps'),
-    h(
-      'div',
-      { class: 'kit-table cb-steps', 'data-testid': 'steps' },
-      ...shown.map((s) => {
-        const m = stepMark(s, next.has(s.id));
-        return h(
-          'div',
-          {
-            class: 'kit-tr cb-step',
-            'data-step': String(s.id),
-            'data-state': s.state,
-            'data-key': s.key,
-          },
-          h('span', { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-          ...stepKeyLines(keyWithoutKind(s.key)),
-          h(
-            'span',
-            { class: 'cb-step-w' },
-            h('span', { class: 'cb-step-t' }, m.text),
-            s.undoable
-              ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    class: 'kit-btn cb-undo',
-                    onclick() {
-                      hooks.undo(s);
-                    },
-                  },
-                  'undo',
-                )
-              : null,
-          ),
-          m.why ? h('span', { class: 'cb-step-why' }, m.why) : null,
-        );
-      }),
-      steps.length > shown.length
-        ? h(
-            'div',
-            { class: 'kit-tr cb-steps-more' },
-            h('span'),
-            h(
-              'span',
-              { class: 'cb-step-k' },
-              `\u2026 ${pluralize(steps.length - shown.length, 'more step')}`,
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                class: 'cb-link',
-                onclick() {
-                  hooks.showMore();
-                },
-              },
-              'show more',
-            ),
-          )
-        : null,
-    ),
-  );
-  return doc;
-}
-
-// needsCard is one open card: what serve asks Court, with serve's actions.
-function needsCard(
-  c: NeedsYou,
-  step: JobStep | undefined,
-  j: Job,
-  agent: string,
-  hooks: JobHooks,
-): HTMLElement {
-  const key = step ? keyWithoutKind(step.key) : '';
-  const verb = step ? actionVerb(step.action) : 'run';
-  const answer = (action: string, text = '') => hooks.answer(c, action, text);
-  let el: HTMLElement;
-  switch (c.kind) {
-    case 'text': {
-      const quote = h('blockquote', { class: 'cb-needs-text' }, c.text);
-      const body = h(
-        'div',
-        null,
-        h(
-          'p',
-          { class: 'cb-needs-what' },
-          h('code', null, key),
-          ` \u00b7 ${verb} with comment`,
-        ),
-        quote,
-      );
-      const four: Button[] = [
-        {
-          label: 'post and close',
-          fill: true,
-          run: () => answer('post-and-close', c.text),
-        },
-        {
-          label: 'edit text',
-          run() {
-            hooks.edit(c.id, c.text);
-            startEdit(c.text, true);
-          },
-        },
-        {
-          label: 'close without comment',
-          run: () => answer('close-without-comment'),
-        },
-        { label: 'skip', run: () => answer('skip') },
-      ];
-      el = card({
-        edge: 'signal',
-        head: c.question ? `needs you \u00b7 ${c.question}` : 'needs you',
-        body,
-        actions: four,
-      });
-      // edit text: the comment becomes a field; save sends it to serve (the
-      // card stays open with the new text). While it is open its text is
-      // kept by the section, so a redraw (a live event) draws it again as
-      // Court left it.
-      const startEdit = (text: string, focus: boolean) => {
-        const field = h('textarea', {
-          class: 'cb-needs-edit',
-          'aria-label': 'comment',
-          rows: 4,
-        }) as HTMLTextAreaElement;
-        field.value = text;
-        field.addEventListener('input', () => hooks.edit(c.id, field.value));
-        quote.replaceWith(field);
-        el.querySelector('.kit-btns')?.replaceWith(
-          buttons([
-            {
-              label: 'save text',
-              fill: true,
-              run: () =>
-                hooks.answer(c, 'edit-text', field.value, () =>
-                  hooks.edit(c.id, null),
-                ),
-            },
-            {
-              label: 'cancel',
-              run() {
-                hooks.edit(c.id, null);
-                field.replaceWith(quote);
-                el.querySelector('.kit-btns')?.replaceWith(buttons(four));
-              },
-            },
-          ]),
-        );
-        if (focus) field.focus();
-      };
-      const draft = hooks.editing(c.id);
-      if (draft !== undefined) startEdit(draft, false);
-      break;
-    }
-    case 'batch':
-      el = card({
-        edge: 'signal',
-        head: 'needs you \u00b7 confirm the batch',
-        body: h('p', null, c.question),
-        actions: [
-          { label: 'confirm', fill: true, run: () => answer('confirm') },
-          { label: 'skip batch', run: () => answer('skip-batch') },
-        ],
-      });
-      break;
-    case 'failed': {
-      const bs: Button[] = [];
-      if (j.session)
-        bs.push({
-          label: 'hand to agent',
-          run: () => answer('hand-to-agent'),
-        });
-      bs.push({ label: 'skip', run: () => answer('skip') });
-      el = card({
-        edge: 'signal',
-        head: `needs you \u00b7 ${key || 'a step'} failed`,
-        body: h(
-          'div',
-          null,
-          h('p', null, c.question),
-          step ? h('code', { class: 'cb-cmd' }, step.command) : null,
-        ),
-        actions: bs,
-      });
-      break;
-    }
-    case 'paused':
-      el = card({
-        edge: 'agent',
-        head: `${agent} paused`,
-        body: h(
-          'p',
-          null,
-          key ? h('code', null, key) : null,
-          key ? ': ' : '',
-          c.question,
-        ),
-        actions: [
-          {
-            label: `${verb} anyway`,
-            danger: dangerVerb(verb),
-            run: () => answer('resume'),
-          },
-          { label: 'skip', run: () => answer('skip') },
-        ],
-      });
-      break;
-    default:
-      el = card({
-        edge: 'signal',
-        head: `needs you \u00b7 ${c.kind}`,
-        body: c.question,
-      });
-  }
-  el.classList.add('cb-needs-card');
-  el.dataset.card = String(c.id);
-  el.dataset.kind = c.kind;
-  return el;
 }

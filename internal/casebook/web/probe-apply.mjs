@@ -818,7 +818,9 @@ async function tickedRunScenario(context, t, s) {
     const redrawn = await until(
       pg,
       ([id, step]) =>
-        !!document.querySelector(`.cb-apply-list .kit-row[data-job="${id}"]`) &&
+        !!document.querySelector(
+          `.cb-pane-run .cb-run-job[data-job="${id}"]`,
+        ) &&
         document.querySelector(`.cb-step[data-step="${step}"]`)?.dataset
           .state === 'running',
       [ran.id, ran.steps[0].id],
