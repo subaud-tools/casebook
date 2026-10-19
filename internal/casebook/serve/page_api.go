@@ -344,30 +344,46 @@ func nonNil[T any](s []T) []T {
 	return s
 }
 
-// decideOneKey records one decision with NoPush, supersedes other pending
-// proposals for the key except keep (the proposal being accepted), and returns
-// the normalized key and the decision it committed. By defaults to
-// s.App.Cfg.User.
-func (s *Server) decideOneKey(ctx context.Context, key, disposition string, o app.DecideOptions, keep int64) (string, Committed, *Committed, error) {
-	o.NoPush = true
-	if o.By == "" {
-		o.By = s.App.Cfg.User
-	}
-	// What the item had, for an undo to put back.
-	var prev *Committed
-	if k, err := item.ParseKey(key); err == nil {
+// recorded is one request recordAll recorded (or why it couldn't).
+type recorded struct {
+	key  string // normalized
+	made Committed
+	prev *Committed // what the item had before (nil: no decision)
+	err  error
+}
+
+// recordAll records reqs in one commit (Court, 2026-10-18: a group is one
+// commit, not one per item), without pushing; By defaults to the user. Each
+// result is its request's: its normalized key, the decision committed, what
+// it had before (for an undo) or why it wasn't recorded. err is the
+// commit's, when it failed (then nothing was recorded).
+func (s *Server) recordAll(ctx context.Context, reqs []app.DecideRequest) ([]recorded, error) {
+	out := make([]recorded, len(reqs))
+	for i := range reqs {
+		reqs[i].Options.NoPush = true
+		if reqs[i].Options.By == "" {
+			reqs[i].Options.By = s.App.Cfg.User
+		}
+		k, err := item.ParseKey(reqs[i].Key)
+		if err != nil {
+			continue // DecideMany reports it
+		}
+		out[i].key = k.String()
 		if old, err := s.App.Repo.ReadDecision(k); err == nil && old != nil {
 			c := committedOf(app.RevisionOf(*old))
-			prev = &c
+			out[i].prev = &c
 		}
 	}
-	d, _, err := s.App.Decide(ctx, key, disposition, o)
+	ds, errs, err := s.App.DecideMany(ctx, reqs)
 	if err != nil {
-		return "", Committed{}, nil, err
+		return nil, err
 	}
-	k, _ := item.ParseKey(key)
-	_ = s.Props.SupersedeKey(ctx, k.String(), keep)
-	return k.String(), committedOf(app.RevisionOf(d)), prev, nil
+	for i := range out {
+		if out[i].err = errs[i]; errs[i] == nil {
+			out[i].made = committedOf(app.RevisionOf(ds[i]))
+		}
+	}
+	return out, nil
 }
 
 func committedOf(r app.Revision) Committed {
@@ -403,27 +419,33 @@ func (s *Server) decideAll(ctx context.Context, keys []string, disposition strin
 	if o.By == "" {
 		o.By = s.App.Cfg.User
 	}
-	n := 0
 	var errs []string
 	var done []string
 	made := map[string]Committed{}
 	prev := map[string]*Committed{}
-	for _, key := range keys {
-		k, c, p, err := s.decideOneKey(ctx, key, disposition, o, keep)
-		if err != nil {
-			errs = append(errs, err.Error())
+	reqs := make([]app.DecideRequest, len(keys))
+	for i, key := range keys {
+		reqs[i] = app.DecideRequest{Key: key, Disposition: disposition, Options: o}
+	}
+	rs, err := s.recordAll(ctx, reqs)
+	if err != nil {
+		return 0, nil, []string{err.Error()}, made, prev
+	}
+	for _, r := range rs {
+		if r.err != nil {
+			errs = append(errs, r.err.Error())
 			continue
 		}
-		done = append(done, k)
-		made[k] = c
-		prev[k] = p
-		n++
+		done = append(done, r.key)
+		made[r.key] = r.made
+		prev[r.key] = r.prev
 	}
-	if n > 0 {
+	_ = s.Props.SupersedeKeys(ctx, done, keep)
+	if len(done) > 0 {
 		s.publish(ctx, "decided", map[string]any{"keys": done, "disposition": disposition, "by": o.By, "proposed_by": o.ProposedBy})
 	}
-	errs = s.finishDecides(ctx, n, errs)
-	return n, done, errs, made, prev
+	errs = s.finishDecides(ctx, len(done), errs)
+	return len(done), done, errs, made, prev
 }
 
 // decisionVocab is the decision vocabulary: GET /api/decisions/vocabulary
@@ -740,6 +762,8 @@ func (s *Server) postAccept(w http.ResponseWriter, r *http.Request) {
 	type made1 struct{ disposition, source string }
 	var order []made1
 	decidedBy := map[made1][]string{}
+	var ps []propose.Proposal
+	var reqs []app.DecideRequest
 	for _, id := range in.IDs {
 		p, err := s.Props.Get(ctx, id)
 		if err == nil {
@@ -753,21 +777,34 @@ func (s *Server) postAccept(w http.ResponseWriter, r *http.Request) {
 		if item.Disposition(p.Disposition) == item.Close {
 			o.Note = in.Note
 		}
-		normed, c, prev, err := s.decideOneKey(ctx, p.Key, p.Disposition, o, p.ID)
-		if err != nil {
-			errs = append(errs, err.Error())
+		ps = append(ps, p)
+		reqs = append(reqs, app.DecideRequest{Key: p.Key, Disposition: p.Disposition, Options: o})
+	}
+	// Every accepted recommendation in one commit.
+	rs, err := s.recordAll(ctx, reqs)
+	if err != nil {
+		errs = append(errs, err.Error())
+		rs = nil
+	}
+	var acceptedIDs []int64
+	var acceptedKeys []string
+	for i, r := range rs {
+		if r.err != nil {
+			errs = append(errs, r.err.Error())
 			continue
 		}
-		made[normed] = c
-		prevs[normed] = prev
-		_ = s.Props.Settle(ctx, id, propose.Accepted, "")
-		m := made1{p.Disposition, p.Source}
+		made[r.key] = r.made
+		prevs[r.key] = r.prev
+		acceptedIDs = append(acceptedIDs, ps[i].ID)
+		acceptedKeys = append(acceptedKeys, r.key)
+		m := made1{ps[i].Disposition, ps[i].Source}
 		if decidedBy[m] == nil {
 			order = append(order, m)
 		}
-		decidedBy[m] = append(decidedBy[m], normed)
+		decidedBy[m] = append(decidedBy[m], r.key)
 		total++
 	}
+	_ = s.Props.AcceptAll(ctx, acceptedIDs, acceptedKeys)
 	for _, m := range order {
 		s.publish(ctx, "decided", map[string]any{
 			"keys":        decidedBy[m],

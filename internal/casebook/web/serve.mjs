@@ -57,7 +57,9 @@ const guardLog = join(guardDir, 'git-calls.log');
   writeFileSync(
     join(guardDir, 'git'),
     `#!/bin/sh
-printf '%s\\t%s\\t%s\\t%s\\n' "\${CASEBOOK_DISABLE:-unset}" "\${GIT_CONFIG_GLOBAL:-unset}" "\${GIT_CONFIG_NOSYSTEM:-unset}" "$*" >> '${guardLog}'
+# One line a call: a commit message's newlines (a group's decisions) are
+# flattened, or its lines would read as calls of their own.
+printf '%s\\t%s\\t%s\\t%s\\n' "\${CASEBOOK_DISABLE:-unset}" "\${GIT_CONFIG_GLOBAL:-unset}" "\${GIT_CONFIG_NOSYSTEM:-unset}" "$(printf '%s' "$*" | tr '\\n' ' ')" >> '${guardLog}'
 if [ "$CASEBOOK_DISABLE" != 1 ] || [ "$GIT_CONFIG_GLOBAL" != /dev/null ] || [ "$GIT_CONFIG_NOSYSTEM" != 1 ]; then
   echo "probe git guard: refused git without CASEBOOK_DISABLE=1 and hermetic config: $*" >&2
   exit 97
