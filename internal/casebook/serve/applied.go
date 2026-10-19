@@ -11,6 +11,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/config"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/observe"
 )
 
@@ -94,6 +95,53 @@ func (s *Server) applied(built time.Time, decided func(key string) time.Time) ma
 		at, ok := reads[owner]
 		return at, ok
 	}, decided, built)
+}
+
+// copiesGone reports whether every copy of branch item it is gone, as far
+// as this Mac can tell: no local copy on another Mac, each local copy here
+// deleted by a step verified since its decision (or no longer there), and
+// the GitHub copy gone or deleted by such a step. steps are its verified
+// steps. Other kinds: no local copy on another Mac.
+func copiesGone(it engine.Item, machine string, steps []apply.JobStep) bool {
+	if otherCopies(it, machine) {
+		return false
+	}
+	if it.Kind != item.KindBranch {
+		return true
+	}
+	var decided time.Time
+	if it.Decision != nil {
+		decided = it.Decision.DecidedAt
+	}
+	deleted, github := map[string]bool{}, false
+	for _, st := range steps {
+		if !st.VerifiedAt.After(decided) {
+			continue
+		}
+		switch st.Action {
+		case "branch-delete-local":
+			if dir, ok := apply.LocalDeleteDir(st.Command); ok {
+				deleted[dir] = true
+			}
+		case "branch-delete-remote":
+			github = true
+		}
+	}
+	absentHere := false
+	for _, c := range it.Copies {
+		if c.Machine == machine && c.Absent {
+			absentHere = true
+		}
+	}
+	for _, loc := range it.Locations {
+		if _, path, _ := strings.Cut(loc, ":"); !deleted[path] && !absentHere {
+			return false
+		}
+	}
+	if _, ok := it.GitHubCopy(); ok && !github {
+		return false
+	}
+	return true
 }
 
 // otherCopies reports whether it has a local copy on a Mac other than

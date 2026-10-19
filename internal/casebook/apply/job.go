@@ -548,6 +548,28 @@ func (s *Store) VerifiedSince(ctx context.Context, t time.Time) (map[string]Veri
 	return out, nil
 }
 
+// VerifiedSteps is key's verified steps that weren't undone, from every
+// job, oldest first.
+func (s *Store) VerifiedSteps(ctx context.Context, key string) ([]JobStep, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id, job_id, key, action, lane, command, precondition, posts, expected_tip, text, restore,
+		        state, detail, verified_at, undone_at
+		 FROM steps WHERE key = ? AND state = ? AND undone_at = 0 ORDER BY verified_at, id`, key, StepVerified)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var steps []JobStep
+	for rows.Next() {
+		st, err := scanStep(rows)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, st)
+	}
+	return steps, rows.Err()
+}
+
 // LastVerified is the job and time of key's latest verified step that
 // wasn't undone (0 when none).
 func (s *Store) LastVerified(ctx context.Context, key string) (int64, time.Time, error) {

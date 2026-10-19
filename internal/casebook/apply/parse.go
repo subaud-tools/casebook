@@ -89,6 +89,13 @@ func parseLocalDelete(cmd string) (dir, branch string, err error) {
 	return d, strings.TrimPrefix(ref, "refs/heads/"), nil
 }
 
+// LocalDeleteDir is the clone a local branch delete command runs in
+// (false for any other command).
+func LocalDeleteDir(cmd string) (string, bool) {
+	dir, _, err := parseLocalDelete(cmd)
+	return dir, err == nil
+}
+
 // ghCommand parses a "gh <args...>" command into the arguments for gh.
 func ghCommand(cmd string) ([]string, error) {
 	w, err := ShellSplit(cmd)

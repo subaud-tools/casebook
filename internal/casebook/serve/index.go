@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
 	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
@@ -29,6 +30,9 @@ type Index struct {
 	// Machine is this Mac: an item with a copy on another Mac isn't done
 	// until that copy is gone, whatever ran here.
 	Machine string
+	// Verified is a key's verified steps that weren't undone, from every
+	// job: a branch is done only when each of its copies is gone.
+	Verified func(key string) []apply.JobStep
 }
 
 func (x *Index) set(r engine.Result, head string, at time.Time) {
@@ -135,7 +139,15 @@ func (x *Index) applied() map[string]bool {
 		return time.Time{}
 	})
 	for key := range done {
-		if it, ok := x.byKey[key]; ok && otherCopies(it, x.Machine) {
+		it, ok := x.byKey[key]
+		if !ok {
+			continue
+		}
+		var steps []apply.JobStep
+		if x.Verified != nil && it.Kind == item.KindBranch {
+			steps = x.Verified(key)
+		}
+		if !copiesGone(it, x.Machine, steps) {
 			delete(done, key)
 		}
 	}

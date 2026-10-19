@@ -523,12 +523,84 @@ func TestPreviewOfOnlyHeldItemsShowsThem(t *testing.T) {
 func TestAppliedKeepsAnItemWithACopyOnAnotherMac(t *testing.T) {
 	both := toApply(item.BranchKey("o/r", "both"), item.Delete, "pro-2:/p", "work:/r")
 	here := toApply(item.BranchKey("o/r", "here"), item.Delete, "work:/r")
-	x := &Index{Machine: "work", Applied: func(time.Time, func(string) time.Time) map[string]bool {
-		return map[string]bool{both.ID: true, here.ID: true}
-	}}
-	x.set(engine.Result{Items: []engine.Item{both, here}}, "h", time.Now())
-	got := x.applied()
+	steps := map[string][]apply.JobStep{
+		both.ID: {localDeleted(both, "/r")},
+		here.ID: {localDeleted(here, "/r")},
+	}
+	got := appliedOf(t, steps, both, here)
 	if got[both.ID] || !got[here.ID] {
 		t.Fatalf("applied %v, want only %s", got, here.ID)
+	}
+}
+
+// appliedOf is Index.applied for items that all verified (Applied answers
+// every key), with steps as each key's verified steps, on Mac "work".
+func appliedOf(t *testing.T, steps map[string][]apply.JobStep, items ...engine.Item) map[string]bool {
+	t.Helper()
+	x := &Index{Machine: "work",
+		Applied: func(time.Time, func(string) time.Time) map[string]bool {
+			m := map[string]bool{}
+			for _, it := range items {
+				m[it.ID] = true
+			}
+			return m
+		},
+		Verified: func(key string) []apply.JobStep { return steps[key] },
+	}
+	x.set(engine.Result{Items: items}, "h", time.Now())
+	return x.applied()
+}
+
+// localDeleted is a verified local delete of it's branch in clone dir.
+func localDeleted(it engine.Item, dir string) apply.JobStep {
+	branch := it.ID[strings.IndexByte(it.ID, '@')+1:]
+	return apply.JobStep{Key: it.ID, Action: "branch-delete-local", State: apply.StepVerified, VerifiedAt: time.Now(),
+		Command: "git -C '" + dir + "' update-ref -d 'refs/heads/" + branch + "' abc"}
+}
+
+// githubDeleted is a verified GitHub delete of it's branch.
+func githubDeleted(it engine.Item) apply.JobStep {
+	return apply.JobStep{Key: it.ID, Action: "branch-delete-remote", State: apply.StepVerified, VerifiedAt: time.Now()}
+}
+
+// TestHeldGitHubHalfKeepsTheItemInReview: a branch whose GitHub delete is
+// held by an open PR, with its local delete verified, still has its GitHub
+// copy: it isn't done.
+func TestHeldGitHubHalfKeepsTheItemInReview(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Holds = []engine.Hold{{Kind: engine.HoldOpenPR, Remote: true, Stops: []item.Disposition{item.Delete}}}
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc"}, {Tip: "abc", RepoID: "R_1"}}
+	got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r")}}, br)
+	if got[br.ID] {
+		t.Fatalf("applied %v: its GitHub copy is still there", got)
+	}
+}
+
+// TestHeldLocalHalfKeepsTheItemInReview: a branch whose local delete is
+// held by a dirty worktree, with its GitHub delete verified, still has its
+// copy on this Mac: it isn't done.
+func TestHeldLocalHalfKeepsTheItemInReview(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Holds = []engine.Hold{{Kind: engine.HoldWorktree, Local: true, Machine: "work", Stops: []item.Disposition{item.Delete}}}
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc", Worktree: "/r/.worktrees/ops"}, {Tip: "abc", RepoID: "R_1"}}
+	got := appliedOf(t, map[string][]apply.JobStep{br.ID: {githubDeleted(br)}}, br)
+	if got[br.ID] {
+		t.Fatalf("applied %v: its copy on this Mac is still there", got)
+	}
+}
+
+// TestBothHalvesVerifiedIsApplied: a branch whose local and GitHub deletes
+// both verified since its decision is done; one verified before the
+// decision doesn't count.
+func TestBothHalvesVerifiedIsApplied(t *testing.T) {
+	br := toApply(item.BranchKey("o/r", "feat/x"), item.Delete, "work:/r")
+	br.Copies = []engine.Copy{{Machine: "work", Path: "/r", Tip: "abc"}, {Tip: "abc", RepoID: "R_1"}}
+	if got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r"), githubDeleted(br)}}, br); !got[br.ID] {
+		t.Fatalf("applied %v, want %s", got, br.ID)
+	}
+	old := githubDeleted(br)
+	old.VerifiedAt = br.Decision.DecidedAt.Add(-time.Minute)
+	if got := appliedOf(t, map[string][]apply.JobStep{br.ID: {localDeleted(br, "/r"), old}}, br); got[br.ID] {
+		t.Fatalf("applied %v: its GitHub delete verified before the decision", got)
 	}
 }
