@@ -163,6 +163,8 @@ func mergeBlocked(state string) (text, fix string) {
 		return "merge blocked: a required check or review is missing", "Get the check or review on GitHub, then sync."
 	case "DIRTY":
 		return "merge blocked: the PR has conflicts with its base branch", "Resolve the conflicts on GitHub, then sync."
+	case "UNKNOWN":
+		return "merge status not worked out by GitHub yet", "Sync again in a minute; GitHub works it out after it is asked."
 	}
 	return "", ""
 }

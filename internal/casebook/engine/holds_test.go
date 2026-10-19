@@ -119,7 +119,8 @@ func TestHoldMergeBlocked(t *testing.T) {
 		"BEHIND":  "merge blocked: the PR is behind its base branch",
 		"BLOCKED": "merge blocked: a required check or review is missing",
 		"DIRTY":   "merge blocked: the PR has conflicts with its base branch",
-		"CLEAN":   "", "UNKNOWN": "", "UNSTABLE": "", "HAS_HOOKS": "", "DRAFT": "", "": "",
+		"UNKNOWN": "merge status not worked out by GitHub yet",
+		"CLEAN":   "", "UNSTABLE": "", "HAS_HOOKS": "", "DRAFT": "", "": "",
 	} {
 		in := holdsInput(func(in *Input, _ *observe.Clone) {
 			in.GitHub.Owners["o"].Repos[0].PRs = []observe.PRObs{{Repo: "o/r", Number: 9, State: "OPEN", MergeState: state}}
