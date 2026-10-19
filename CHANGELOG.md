@@ -6,6 +6,13 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.17.1
+
+- Deleting a branch on GitHub works: casebook asked GitHub's API with the wrong type for the branch name, and GitHub refused every delete.
+- A branch in a repo where you can only read is held on GitHub: its local copy can still go, and the item says your access there.
+- A merge of a PR GitHub has closed without merging is held: reopen it on GitHub, or decide it again.
+- A merge whose merge status GitHub hasn't worked out yet is held until a sync finds it out, instead of running and failing.
+
 ## 0.17.0
 
 - Each item says what stands in the way of its decision: a branch in use by a worktree or checked out in its clone, a long-lived branch, an archived repo, a merge GitHub would refuse, a local copy only on the other Mac. Decide, review, run, `casebook show` and the agent all say it the same way.
