@@ -21,6 +21,7 @@ const (
 	HoldOtherMac     = "other-mac"
 	HoldOpenPR       = "open-pr"
 	HoldNoAccess     = "no-access"
+	HoldClosed       = "closed"
 	HoldNothingHere  = "nothing-here" // made by apply.Build only
 )
 
@@ -138,6 +139,10 @@ func (b *builder) holds(it *Item) ([]Hold, []string) {
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && r.Archived {
 			hs = append(hs, Hold{Kind: HoldArchived, Text: r.Repo + " is archived: GitHub refuses any change to it",
 				Fix: "Unarchive it on GitHub, or decide this again.", Stops: []item.Disposition{item.Close, item.Merge}})
+		}
+		if it.Kind == item.KindPR && it.Decision != nil && it.Decision.Disposition == item.Merge && b.in.GitHub.Refs[it.ID].State == "CLOSED" {
+			hs = append(hs, Hold{Kind: HoldClosed, Text: "closed on GitHub without merging: it can't be merged",
+				Fix: "Reopen it on GitHub, or decide it again.", Stops: []item.Disposition{item.Merge}})
 		}
 		if it.Kind == item.KindPR {
 			if text, fix := mergeBlocked(b.f.prs[it.ID].MergeState); text != "" {

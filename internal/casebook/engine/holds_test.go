@@ -253,3 +253,40 @@ func TestHoldNoAccessStopsOnlyTheGitHubHalf(t *testing.T) {
 		}
 	}
 }
+
+// closedPRInput is PR o/r#20, known only from its lookup, in state, with
+// decision d.
+func closedPRInput(state string, d item.Disposition) Input {
+	return holdsInput(func(in *Input, _ *observe.Clone) {
+		in.GitHub.Refs["pr:o/r#20"] = observe.Ref{Exists: true, State: state}
+		decide(*in, "pr:o/r#20", d, "")
+	})
+}
+
+func TestHoldClosedPRDecidedMerge(t *testing.T) {
+	it := holdsOf(t, closedPRInput("CLOSED", item.Merge), "pr:o/r#20")
+	want := []Hold{{Kind: HoldClosed, Text: "closed on GitHub without merging: it can't be merged",
+		Fix: "Reopen it on GitHub, or decide it again.", Stops: []item.Disposition{item.Merge}}}
+	if !reflect.DeepEqual(it.Holds, want) {
+		t.Errorf("holds %+v\nwant %+v", it.Holds, want)
+	}
+	if !it.Stopped(item.Merge) || it.Status != item.StatusToApply {
+		t.Errorf("stopped %v status %s", it.Stopped(item.Merge), it.Status)
+	}
+}
+
+func TestMergedPRDecidedMergeIsNotHeld(t *testing.T) {
+	it := holdsOf(t, closedPRInput("MERGED", item.Merge), "pr:o/r#20")
+	if len(it.Holds) != 0 || it.Status != item.StatusDone {
+		t.Errorf("holds %+v status %s, want none and done", it.Holds, it.Status)
+	}
+}
+
+// TestCloseDecisionOnAClosedPRIsDoneNotHeld: ruling of 2026-10-19: a close
+// on something already closed is done.
+func TestCloseDecisionOnAClosedPRIsDoneNotHeld(t *testing.T) {
+	it := holdsOf(t, closedPRInput("CLOSED", item.Close), "pr:o/r#20")
+	if len(it.Holds) != 0 || it.Status != item.StatusDone {
+		t.Errorf("holds %+v status %s, want none and done", it.Holds, it.Status)
+	}
+}
