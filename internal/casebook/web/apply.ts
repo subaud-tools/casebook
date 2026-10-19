@@ -259,6 +259,9 @@ export function makeApply(ctx: Ctx): Section {
   let reviewView: PlanView | null = null;
   // drawnView is the plan drawReview last put on the page: only it runs.
   let drawnView: PlanView | null = null;
+  // reviewPending: review's list is loading (a filter, a search, a reload);
+  // until it is drawn, and the ticked document with it, nothing runs.
+  let reviewPending = false;
   // serve's words when the group's plan wasn't built (nothing to plan, an
   // item already running): shown in the pane, no "sync first".
   let reviewNote = '';
@@ -517,6 +520,9 @@ export function makeApply(ctx: Ctx): Section {
   reviewSel.onChange(() => {
     reviewPane.paintHeads();
     if (mode !== 'review') return;
+    // Ticks only cover what the plan drawn is for: the buttons go off now,
+    // not after the moment the new plan takes.
+    if (!sameKeys(tickedKeys(), reviewKeys)) freezeMid();
     if (followTimer) clearTimeout(followTimer);
     followTimer = setTimeout(() => {
       followTimer = null;
@@ -742,6 +748,10 @@ export function makeApply(ctx: Ctx): Section {
   // taken off: the plan covers only what is shown and ticked.
   async function loadItems(offset = 0, narrowed = false): Promise<void> {
     const mine = itemsSeq.next();
+    if (offset === 0) {
+      reviewPending = true;
+      if (mode === 'review' && reviewOpen) freezeMid();
+    }
     try {
       const v = await ctx.api.get<ItemsView>('/items', {
         view: 'to-apply',
@@ -766,10 +776,14 @@ export function makeApply(ctx: Ctx): Section {
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
       }
+      reviewPending = false;
       paintList();
+      if (offset === 0) drawReview();
       applyWanted();
     } catch (err) {
       if (!itemsSeq.isLatest(mine)) return;
+      reviewPending = false;
+      drawReview();
       // A filter serve refuses (deleted elsewhere, not valid) says why and
       // lists nothing: never the list unfiltered.
       if (err instanceof ApiError && err.status === 400 && narrowed) {
@@ -958,7 +972,11 @@ export function makeApply(ctx: Ctx): Section {
       feed();
       return;
     }
-    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) return;
+    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) {
+      // Ticked back to the plan shown: its buttons come back on.
+      drawReview();
+      return;
+    }
     const mine = planSeq.next();
     reviewOpen = true;
     reviewKeys = keys;
@@ -1318,7 +1336,13 @@ export function makeApply(ctx: Ctx): Section {
     if (!v || v !== drawnView || v.job.state !== 'planned') return null;
     const steps = v.job.steps ?? [];
     const rt = runsThrough(steps, runnerAgent());
-    return { v, can: !!steps.length && rt.can && !busy, text: rt.text };
+    // Only the plan for exactly what is ticked and shown now runs.
+    const now = !reviewPending && sameKeys(tickedKeys(), reviewKeys);
+    return {
+      v,
+      can: !!steps.length && rt.can && !busy && now,
+      text: rt.text,
+    };
   }
 
   // runGroup runs the open group: a plan that holds a step that can never
@@ -1374,13 +1398,15 @@ export function makeApply(ctx: Ctx): Section {
   // review shows the new plan to look at again.
   async function saveAndRun(shown: PlanView, session: string): Promise<void> {
     if (busy) return;
+    // The keys sent are what is ticked and shown as Court presses: the
+    // plan drawn must be for exactly them (serve checks the same).
+    const keys = tickedKeys();
+    if (reviewPending || !sameKeys(keys, reviewKeys)) return;
     busy = true;
     note = '';
     drawReview();
     try {
-      const saved = await ctx.api.post<PlanView>('/apply/plan', {
-        keys: reviewKeys,
-      });
+      const saved = await ctx.api.post<PlanView>('/apply/plan', { keys });
       const want = (shown.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       if (want.join('\n') !== got.join('\n')) {
@@ -1394,9 +1420,10 @@ export function makeApply(ctx: Ctx): Section {
       const v = await ctx.api.post<JobView>('/apply/approve', {
         plan_id: saved.job.id,
         session,
+        keys,
       });
       patchJob(v);
-      reviewSel.deselect(reviewKeys);
+      reviewSel.deselect(keys);
       closeReview();
       // The job just started opens in run.
       jobSeq.next();
@@ -1452,6 +1479,15 @@ export function makeApply(ctx: Ctx): Section {
     });
     el.dataset.testid = 'refusal';
     return el;
+  }
+
+  // freezeMid turns every button in the middle pane off at once: what is
+  // shown or ticked changed, and nothing acts until the new list and its
+  // ticked document are drawn (the next paint draws them).
+  function freezeMid(): void {
+    drawnView = null;
+    for (const b of readEl.querySelectorAll<HTMLButtonElement>('button'))
+      b.disabled = true;
   }
 
   function paint(doc: HTMLElement): void {

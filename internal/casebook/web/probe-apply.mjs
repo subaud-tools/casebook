@@ -767,6 +767,31 @@ async function tickedRunScenario(context, t, s) {
     for (const n of [1, 3])
       await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(n)}"] .kit-box`);
     await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // Unticking an item turns the run button off at once: the plan drawn
+    // still holds it, and a click before the new plan is in would run it.
+    await until(
+      pg,
+      () =>
+        !!document.querySelector(
+          '[data-testid="run-group"] .kit-btn:not([disabled])',
+        ),
+    );
+    const offAtOnce = await pg.evaluate((k) => {
+      document
+        .querySelector(`.cb-apply-list .kit-row[data-key="${k}"] .kit-box`)
+        .click();
+      return [
+        ...document.querySelectorAll('.cb-apply-read .cb-ticked button'),
+        ...document.querySelectorAll('[data-testid="run-group"] .kit-btn'),
+      ].every((b) => b.disabled);
+    }, TPR(3));
+    check(
+      'review: unticking an item turns the run button off at once, before the new plan is in',
+      offAtOnce,
+    );
+    await planKeys(TPR(1));
+    await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(3)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
     // A saved filter that hides #3: the plan is what is shown and ticked.
     await agent.api('POST', '/api/filters/save?create=1', {
       id: 'tk-not-3',

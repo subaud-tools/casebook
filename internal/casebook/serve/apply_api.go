@@ -335,13 +335,18 @@ func heldMsg(key string, j apply.Job) string {
 }
 
 // postApplyApprove is POST /api/apply/approve.
-// Input: {"plan_id":N,"session":"sid"}
+// Input: {"plan_id":N,"session":"sid","keys":[...]}
+// keys, when sent (the page always sends them), are the items Court has
+// ticked and shown as he clicks: a stored plan whose items are not exactly
+// those is refused (409), so an item unticked a moment before the click
+// never runs.
 // In order: approve the job, open batch card, dispatch agent job (idempotent),
 // start casebook lane in background.
 func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		PlanID  int64  `json:"plan_id"`
-		Session string `json:"session"`
+		PlanID  int64     `json:"plan_id"`
+		Session string    `json:"session"`
+		Keys    *[]string `json:"keys"`
 	}
 	if err := decode(r, &in); err != nil {
 		reply(w, nil, err)
@@ -371,6 +376,11 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 	s.planMu.Lock()
 	defer s.planMu.Unlock()
 	if plan, err := s.Apply.Get(ctx, in.PlanID); err == nil && plan.State == apply.JobPlanned {
+		if in.Keys != nil && !sameKeySet(*in.Keys, plan.Steps) {
+			reply(w, nil, httpError{code: http.StatusConflict,
+				msg: fmt.Sprintf("plan #%d is not for the items ticked now; nothing ran. Look again.", plan.ID)})
+			return
+		}
 		held, err := s.heldKeys(ctx, in.PlanID, true)
 		if err != nil {
 			reply(w, nil, err)
@@ -433,6 +443,22 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 	// Return the job with its open needs-you cards.
 	cards, _ := s.Apply.NeedsYouFor(ctx, job.ID)
 	reply(w, JobView{Job: job, NeedsYou: cards}, nil)
+}
+
+// sameKeySet reports whether keys name exactly the items steps act on.
+func sameKeySet(keys []string, steps []apply.JobStep) bool {
+	want := map[string]bool{}
+	for _, k := range keys {
+		want[k] = true
+	}
+	got := map[string]bool{}
+	for _, st := range steps {
+		if !want[st.Key] {
+			return false
+		}
+		got[st.Key] = true
+	}
+	return len(got) == len(want)
 }
 
 // postApplyCancel is POST /api/apply/cancel {plan_id}: discard a plan Court

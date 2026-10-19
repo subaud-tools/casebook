@@ -4334,6 +4334,7 @@ function makeApply(ctx) {
   let reviewKeys = [];
   let reviewView = null;
   let drawnView = null;
+  let reviewPending = false;
   let reviewNote = "";
   let refusal = "";
   let openId = null;
@@ -4527,6 +4528,7 @@ function makeApply(ctx) {
   reviewSel.onChange(() => {
     reviewPane.paintHeads();
     if (mode !== "review") return;
+    if (!sameKeys(tickedKeys(), reviewKeys)) freezeMid();
     if (followTimer) clearTimeout(followTimer);
     followTimer = setTimeout(() => {
       followTimer = null;
@@ -4696,6 +4698,10 @@ function makeApply(ctx) {
   }
   async function loadItems(offset = 0, narrowed = false) {
     const mine = itemsSeq.next();
+    if (offset === 0) {
+      reviewPending = true;
+      if (mode === "review" && reviewOpen) freezeMid();
+    }
     try {
       const v = await ctx.api.get("/items", {
         view: "to-apply",
@@ -4717,10 +4723,14 @@ function makeApply(ctx) {
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
       }
+      reviewPending = false;
       paintList();
+      if (offset === 0) drawReview();
       applyWanted();
     } catch (err) {
       if (!itemsSeq.isLatest(mine)) return;
+      reviewPending = false;
+      drawReview();
       if (err instanceof ApiError2 && err.status === 400 && narrowed) {
         reviewPane.setFilterError(err.message);
         items = [];
@@ -4868,7 +4878,10 @@ function makeApply(ctx) {
       feed();
       return;
     }
-    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) return;
+    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) {
+      drawReview();
+      return;
+    }
     const mine = planSeq.next();
     reviewOpen = true;
     reviewKeys = keys;
@@ -5149,7 +5162,12 @@ function makeApply(ctx) {
     if (!v || v !== drawnView || v.job.state !== "planned") return null;
     const steps = v.job.steps ?? [];
     const rt = runsThrough(steps, runnerAgent());
-    return { v, can: !!steps.length && rt.can && !busy, text: rt.text };
+    const now = !reviewPending && sameKeys(tickedKeys(), reviewKeys);
+    return {
+      v,
+      can: !!steps.length && rt.can && !busy && now,
+      text: rt.text
+    };
   }
   function runGroup() {
     const rc = runCheck();
@@ -5196,13 +5214,13 @@ function makeApply(ctx) {
   }
   async function saveAndRun(shown, session) {
     if (busy) return;
+    const keys = tickedKeys();
+    if (reviewPending || !sameKeys(keys, reviewKeys)) return;
     busy = true;
     note = "";
     drawReview();
     try {
-      const saved = await ctx.api.post("/apply/plan", {
-        keys: reviewKeys
-      });
+      const saved = await ctx.api.post("/apply/plan", { keys });
       const want = (shown.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       if (want.join("\n") !== got.join("\n")) {
@@ -5214,10 +5232,11 @@ function makeApply(ctx) {
       }
       const v = await ctx.api.post("/apply/approve", {
         plan_id: saved.job.id,
-        session
+        session,
+        keys
       });
       patchJob(v);
-      reviewSel.deselect(reviewKeys);
+      reviewSel.deselect(keys);
       closeReview();
       jobSeq.next();
       openId = v.job.id;
@@ -5267,6 +5286,11 @@ function makeApply(ctx) {
     });
     el2.dataset.testid = "refusal";
     return el2;
+  }
+  function freezeMid() {
+    drawnView = null;
+    for (const b of readEl.querySelectorAll("button"))
+      b.disabled = true;
   }
   function paint(doc) {
     const keep = focusSnapshot(readEl);
