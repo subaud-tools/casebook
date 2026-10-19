@@ -6,7 +6,8 @@ import (
 )
 
 // TestExamplesAreValidAndOn: the starter rules validate, are on, and are
-// the ones Court approved (2026-10-17).
+// the ones Court approved (2026-10-17; quiet clean worktrees and old org
+// repos 2026-10-18).
 func TestExamplesAreValidAndOn(t *testing.T) {
 	var ids []string
 	for _, r := range Examples() {
@@ -18,7 +19,7 @@ func TestExamplesAreValidAndOn(t *testing.T) {
 			t.Errorf("%s: %v", r.ID, err)
 		}
 	}
-	if want := []string{"landed-branches", "quiet-bot-prs", "your-old-repos", "your-old-forks"}; !slices.Equal(ids, want) {
+	if want := []string{"landed-branches", "quiet-bot-prs", "your-old-repos", "your-old-forks", "quiet-clean-worktrees", "old-org-repos"}; !slices.Equal(ids, want) {
 		t.Fatalf("examples %v, want %v", ids, want)
 	}
 }

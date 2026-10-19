@@ -177,6 +177,16 @@ function browserShared(name, poll) {
   });
 }
 
+// status-text.ts
+function pushStatus(s) {
+  if (s.queued <= 0) return null;
+  if (s.error)
+    return { text: `push failed · ${s.queued} queued`, tone: "danger" };
+  if (s.offline)
+    return { text: `offline · ${s.queued} queued`, tone: "danger" };
+  return { text: `saving ${s.queued}`, tone: "muted" };
+}
+
 // app.ts
 import {
   bar,
@@ -964,11 +974,13 @@ function start(first) {
     const s = summary;
     if (!s) return;
     paintPushError(s.push_error ?? "");
-    if (s.offline_queued > 0) {
-      const why = s.push_error ? "push failed" : "offline";
-      handle.setStatus(`${why} · ${s.offline_queued} queued`, {
-        tone: "danger"
-      });
+    const pushing = pushStatus({
+      queued: s.offline_queued,
+      offline: s.push_offline,
+      error: s.push_error ?? ""
+    });
+    if (pushing) {
+      handle.setStatus(pushing.text, { tone: pushing.tone });
       return;
     }
     const synced = s.synced_at ? Date.parse(s.synced_at) : NaN;
