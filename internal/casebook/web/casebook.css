@@ -412,7 +412,7 @@
   margin: 4px -12px 2px;
   padding: 0 20px;
   background: color-mix(in srgb, var(--kit-line) 70%, var(--kit-panel));
-  border-bottom: 1px solid var(--kit-line);
+  box-shadow: inset 0 -1px 0 var(--kit-line);
 }
 
 .cb-group:first-child {
@@ -420,7 +420,7 @@
 }
 
 .cb-group-top {
-  height: calc(var(--cb-head-h) - 1px);
+  height: var(--cb-head-h);
   display: grid;
   grid-template-columns: 12px 14px minmax(0, 1fr) auto auto auto auto;
   gap: 6px;

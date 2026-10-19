@@ -145,7 +145,7 @@ export async function applyScenarios(shared, t) {
 }
 
 // PROBE_SCENARIO (with PROBE_ONLY=apply) runs only the scenario groups
-// whose name has it: main, same, ticked, changed, holds.
+// whose name has it: main, same, ticked, changed, holds, frame.
 const runs = (name) =>
   !process.env.PROBE_SCENARIO || name.includes(process.env.PROBE_SCENARIO);
 
@@ -156,6 +156,7 @@ async function applyScenariosIn(context, t) {
     ['ticked', TICKED_SEED, tickedRunScenario],
     ['changed', CHANGED_SEED, changedPlanScenario],
     ['holds', HOLDS_SEED, holdsScenario],
+    ['frame', FRAME_SEED, frameScenario],
   ];
   for (const [name, seed, run] of groups) {
     if (!runs(name)) continue;
@@ -1089,6 +1090,224 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check('the item page says what is in the way', inTheWay);
+  } finally {
+    await pg.close();
+  }
+}
+
+// ---- one frame: every tab's lines at the same place and height -------------
+// Spec one-frame (Court, 2026-10-19): decide, review and run share one list
+// pane, its top block 178px, a group's head 32px, a row 44px; ticked items
+// show in the middle with every line at a fixed place; labels lower case.
+// Four landed branches (the starter rule recommends deleting them): one
+// run (done), one waiting in review, two left to decide.
+const FR = (b) => `branch:schuettc/fr-local@${b}`;
+const FRAME_SEED = {
+  seedClones: [
+    { name: 'fr-local', branches: ['feat/a', 'feat/b', 'feat/c', 'feat/d'] },
+  ],
+};
+async function frameScenario(context, t, s) {
+  const { check, until, eventually } = t;
+  console.log('\nscenario: one frame — decide, review and run line up');
+  const agent = createAgent(s.base, s.token);
+  const api = (m, p, b) => agent.api(m, p, b);
+  await api('POST', '/api/decide', {
+    keys: [FR('feat/a'), FR('feat/b')],
+    disposition: 'delete',
+  });
+  const plan = await api('POST', '/api/apply/plan', { keys: [FR('feat/a')] });
+  await api('POST', '/api/apply/approve', {
+    plan_id: plan.job.id,
+    session: '',
+  });
+  await eventually(async () => {
+    const v = await api('GET', '/api/items?view=run');
+    return (v.items ?? []).some(
+      (it) => it.key === FR('feat/a') && it.group === 'done',
+    );
+  }, 15000);
+  const pg = await context.newPage();
+  await pg.setViewportSize({ width: 1280, height: 800 });
+  try {
+    await pg.goto(`${s.url}#/decide`, { waitUntil: 'domcontentloaded' });
+    const tabs = ['decide', 'review', 'run'];
+    const go = async (tab) => {
+      await pg.evaluate((h) => {
+        location.hash = h;
+      }, `#/${tab}`);
+      await until(
+        pg,
+        (tb) =>
+          document.querySelector('.kit-ctl.on')?.dataset.id === tb &&
+          !!document.querySelector(`.cb-pane-${tb} .cb-group`) &&
+          !!document.querySelector(`.cb-pane-${tb}`)?.offsetParent,
+        tab,
+        8000,
+      );
+    };
+    // The visible pane's geometry: its top block, first group, heads, rows.
+    const geo = (tab) =>
+      pg.evaluate((tb) => {
+        const pane = document.querySelector(`.cb-pane-${tb}`);
+        const r = (e) => e.getBoundingClientRect();
+        return {
+          top: r(pane.querySelector('.kit-lh')).height,
+          first: r(pane.querySelector('.cb-group')).top,
+          heads: [...pane.querySelectorAll('.cb-group-top')].map(
+            (e) => r(e).height,
+          ),
+          rows: [...pane.querySelectorAll('.kit-rows > .kit-row')].map(
+            (e) => r(e).height,
+          ),
+        };
+      }, tab);
+    // Open one group per tab: decide's rule group, review's waiting group,
+    // run's done.
+    const openGroup = async (tab, sel) => {
+      const caret = `.cb-pane-${tab} ${sel} .cb-group-caret`;
+      await pg.waitForSelector(caret, { timeout: 8000 });
+      if (
+        (await pg.$eval(caret, (e) => e.getAttribute('aria-expanded'))) !==
+        'true'
+      )
+        await pg.click(caret);
+      await until(
+        pg,
+        (q) => !!document.querySelector(q),
+        `.cb-pane-${tab} .kit-rows > .kit-row`,
+        8000,
+      );
+    };
+    const groupOf = {
+      decide: '.cb-group[data-rule="landed-branches"]',
+      review: '.cb-group[data-group="delete|branch"]',
+      run: '.cb-group[data-group="done"]',
+    };
+    const g = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await openGroup(tab, groupOf[tab]);
+      g[tab] = await geo(tab);
+    }
+    check(
+      `frame: the top block is 178px on decide, review and run (${tabs.map((x) => g[x].top).join(', ')})`,
+      tabs.every((x) => g[x].top === 178),
+    );
+    check(
+      `frame: the first group starts at the same y on all three tabs (${tabs.map((x) => g[x].first).join(', ')})`,
+      Math.max(...tabs.map((x) => g[x].first)) -
+        Math.min(...tabs.map((x) => g[x].first)) <
+        1,
+    );
+    check(
+      `frame: every group head is the same height on all three tabs (${tabs.map((x) => g[x].heads.join('/')).join(', ')})`,
+      tabs.every(
+        (x) => g[x].heads.length > 0 && g[x].heads.every((h) => h === 32),
+      ),
+    );
+    check(
+      `frame: every row is 44px on all three tabs (${tabs.map((x) => [...new Set(g[x].rows)].join('/')).join(', ')})`,
+      tabs.every(
+        (x) => g[x].rows.length > 0 && g[x].rows.every((h) => h === 44),
+      ),
+    );
+
+    // One item ticked per tab: the middle's lines sit at one place.
+    const tickKey = {
+      decide: FR('feat/c'),
+      review: FR('feat/b'),
+      run: FR('feat/a'),
+    };
+    const mid = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await pg.click(
+        `.cb-pane-${tab} .kit-row[data-key="${tickKey[tab]}"] .kit-box`,
+      );
+      await until(
+        pg,
+        () =>
+          [
+            '.cb-mid-kick',
+            '.cb-mid-title',
+            '.cb-mid-ctx',
+            '.cb-mid-acts',
+          ].every(
+            (q) => !!document.querySelector(`.kit-read:not([hidden]) ${q}`),
+          ) &&
+          (document.querySelector('.kit-read:not([hidden]) .cb-mid-acts')
+            ?.children.length ?? 0) > 0,
+        undefined,
+        8000,
+      );
+      mid[tab] = await pg.evaluate(() =>
+        ['.cb-mid-kick', '.cb-mid-title', '.cb-mid-ctx', '.cb-mid-acts'].map(
+          (q) => {
+            const b = document
+              .querySelector(`.kit-read:not([hidden]) ${q}`)
+              .getBoundingClientRect();
+            return [Math.round(b.top), Math.round(b.height)];
+          },
+        ),
+      );
+    }
+    const same = tabs.every(
+      (x) => JSON.stringify(mid[x]) === JSON.stringify(mid.decide),
+    );
+    check(
+      `frame: ticked lines sit at the same y on decide, review and run (${tabs.map((x) => JSON.stringify(mid[x])).join(' ')})`,
+      same && mid.decide.map((m) => m[1]).join(',') === '16,30,20,26',
+    );
+
+    await go('decide');
+    const head = `.cb-pane-decide ${groupOf.decide}`;
+    check(
+      "frame: decide's group head shows only its ticks",
+      (await pg.$$(`${head} .kit-btn`)).length === 0 &&
+        (await pg.$eval(`${head} .cb-group-ticked`, (e) => e.textContent)) ===
+          '1 ticked \u00b7 untick',
+    );
+
+    await go('run');
+    const row = `.cb-pane-run .kit-row[data-key="${FR('feat/a')}"]`;
+    const said = await pg.$eval(
+      `${row} .kit-title`,
+      (e) => e.textContent ?? '',
+    );
+    await pg.click(`${row} .kit-kicker`);
+    check(
+      `frame: run lists the item that ran, with its job ("${said}"), and opening it shows what ran and its job`,
+      / \u00b7 job #\d+$/.test(said) &&
+        (await until(
+          pg,
+          () =>
+            !!document.querySelector('[data-testid="what-ran"] .cb-step') &&
+            !!document.querySelector('[data-testid="its-job"] .cb-here'),
+          undefined,
+          8000,
+        )),
+    );
+
+    const lower = [];
+    for (const tab of tabs) {
+      await go(tab);
+      lower.push(
+        await pg.evaluate(() => {
+          const el = document.createElement('p');
+          el.className = 'kit-label';
+          el.textContent = 'what ran';
+          document.querySelector('.kit-read:not([hidden])')?.append(el);
+          const tt = getComputedStyle(el).textTransform;
+          el.remove();
+          return tt;
+        }),
+      );
+    }
+    check(
+      `frame: headings are lower case (${lower.join(', ')})`,
+      lower.every((x) => x === 'none'),
+    );
   } finally {
     await pg.close();
   }
