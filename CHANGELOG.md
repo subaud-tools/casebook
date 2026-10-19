@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.16.1
+
+- A group's button (and any decide of several items) records all its decisions in one commit: 1,757 landed branches now take under a second, not six minutes. Each item's history shows that commit, which lists every item it decided.
+
 ## 0.16.0
 
 - Two more starter rules for a new casebook-data: **Quiet clean worktrees** (no changes, nothing unpushed, no activity for 3 days: remove it; undoable) and **Org repos not pushed in a year** (stop tracking it; an org's repos can't be archived from here). An existing casebook-data keeps its rules; add these from the rule editor if you want them.

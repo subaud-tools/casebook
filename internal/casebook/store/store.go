@@ -246,27 +246,105 @@ func (r *Repo) Decisions() (map[string]item.Decision, []error) {
 // Decide validates d, writes k's decision file and commits it. It does not
 // push; call Sync.
 func (r *Repo) Decide(ctx context.Context, k item.Key, d item.Decision) error {
-	if err := d.Validate(k.Kind); err != nil {
-		return fmt.Errorf("%s: %w", k, err)
+	return r.DecideAll(ctx, []Decided{{Key: k, Decision: d}})
+}
+
+// Decided is one decision to record.
+type Decided struct {
+	Key      item.Key
+	Decision item.Decision
+}
+
+// DecideAll validates every decision, writes their files and commits them
+// in one commit (Court, 2026-10-18: a group of 1,757 took six minutes at a
+// commit each). Nothing is written when one doesn't validate. It does not
+// push; call Sync.
+func (r *Repo) DecideAll(ctx context.Context, ds []Decided) error {
+	if len(ds) == 0 {
+		return nil
 	}
-	b, err := item.EncodeDecision(d)
+	files := make([][]byte, len(ds))
+	for i, x := range ds {
+		if err := x.Decision.Validate(x.Key.Kind); err != nil {
+			return fmt.Errorf("%s: %w", x.Key, err)
+		}
+		b, err := item.EncodeDecision(x.Decision)
+		if err != nil {
+			return err
+		}
+		files[i] = b
+	}
+	_, err := r.Batch(ctx, decideMessage(ds), func() error {
+		for i, x := range ds {
+			if err := r.writeUnsynced(x.Key.File(), files[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+// writeUnsynced writes rel whole (a temp file renamed over it, so a reader
+// never sees half of it) without flushing it to disk first: the commit that
+// follows records it, and git doesn't flush its commits either, so a flush
+// per file (about 4ms each on macOS) bought nothing and made a group of
+// 2,000 decisions take 8 seconds.
+func (r *Repo) writeUnsynced(rel string, b []byte) error {
+	p := r.abs(rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+"-*.tmp")
 	if err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("decide %s \u2192 %s", k, d.Disposition)
-	if d.Note != "" {
-		note := strings.ReplaceAll(d.Note, "\n", " ")
-		if rs := []rune(note); len(rs) > 72 {
-			note = string(rs[:72]) + "\u2026"
-		}
-		msg += fmt.Sprintf(" (%q)", note)
-	}
-	msg += " by " + d.DecidedBy
-	_, err = r.Batch(ctx, msg, func() error {
-		_, err := r.WriteFile(k.File(), b)
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return err
-	})
-	return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
+}
+
+// decideMessage is the commit message: one decision names its item; several
+// say how many and what, then list the items, one a line.
+func decideMessage(ds []Decided) string {
+	d := ds[0].Decision
+	note := ""
+	same := true
+	for _, x := range ds[1:] {
+		y := x.Decision
+		same = same && y.Disposition == d.Disposition && y.Note == d.Note && y.DecidedBy == d.DecidedBy
+	}
+	if same && d.Note != "" {
+		n := strings.ReplaceAll(d.Note, "\n", " ")
+		if rs := []rune(n); len(rs) > 72 {
+			n = string(rs[:72]) + "\u2026"
+		}
+		note = fmt.Sprintf(" (%q)", n)
+	}
+	if len(ds) == 1 {
+		return fmt.Sprintf("decide %s \u2192 %s%s by %s", ds[0].Key, d.Disposition, note, d.DecidedBy)
+	}
+	var b strings.Builder
+	if same {
+		fmt.Fprintf(&b, "decide %d items \u2192 %s%s by %s\n", len(ds), d.Disposition, note, d.DecidedBy)
+	} else {
+		fmt.Fprintf(&b, "decide %d items by %s\n", len(ds), d.DecidedBy)
+	}
+	for _, x := range ds {
+		fmt.Fprintf(&b, "\n%s \u2192 %s", x.Key, x.Decision.Disposition)
+	}
+	return b.String()
 }
 
 // LogEntry is one commit touching a file.

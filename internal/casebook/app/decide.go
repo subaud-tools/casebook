@@ -69,6 +69,38 @@ func (a *App) Decide(ctx context.Context, key, disposition string, o DecideOptio
 	return d, pushed, err
 }
 
+// DecideRequest is one decision DecideMany records.
+type DecideRequest struct {
+	Key         string
+	Disposition string
+	Options     DecideOptions
+}
+
+// DecideMany records every valid request in one commit and doesn't push.
+// decisions[i] and errs[i] are request i's: a request that doesn't parse or
+// validate has its error and is left out; err is the commit's, when it
+// failed (then nothing was recorded).
+func (a *App) DecideMany(ctx context.Context, reqs []DecideRequest) (decisions []item.Decision, errs []error, err error) {
+	decisions = make([]item.Decision, len(reqs))
+	errs = make([]error, len(reqs))
+	var ds []store.Decided
+	for i, r := range reqs {
+		k, perr := item.ParseKey(r.Key)
+		if perr != nil {
+			errs[i] = perr
+			continue
+		}
+		d, derr := a.decision(k, r.Disposition, r.Options)
+		if derr != nil {
+			errs[i] = fmt.Errorf("%s: %w", k, derr)
+			continue
+		}
+		decisions[i] = d
+		ds = append(ds, store.Decided{Key: k, Decision: d})
+	}
+	return decisions, errs, a.Repo.DecideAll(ctx, ds)
+}
+
 // ErrNotDecided means Clear found no decision for the item: it is already
 // undecided, so there is nothing to clear.
 var ErrNotDecided = errors.New("the item has no decision")
@@ -192,16 +224,24 @@ func (a *App) Undo(ctx context.Context, key string, expect Revision, restore *Re
 	return put, nil
 }
 
-// DecideBatch records every entry (one commit each) and pushes once. Invalid
+// DecideBatch records every entry in one commit and pushes once. Invalid
 // entries are reported and skipped.
 func (a *App) DecideBatch(ctx context.Context, entries []TriageEntry, o DecideOptions) (int, []error, bool) {
-	n := 0
-	var errs []error
-	for _, e := range entries {
+	reqs := make([]DecideRequest, len(entries))
+	for i, e := range entries {
 		eo := o
 		eo.Until, eo.Note, eo.NoPush = e.Until, e.Note, true
-		if _, _, err := a.Decide(ctx, e.Key, e.Disposition, eo); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", e.Key, err))
+		reqs[i] = DecideRequest{Key: e.Key, Disposition: e.Disposition, Options: eo}
+	}
+	n := 0
+	var errs []error
+	_, rerrs, err := a.DecideMany(ctx, reqs)
+	if err != nil {
+		return 0, []error{err}, false
+	}
+	for i, e := range rerrs {
+		if e != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", entries[i].Key, e))
 			continue
 		}
 		n++

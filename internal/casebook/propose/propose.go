@@ -217,6 +217,37 @@ func (s *Store) SupersedeKey(ctx context.Context, key string, except int64) erro
 	return err
 }
 
+// AcceptAll settles the pending proposals ids as accepted and supersedes
+// every other pending proposal for their keys (keys[i] is ids[i]'s), in one
+// transaction: a group's accept at once.
+func (s *Store) AcceptAll(ctx context.Context, ids []int64, keys []string) error {
+	now := ms(s.Now())
+	return s.DB.Tx(ctx, func(tx *sql.Tx) error {
+		for i, id := range ids {
+			if _, err := tx.ExecContext(ctx, "UPDATE proposals SET state = ?, reason = '', settled_at = ? WHERE id = ? AND state = 'pending'", Accepted, now, id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE proposals SET state = 'superseded', settled_at = ? WHERE key = ? AND state = 'pending' AND id != ?", now, keys[i], id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// SupersedeKeys is SupersedeKey for every key, in one transaction.
+func (s *Store) SupersedeKeys(ctx context.Context, keys []string, except int64) error {
+	now := ms(s.Now())
+	return s.DB.Tx(ctx, func(tx *sql.Tx) error {
+		for _, k := range keys {
+			if _, err := tx.ExecContext(ctx, "UPDATE proposals SET state = 'superseded', settled_at = ? WHERE key = ? AND state = 'pending' AND id != ?", now, k, except); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // agentSource is the SQL condition for an agent's proposal ("pi:…",
 // "claude:…"), not a rule's ("rule:…"): only an agent's are withdrawn.
 const agentSource = "source NOT LIKE 'rule:%'"

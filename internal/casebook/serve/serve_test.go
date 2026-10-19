@@ -828,10 +828,10 @@ func TestAcceptManyDecidesOncePerRequest(t *testing.T) {
 		t.Fatalf("proposal %d state %q, want accepted", p2, prop2.State)
 	}
 
-	// The remote's main gets both decision commits (the push follows the
-	// reply in the background).
+	// The remote's main gets the decisions' commit, which names both (the
+	// push follows the reply in the background).
 	eventually(t, "both decisions on the remote", func() bool {
-		log, err := git(t, r.Remote, "log", "-5", "--format=%s", "main")
+		log, err := git(t, r.Remote, "log", "-5", "--format=%B", "main")
 		return err == nil && strings.Contains(log, "pr:schuettc/hail#3") && strings.Contains(log, "issue:schuettc/hail#4")
 	})
 	waitIdle(t, r)
