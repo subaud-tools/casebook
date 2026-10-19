@@ -132,7 +132,7 @@ func (s *Server) query(f itemsFilter) (Query, error) {
 				}
 			}
 		}
-		query.View, query.Filtered, query.MatchSet = ViewAll, true, set
+		query.narrowBy(set)
 	}
 	if f.Match != "" {
 		set, err := s.draftMatchSet(f.Match)
@@ -146,9 +146,20 @@ func (s *Server) query(f itemsFilter) (Query, error) {
 				}
 			}
 		}
-		query.View, query.Filtered, query.MatchSet = ViewAll, true, set
+		query.narrowBy(set)
 	}
 	return query, nil
+}
+
+// narrowBy applies a filter's keys (already cut to the rule's): review and
+// run keep their view and list only those keys; every other view lists
+// every item in set, whatever its status (Filtered, view all).
+func (q *Query) narrowBy(set map[string]bool) {
+	q.MatchSet = set
+	if q.View == ViewToApply || q.View == ViewRun {
+		return
+	}
+	q.View, q.Filtered = ViewAll, true
 }
 
 // draftMatchSet is the keys a draft filter's conditions (match=, JSON)
@@ -203,6 +214,14 @@ func (s *Server) getItems(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		reply(w, nil, err)
 		return
+	}
+	if group.View == ViewRun {
+		jobs, err := s.Apply.List(ctx)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		group.Ran = runMarks(jobs)
 	}
 	group.Limit = atoi(q.Get("limit"))
 	query := group
@@ -327,7 +346,9 @@ func (s *Server) itemDetail(ctx context.Context, it engine.Item, k item.Key) Ite
 	}
 	log, _ := s.App.Repo.Log(ctx, k.File())
 	job, verified, _ := s.Apply.LastVerified(ctx, it.ID)
+	steps, _ := s.Apply.KeySteps(ctx, it.ID)
 	return ItemDetailView{
+		Steps:     nonNil(steps),
 		DoneHow:   doneHow(string(v.Status), job, verified, time.Local),
 		Item:      v,
 		Proposals: nonNil(proposals),

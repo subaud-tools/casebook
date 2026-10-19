@@ -608,6 +608,29 @@ func (s *Store) Steps(ctx context.Context, jobID int64) ([]JobStep, error) {
 	return steps, rows.Err()
 }
 
+// KeySteps is every step on key, from every job, in job then position
+// order: what ran on an item.
+func (s *Store) KeySteps(ctx context.Context, key string) ([]JobStep, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id, job_id, key, action, lane, command, precondition, posts, expected_tip, text, restore,
+		        state, detail, verified_at, undone_at
+		 FROM steps WHERE key = ? ORDER BY job_id, pos`, key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var steps []JobStep
+	for rows.Next() {
+		st, err := scanStep(rows)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, st)
+	}
+	return steps, rows.Err()
+}
+
 // SetStepState transitions a step to a new state, storing an optional detail.
 // It sets updated_at on every call and sets verified_at when entering verified.
 // Invalid transitions return an *ErrInvalidTransition.

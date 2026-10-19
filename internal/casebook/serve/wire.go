@@ -75,6 +75,9 @@ type ItemView struct {
 	// RecommendedBy is the session whose pending proposal the item has
 	// (its id alone when serve doesn't know it); nil for none or a rule's.
 	RecommendedBy *deliver.Session `json:"recommended_by,omitempty"`
+	// Ran is what ran on the item in its latest job: set in run's list
+	// (view=run) alone.
+	Ran *RunMark `json:"ran,omitempty"`
 }
 
 // GroupNone is the group of an Attention view's items with no pending
@@ -161,6 +164,9 @@ type ItemDetailView struct {
 	Decisions []store.LogEntry   `json:"decisions"`
 	// DoneHow says how a done item got done (doneHow); "" when not done.
 	DoneHow string `json:"done_how"`
+	// Steps is every step on the item, from every job, in job order: what
+	// ran on it.
+	Steps []apply.JobStep `json:"steps"`
 }
 
 // DecideResult is the response body of POST /api/decide and POST

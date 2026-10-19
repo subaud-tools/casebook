@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
 	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
@@ -348,5 +349,81 @@ func TestItemsOpenListsOnlyTheOpenGroups(t *testing.T) {
 		if l.Total != c.total || len(l.Items) != c.total || len(l.Groups) != 2 {
 			t.Fatalf("open=%q: total %d, %d items, groups %+v; want %d", c.open, l.Total, len(l.Items), l.Groups, c.total)
 		}
+	}
+}
+
+// runTwo creates and approves a job closing issues #4 and #5, then verifies
+// #4's step and fails #5's.
+func (r *rig) runTwo(t *testing.T) apply.Job {
+	t.Helper()
+	keys := []string{"issue:schuettc/hail#4", "issue:schuettc/hail#5"}
+	var p apply.Plan
+	for _, k := range keys {
+		p.Steps = append(p.Steps, apply.Step{Key: k, Action: "issue-close", Lane: apply.LaneCasebook, Command: "true"})
+	}
+	job, err := r.s.Apply.Create(ctx, p, "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job, err = r.s.Apply.Approve(ctx, job.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	for i, to := range [][]string{{apply.StepRunning, apply.StepReported, apply.StepVerified}, {apply.StepRunning, apply.StepFailed}} {
+		for _, s := range to {
+			if err := r.s.Apply.SetStepState(ctx, job.Steps[i].ID, s, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return job
+}
+
+// TestItemsRunViewListsItemsThatRan: view=run lists the items a job ran
+// on, grouped by what happened, each with its mark.
+func TestItemsRunViewListsItemsThatRan(t *testing.T) {
+	r := newRig(t)
+	r.decideOne(t, "issue:schuettc/hail#4", "close")
+	r.decideOne(t, "issue:schuettc/hail#5", "close")
+	job := r.runTwo(t)
+	v := r.viewItems(t, "view=run")
+	var ids, labels []string
+	for _, g := range v.Groups {
+		ids, labels = append(ids, g.ID), append(labels, g.Label)
+	}
+	if !slices.Equal(ids, []string{"needs-you", "done"}) || !slices.Equal(labels, []string{"needs you", "done"}) {
+		t.Fatalf("groups %v %v", ids, labels)
+	}
+	if v.Total != 2 {
+		t.Fatalf("total %d", v.Total)
+	}
+	for _, it := range v.Items {
+		if it.Ran == nil || it.Ran.Job != job.ID {
+			t.Errorf("%s ran %+v", it.ID, it.Ran)
+		}
+	}
+	if v.Items[0].ID != "issue:schuettc/hail#5" {
+		t.Errorf("needs you first: %s", v.Items[0].ID)
+	}
+}
+
+// TestItemDetailListsEveryStepOnTheKey: the item page holds every step on
+// the key, from every job, in job order.
+func TestItemDetailListsEveryStepOnTheKey(t *testing.T) {
+	r := newRig(t)
+	const k = "issue:schuettc/hail#4"
+	var ids []int64
+	for range 2 {
+		job, err := r.s.Apply.Create(ctx, apply.Plan{Steps: []apply.Step{{Key: k, Action: "issue-close", Lane: apply.LaneCasebook, Command: "true"}}}, "mbp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, job.ID)
+	}
+	var d ItemDetailView
+	if c := r.do(t, "GET", "/api/item?key="+url.QueryEscape(k), nil, &d); c != 200 {
+		t.Fatalf("item: %d", c)
+	}
+	if len(d.Steps) != 2 || d.Steps[0].JobID != ids[0] || d.Steps[1].JobID != ids[1] {
+		t.Fatalf("steps %+v", d.Steps)
 	}
 }

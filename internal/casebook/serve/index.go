@@ -96,18 +96,19 @@ const (
 type Query struct {
 	View     string
 	Kind     string
-	Repo     string          // owner/name or owner
-	Text     string          // substring of key or title
-	Relation string          // incoming / outgoing / self (own)
-	Bot      string          // "bot" or "human"
-	Age      string          // casebook duration (<n>h, <n>d, <n>w); matches items older than the duration
-	Rule     string          // rule id whose matched keys are in MatchSet
-	MatchSet map[string]bool // the keys a rule matched (Rule != ""): only those items; nil: no such filter
-	Group    string          // a group's ID (GroupView.ID): only its items
-	Open     map[string]bool // the groups the page has open (open=): only their items; nil: every group's
-	Flat     bool            // group=false: one list, newest first; items keep their Group and Groups still count
-	Filtered bool            // filters=: every item, whatever its status, in MatchSet
-	Now      time.Time       // clock for the age filter; zero falls back to time.Now()
+	Repo     string             // owner/name or owner
+	Text     string             // substring of key or title
+	Relation string             // incoming / outgoing / self (own)
+	Bot      string             // "bot" or "human"
+	Age      string             // casebook duration (<n>h, <n>d, <n>w); matches items older than the duration
+	Rule     string             // rule id whose matched keys are in MatchSet
+	MatchSet map[string]bool    // the keys a rule matched (Rule != ""): only those items; nil: no such filter
+	Group    string             // a group's ID (GroupView.ID): only its items
+	Open     map[string]bool    // the groups the page has open (open=): only their items; nil: every group's
+	Flat     bool               // group=false: one list, newest first; items keep their Group and Groups still count
+	Filtered bool               // filters=: every item, whatever its status, in MatchSet
+	Ran      map[string]RunMark // ViewRun: each key a job ran on, and what happened (runMarks)
+	Now      time.Time          // clock for the age filter; zero falls back to time.Now()
 	Offset   int
 	Limit    int
 }
@@ -170,7 +171,37 @@ func leftOpenInView(view string, it engine.Item, pending map[string]propose.Prop
 }
 
 // grouped reports whether view's items are grouped: the Attention views.
-func grouped(view string) bool { return view != ViewToApply && view != ViewTracked }
+func grouped(view string) bool { return view != ViewToApply && view != ViewTracked && view != ViewRun }
+
+// groupIn is it's group in q's view: run's from its mark, else groupOf.
+func groupIn(q Query, it engine.Item, pending map[string]propose.Proposal) GroupView {
+	if q.View == ViewRun {
+		return runGroupOf(q.Ran[it.ID])
+	}
+	return groupOf(q.View, it, pending)
+}
+
+// ran is the items q.Ran names, in run's order: by group, then latest job
+// first, then key.
+func (x *Index) ran(q Query) []engine.Item {
+	var src []engine.Item
+	for _, it := range x.res.Items {
+		if _, ok := q.Ran[it.ID]; ok {
+			src = append(src, it)
+		}
+	}
+	sort.SliceStable(src, func(i, j int) bool {
+		a, b := q.Ran[src[i].ID], q.Ran[src[j].ID]
+		if oa, ob := runOrder(a.Group), runOrder(b.Group); oa != ob {
+			return oa < ob
+		}
+		if a.Job != b.Job {
+			return a.Job > b.Job
+		}
+		return src[i].ID < src[j].ID
+	})
+	return src
+}
 
 // groupOf is it's group in view, given the pending proposals: in To apply
 // what will happen to it (applyGroupOf), none in tracked. The group's Total
@@ -336,17 +367,7 @@ func matches(q Query, it engine.Item, group string) bool {
 // (applyGroupsInOrder); tracked keeps key order. The caller holds x.mu.
 func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView, []GroupView) {
 	src := x.res.Items
-	if q.Filtered {
-		// Narrowed by filters or a rule: what came back still leads.
-		src = slices.Clone(x.res.Items)
-		sort.SliceStable(src, func(i, j int) bool {
-			if a, b := cameBack(src[i]), cameBack(src[j]); a != b {
-				return a
-			}
-			return engine.NewerFirst(src[i], src[j])
-		})
-	} else if grouped(q.View) {
-		src = slices.Clone(x.res.Attention())
+	cameBackFirst := func() {
 		// What came back leads, grouped (its group is listed first) or flat.
 		sort.SliceStable(src, func(i, j int) bool {
 			if a, b := cameBack(src[i]), cameBack(src[j]); a != b {
@@ -354,6 +375,17 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 			}
 			return engine.NewerFirst(src[i], src[j])
 		})
+	}
+	switch {
+	case q.Filtered:
+		// Narrowed by filters or a rule: what came back still leads.
+		src = slices.Clone(x.res.Items)
+		cameBackFirst()
+	case q.View == ViewRun:
+		src = x.ran(q)
+	case grouped(q.View):
+		src = slices.Clone(x.res.Attention())
+		cameBackFirst()
 	}
 	var out []ItemView
 	groups := map[string]*GroupView{}
@@ -363,10 +395,10 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 		done = x.applied()
 	}
 	for _, it := range src {
-		if !q.Filtered && !inView(q.View, it, pending) || done[it.ID] {
+		if !q.Filtered && q.View != ViewRun && !inView(q.View, it, pending) || done[it.ID] {
 			continue
 		}
-		g := groupOf(q.View, it, pending)
+		g := groupIn(q, it, pending)
 		if !matches(q, it, g.ID) {
 			continue
 		}
@@ -376,6 +408,9 @@ func (x *Index) listed(q Query, pending map[string]propose.Proposal) ([]ItemView
 		}
 		v := newItemView(it, prop)
 		v.Group = g.ID
+		if m, ok := q.Ran[it.ID]; ok && q.View == ViewRun {
+			v.Ran = &m
+		}
 		out = append(out, v)
 		if g.ID == "" {
 			continue
@@ -404,7 +439,7 @@ func (x *Index) List(q Query, pending map[string]propose.Proposal) ([]ItemView, 
 	x.mu.RLock()
 	defer x.mu.RUnlock()
 	out, gs := x.listed(q, pending)
-	if (grouped(q.View) || q.View == ViewToApply) && !q.Flat {
+	if (grouped(q.View) || q.View == ViewToApply || q.View == ViewRun) && !q.Flat {
 		order := make(map[string]int, len(gs))
 		for i, g := range gs {
 			order[g.ID] = i
@@ -434,13 +469,16 @@ func (x *Index) Keys(q Query, pending map[string]propose.Proposal) []string {
 	if q.Filtered || q.View == ViewToApply || q.View == ViewTracked {
 		src = x.res.Items
 	}
+	if q.View == ViewRun {
+		src = x.ran(q)
+	}
 	var out []string
 	var done map[string]bool
 	if q.View == ViewToApply && !q.Filtered {
 		done = x.applied()
 	}
 	for _, it := range src {
-		if (q.Filtered || inView(q.View, it, pending)) && !done[it.ID] && matches(q, it, groupOf(q.View, it, pending).ID) {
+		if (q.Filtered || q.View == ViewRun || inView(q.View, it, pending)) && !done[it.ID] && matches(q, it, groupIn(q, it, pending).ID) {
 			out = append(out, it.ID)
 		}
 	}
@@ -454,7 +492,7 @@ func (x *Index) Keys(q Query, pending map[string]propose.Proposal) []string {
 // They need no decision, so List and Counts leave them out.
 func (x *Index) LeftOpen(q Query, pending map[string]propose.Proposal) ([]ItemView, int) {
 	// A filtered list lists its kept items with the rest: no left-open group.
-	if q.Filtered || q.View == ViewToApply || q.View == ViewTracked {
+	if q.Filtered || q.View == ViewToApply || q.View == ViewTracked || q.View == ViewRun {
 		return nil, 0
 	}
 	x.mu.RLock()

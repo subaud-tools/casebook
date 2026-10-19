@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
@@ -213,5 +214,36 @@ func TestItemsDraftMatch(t *testing.T) {
 	bad := url.QueryEscape(`[{"field":"kind","op":"is","value":"issue"},{"field":"kind","op":"is","value":"pr"}]`)
 	if c := r.do(t, "GET", "/api/items?match="+bad, nil, &e); c != 400 || e.Error != "condition 2: type is already used by condition 1" {
 		t.Fatalf("two kind conditions: %d %q", c, e.Error)
+	}
+}
+
+// TestItemsFiltersNarrowToApplyAndRun: on to-apply and run, filters= narrows
+// the view's own list instead of listing every matching item.
+func TestItemsFiltersNarrowToApplyAndRun(t *testing.T) {
+	r := newRig(t)
+	r.decideOne(t, "issue:schuettc/hail#4", "close")
+	r.decideOne(t, "repo:schuettc/hail", "archive")
+	keys := func(v ItemsView) []string {
+		out := []string{}
+		for _, it := range v.Items {
+			out = append(out, it.ID)
+		}
+		return out
+	}
+	if v := r.viewItems(t, "view=to-apply&filters=incoming"); v.Total != 1 || !slices.Equal(keys(v), []string{"issue:schuettc/hail#4"}) {
+		t.Fatalf("to-apply incoming: %d %v", v.Total, keys(v))
+	}
+	job, err := r.s.Apply.Create(ctx, apply.Plan{Steps: []apply.Step{
+		{Key: "issue:schuettc/hail#4", Action: "issue-close", Lane: apply.LaneCasebook, Command: "true"},
+		{Key: "repo:schuettc/hail", Action: "repo-archive", Lane: apply.LaneCasebook, Command: "true"},
+	}}, "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Apply.Approve(ctx, job.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if v := r.viewItems(t, "view=run&filters=incoming"); v.Total != 1 || !slices.Equal(keys(v), []string{"issue:schuettc/hail#4"}) {
+		t.Fatalf("run incoming: %d %v", v.Total, keys(v))
 	}
 }
