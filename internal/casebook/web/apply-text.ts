@@ -4,6 +4,7 @@
 
 import type { Job, JobStep, NeedsYou, Plan, Step, Waiting } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
+import type { Tone } from './list-pane-text.ts';
 
 /**
  * runOrder splits the jobs as run lists them, each part newest first:
@@ -237,7 +238,7 @@ export function openCardsByJob(cards: NeedsYou[]): Map<number, number> {
   return m;
 }
 
-export type Tone = 'ok' | 'agent' | 'signal' | 'wait' | 'muted';
+export type { Tone };
 
 export interface StepMark {
   glyph: string;

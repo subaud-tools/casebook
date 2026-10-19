@@ -105,14 +105,8 @@ async function press(pg, ...keys) {
   for (const k of keys) await pg.keyboard.press(k);
 }
 
-// row is the shown list's row for key (its kicker is the key).
-const escapeRe = (x) => x.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
-const row = (pg, key) =>
-  pg.locator(`${LIST} .kit-row`).filter({
-    has: pg.locator('.kit-kicker', {
-      hasText: new RegExp(`^${escapeRe(key.replace(':', ' \u00b7 '))}$`),
-    }),
-  });
+// row is the shown list's row for key.
+const row = (pg, key) => pg.locator(`${LIST} .kit-row[data-key="${key}"]`);
 
 // opened waits for the reading column to show key with its buttons.
 function opened(t, pg, key) {

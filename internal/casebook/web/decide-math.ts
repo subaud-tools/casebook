@@ -17,7 +17,8 @@ import type {
   NotNowForm,
   RuleRow,
 } from './wire.d.ts';
-import { sessionName } from './sessions.ts';
+import { lookingLine, sessionName } from './sessions.ts';
+import type { Tone } from './list-pane-text.ts';
 
 /**
  * kindFromKey extracts the kind from a key by taking the prefix before the
@@ -304,33 +305,35 @@ export function recommendsWho(
 export const CAME_BACK = 'came-back';
 
 /**
- * rowSub is a decide row's second line: why it came back (its own reason,
- * or serve's words for its status), then its pending recommendation's
- * reason. The flat list has no group heads, so there the reason follows
- * the choice ("Close it · stale"). A left-open row has none.
+ * standsLine is a decide row's second line, where the item stands, the
+ * first that applies: a session looking into it (agent); why it came back,
+ * or its new activity (signal); its recommendation (muted). Grouped, the
+ * head names the choice and the row gives its reason; flat, the row names
+ * both ("delete it · landed"). A left-open row says when it was left open.
  */
-export function rowSub(
+export function standsLine(
   vocab: DecisionVocabView | null,
   it: ItemView,
   flat: boolean,
-): string | undefined {
-  const p =
-    it.status !== 'left-open' && it.proposal?.state === 'pending'
-      ? it.proposal
-      : undefined;
-  return (
-    [
-      it.group === CAME_BACK
-        ? it.due_reason || vocab?.came_back?.[it.status]
-        : it.new_activity
-          ? it.due_reason
-          : undefined,
-      p && flat ? choiceLabel(vocab, it.key, p.disposition) : undefined,
-      p?.note || undefined,
-    ]
-      .filter(Boolean)
-      .join(' \u00b7 ') || undefined
-  );
+): { text: string; tone: Tone } {
+  const looking = lookingLine(it.looking);
+  if (looking) return { text: looking, tone: 'agent' };
+  if (it.status === 'left-open')
+    return { text: leftOpenMeta(it.decision?.decided_at), tone: 'muted' };
+  const back =
+    it.group === CAME_BACK
+      ? it.due_reason || vocab?.came_back?.[it.status]
+      : it.new_activity
+        ? it.due_reason
+        : '';
+  if (back) return { text: back, tone: 'signal' };
+  const p = it.proposal?.state === 'pending' ? it.proposal : undefined;
+  if (!p) return { text: 'not recommended yet', tone: 'muted' };
+  const label = choiceLabel(vocab, it.key, p.disposition);
+  const text = flat
+    ? [label, p.note].filter(Boolean).join(' \u00b7 ')
+    : p.note || label;
+  return { text, tone: 'muted' };
 }
 
 /**

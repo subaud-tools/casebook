@@ -284,3 +284,9 @@ describe('old apply addresses land on review or run', () => {
     test(hash, () => assert.deepStrictEqual(parse(hash), want));
   }
 });
+
+test('decideQuery carries q', () =>
+  assert.equal(
+    decideQuery({ flat: false, filters: ['a'], q: 'foo' }),
+    'filters=a&q=foo',
+  ));

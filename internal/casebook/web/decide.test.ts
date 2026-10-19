@@ -18,7 +18,7 @@ import {
   leftOpenMeta,
   navTargets,
   shortKey,
-  rowSub,
+  standsLine,
   decideSummary,
 } from './decide-math.ts';
 import type {
@@ -456,98 +456,86 @@ describe('shortKey', () => {
   });
 });
 
-// ---- rowSub -----------------------------------------------------------------
+// ---- standsLine ---------------------------------------------------------------
 
-describe('rowSub', () => {
+describe('standsLine', () => {
   const vocab = {
     kinds: [
       {
-        kind: 'pr',
-        allowed: ['keep', 'close'],
+        kind: 'branch',
+        allowed: ['keep', 'delete'],
         needs_until: [],
         question: '',
         choices: [
           {
-            disposition: 'keep',
-            label: 'Leave it open',
-            says: '',
-            outward: false,
-            needs_until: false,
-            many: '',
-          },
-          {
-            disposition: 'close',
-            label: 'Close it without merging',
+            disposition: 'delete',
+            label: 'delete it',
             says: '',
             outward: true,
-            many: '',
             needs_until: false,
+            many: '',
           },
         ],
       },
     ],
+    came_back: { due: 'its decision came due' },
   } as unknown as DecisionVocabView;
-  const pr = (over: Partial<ItemView> = {}): ItemView =>
+  const br = (over: Partial<ItemView> = {}): ItemView =>
     ({
-      key: 'pr:schuettc/hail#3',
-      kind: 'pr',
+      key: 'branch:o/r@feat/x',
+      kind: 'branch',
       status: 'new',
-      group: 'pi:s1|close|Close it without merging',
-      proposal: { state: 'pending', disposition: 'close', note: 'stale' },
+      group: 'rule:landed|delete|delete it',
+      proposal: { state: 'pending', disposition: 'delete', note: 'landed' },
       ...over,
     }) as unknown as ItemView;
 
-  test('grouped: the reason alone (the head names the choice)', () => {
-    assert.equal(rowSub(vocab, pr(), false), 'stale');
-  });
-  test('flat: the choice, then the reason', () => {
-    assert.equal(
-      rowSub(vocab, pr(), true),
-      'Close it without merging \u00b7 stale',
-    );
-  });
-  test('flat with new activity: why it came back first', () => {
-    const it = pr({
-      new_activity: true,
-      due_reason: 'new activity since you left it open',
-    });
-    assert.equal(
-      rowSub(vocab, it, true),
-      'new activity since you left it open \u00b7 Close it without merging \u00b7 stale',
-    );
-  });
-  test('no proposal: no sub', () => {
-    assert.equal(rowSub(vocab, pr({ proposal: undefined }), true), undefined);
-  });
-  test('left open: no sub', () => {
-    assert.equal(rowSub(vocab, pr({ status: 'left-open' }), true), undefined);
-  });
-  test("came back: why, first; serve's words when the item has no reason", () => {
-    const v = {
-      ...vocab,
-      came_back: { drift: 'it changed on GitHub since you decided' },
-    } as unknown as DecisionVocabView;
-    assert.equal(
-      rowSub(
-        v,
-        pr({
+  test('standsLine puts looking first, then why it came back, then the recommendation', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          looking: { session: { id: 's1', name: 'pi' } },
           status: 'due',
           group: 'came-back',
-          due_reason: 'its condition was met',
-          proposal: undefined,
+        } as unknown as Partial<ItemView>),
+        true,
+      ),
+      { text: 'pi is looking into it', tone: 'agent' },
+    );
+    assert.deepEqual(
+      standsLine(vocab, br({ status: 'due', group: 'came-back' }), true),
+      { text: 'its decision came due', tone: 'signal' },
+    );
+    assert.deepEqual(standsLine(vocab, br(), true), {
+      text: 'delete it \u00b7 landed',
+      tone: 'muted',
+    });
+  });
+  test('grouped: the head names the choice, the row its reason', () => {
+    assert.deepEqual(standsLine(vocab, br(), false), {
+      text: 'landed',
+      tone: 'muted',
+    });
+  });
+  test('new activity is why it is back', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          new_activity: true,
+          due_reason: 'new activity since you left it open',
         }),
         false,
       ),
-      'its condition was met',
+      { text: 'new activity since you left it open', tone: 'signal' },
     );
-    assert.equal(
-      rowSub(
-        v,
-        pr({ status: 'drift', group: 'came-back', proposal: undefined }),
-        false,
-      ),
-      'it changed on GitHub since you decided',
-    );
+  });
+  test('no recommendation', () => {
+    assert.deepEqual(standsLine(vocab, br({ proposal: undefined }), false), {
+      text: 'not recommended yet',
+      tone: 'muted',
+    });
   });
 });
 

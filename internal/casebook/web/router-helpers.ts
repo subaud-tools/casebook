@@ -67,16 +67,18 @@ export function parse(hash: string): {
 /**
  * decideQuery is the decide list's address query: the rule it is narrowed
  * to, the selected saved filters (filters=a,b, the ids joined with a raw
- * comma), then flat.
+ * comma), the search, then flat.
  */
 export function decideQuery(o: {
   flat: boolean;
   filters: string[];
   rule?: string;
+  q?: string;
 }): string {
   const parts: string[] = [];
   if (o.rule) parts.push(`rule=${o.rule}`);
   if (o.filters.length) parts.push(`filters=${o.filters.join(',')}`);
+  if (o.q) parts.push(`q=${encodeURIComponent(o.q)}`);
   if (o.flat) parts.push('flat');
   return parts.join('&');
 }

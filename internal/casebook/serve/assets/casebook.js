@@ -235,6 +235,7 @@ function decideQuery(o) {
   const parts = [];
   if (o.rule) parts.push(`rule=${o.rule}`);
   if (o.filters.length) parts.push(`filters=${o.filters.join(",")}`);
+  if (o.q) parts.push(`q=${encodeURIComponent(o.q)}`);
   if (o.flat) parts.push("flat");
   return parts.join("&");
 }
@@ -1158,13 +1159,18 @@ function recommendsWho(vocab2, source, ruleName = "") {
   return vocab2.recommends;
 }
 var CAME_BACK = "came-back";
-function rowSub(vocab2, it, flat) {
-  const p = it.status !== "left-open" && it.proposal?.state === "pending" ? it.proposal : void 0;
-  return [
-    it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : void 0,
-    p && flat ? choiceLabel(vocab2, it.key, p.disposition) : void 0,
-    p?.note || void 0
-  ].filter(Boolean).join(" · ") || void 0;
+function standsLine(vocab2, it, flat) {
+  const looking = lookingLine(it.looking);
+  if (looking) return { text: looking, tone: "agent" };
+  if (it.status === "left-open")
+    return { text: leftOpenMeta(it.decision?.decided_at), tone: "muted" };
+  const back = it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : "";
+  if (back) return { text: back, tone: "signal" };
+  const p = it.proposal?.state === "pending" ? it.proposal : void 0;
+  if (!p) return { text: "not recommended yet", tone: "muted" };
+  const label = choiceLabel(vocab2, it.key, p.disposition);
+  const text = flat ? [label, p.note].filter(Boolean).join(" · ") : p.note || label;
+  return { text, tone: "muted" };
 }
 function decideSummary(groups, total, rules, vocab2) {
   const w = vocab2.summary;
@@ -1861,9 +1867,9 @@ function ageText(ms) {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h15 = Math.floor(m / 60);
-  if (h15 < 24) return `${h15}h`;
-  return `${Math.floor(h15 / 24)}d`;
+  const h16 = Math.floor(m / 60);
+  if (h16 < 24) return `${h16}h`;
+  return `${Math.floor(h16 / 24)}d`;
 }
 function observations(builtAt, intervalMs, now) {
   const age = now - builtAt;
@@ -3730,9 +3736,8 @@ function needsCard(c, step, j, agent, hooks) {
 
 // decide-list.ts
 import {
-  list as list2,
   createSelection,
-  h as h11,
+  h as h12,
   ApiError as ApiError4
 } from "/_kit/kit.js";
 
@@ -5878,6 +5883,338 @@ function renderRule(ctx, detail, hooks) {
   return el2;
 }
 
+// list-pane.ts
+import { list as list2, h as h11 } from "/_kit/kit.js";
+
+// list-pane-text.ts
+function paneQuery(query) {
+  const p = new URLSearchParams(query);
+  return {
+    filters: (p.get("filters") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    q: p.get("q") ?? ""
+  };
+}
+function paneParams(q) {
+  const out = {};
+  if (q.filters.length) out["filters"] = q.filters.join(",");
+  if (q.q) out["q"] = q.q;
+  return out;
+}
+function paneLines(r) {
+  const i = r.key.indexOf(":");
+  const key = i < 0 ? r.key : `${r.key.slice(0, i)} · ${r.key.slice(i + 1)}`;
+  return { one: r.title || key, two: r.stands, hover: r.key };
+}
+
+// list-pane.ts
+var SEARCH_MS = 200;
+function setHashQuery(query) {
+  const path = location.hash.split("?")[0] || "#/";
+  history.replaceState(
+    null,
+    "",
+    location.pathname + location.search + path + (query ? `?${query}` : "")
+  );
+}
+function makePane(ctx, tab, selection2, hooks) {
+  let q = { filters: [], q: "" };
+  let timer = null;
+  const moreBtn = h11("button", {
+    type: "button",
+    class: "cb-foot-more",
+    hidden: true,
+    onclick() {
+      hooks.onMore();
+    }
+  });
+  const obsText = h11("span", { "data-testid": "observations" });
+  const obsEl = h11(
+    "div",
+    { class: "cb-apply-obs", hidden: true },
+    h11("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
+    obsText
+  );
+  const foot = h11("div", { class: "cb-pane-foot" }, obsEl, moreBtn);
+  const handle = list2({
+    label: "",
+    selection: selection2,
+    openOnMove: false,
+    search: {
+      placeholder: "search by key or title",
+      onInput(text) {
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          q = { ...q, q: text };
+          hooks.onQuery({ ...q });
+        }, SEARCH_MS);
+      }
+    },
+    row(it) {
+      const r = hooks.row(it);
+      const l = paneLines(r);
+      return {
+        id: r.id,
+        key: l.one,
+        title: l.two,
+        selectable: r.selectable ?? true
+      };
+    },
+    onOpen(it) {
+      hooks.onOpen(it);
+    },
+    foot
+  });
+  const el2 = handle.el;
+  el2.classList.add("cb-pane", `cb-pane-${tab}`);
+  el2.dataset.tab = tab;
+  const filterBar = makeFilterBar(ctx, {
+    onSelect(ids, clicked) {
+      q = { ...q, filters: ids };
+      hooks.onQuery({ ...q }, clicked);
+    },
+    onOpen(row) {
+      hooks.onFilterOpen(row);
+    },
+    onNew() {
+      hooks.onFilterNew();
+    }
+  });
+  const ownRow = h11("div", { class: "cb-own" });
+  const tools = h11("div", { class: "cb-pane-tools" });
+  const lh = el2.querySelector(".kit-lh");
+  const search = el2.querySelector(".kit-search");
+  if (lh) {
+    lh.classList.add("cb-pane-top");
+    lh.replaceChildren(
+      filterBar.el,
+      ...search ? [search] : [],
+      ownRow,
+      tools
+    );
+  }
+  const storeKey = `casebook.sidebar.${tab}`;
+  const hideBtn = h11(
+    "button",
+    {
+      type: "button",
+      class: "cb-list-hide",
+      title: "hide the list",
+      onclick() {
+        setSidebar(false);
+      }
+    },
+    "«"
+  );
+  const showBtn = h11(
+    "button",
+    { type: "button", class: "cb-list-show", title: "show the list" },
+    "»"
+  );
+  const railLabel = h11("span", { class: "cb-list-rail-label" });
+  const rail = h11(
+    "div",
+    {
+      class: "cb-list-rail",
+      onclick() {
+        setSidebar(true);
+      }
+    },
+    showBtn,
+    railLabel
+  );
+  el2.append(hideBtn, rail);
+  function setSidebar(open) {
+    el2.classList.toggle("cb-list-closed", !open);
+    try {
+      localStorage.setItem(storeKey, open ? "open" : "closed");
+    } catch {
+    }
+  }
+  try {
+    el2.classList.toggle(
+      "cb-list-closed",
+      localStorage.getItem(storeKey) === "closed"
+    );
+  } catch {
+  }
+  void getVocab(ctx).then((v) => {
+    hideBtn.title = v.hide_list;
+    showBtn.title = v.show_list;
+  }).catch(() => {
+  });
+  let heads = [];
+  function head(g, open) {
+    const toggle = () => hooks.onToggle(g.id);
+    const box = g.box ? h11("span", {
+      class: "cb-group-box",
+      role: "checkbox",
+      "aria-checked": "false",
+      "aria-label": g.label,
+      onclick() {
+        hooks.onTickGroup(g.id);
+      }
+    }) : h11("span", { class: "cb-group-nobox" });
+    const tickedN = h11("span", { class: "cb-group-ticked-n" });
+    const ticked = h11(
+      "span",
+      { class: "cb-group-ticked", hidden: true },
+      tickedN,
+      h11(
+        "button",
+        {
+          type: "button",
+          class: "cb-group-untick",
+          onclick() {
+            selection2.deselect(hooks.tickedIn(g.id));
+          }
+        },
+        "untick"
+      )
+    );
+    const acts = h11("span", { class: "cb-group-acts" });
+    const named = [g.label, g.tag].filter(Boolean).join(" · ");
+    const top = h11(
+      "div",
+      { class: "cb-group-top" },
+      h11(
+        "button",
+        {
+          type: "button",
+          class: "cb-group-caret",
+          "aria-expanded": String(open),
+          "aria-label": g.label,
+          onclick: toggle
+        },
+        open ? "▼" : "▶"
+      ),
+      box,
+      h11(
+        "span",
+        { class: "cb-group-name", title: named, onclick: toggle },
+        h11("span", { class: "cb-group-label" }, g.label),
+        g.tag ? h11("span", { class: "cb-group-tag" }, g.tag) : null
+      ),
+      ticked,
+      acts,
+      h11("span", { class: "cb-group-n" }, String(g.n)),
+      g.more ?? null
+    );
+    const data = { group: g.id, ...g.data ?? {} };
+    if (tab !== "decide") data["part"] = g.id;
+    const hd = h11(
+      "div",
+      {
+        class: "cb-group" + (tab !== "decide" ? " cb-apply-part" : "") + (open ? "" : " collapsed"),
+        role: "presentation",
+        dataset: data
+      },
+      top
+    );
+    heads.push({
+      paint() {
+        const n = hooks.tickedIn(g.id).length;
+        box.setAttribute(
+          "aria-checked",
+          n === 0 ? "false" : n >= g.n ? "true" : "mixed"
+        );
+        ticked.hidden = n === 0;
+        tickedN.textContent = `${n} ticked · `;
+        acts.replaceChildren(...hooks.headActs?.(g.id) ?? []);
+      }
+    });
+    return hd;
+  }
+  function setRows(items, groups, opened) {
+    const listedIds = new Set(groups.map((g) => g.id));
+    const shown = items.filter((it) => {
+      const g = hooks.groupOf(it);
+      return !listedIds.has(g) || opened.has(g);
+    });
+    handle.setItems(shown);
+    const body = el2.querySelector(".kit-rows");
+    const rowEls = el2.querySelectorAll(".kit-rows > .kit-row");
+    shown.forEach((it, i) => {
+      const rowEl = rowEls[i];
+      if (!rowEl) return;
+      const r = hooks.row(it);
+      const l = paneLines(r);
+      rowEl.dataset.key = r.key;
+      rowEl.dataset.group = hooks.groupOf(it);
+      rowEl.title = l.hover;
+      const one = rowEl.querySelector(".kit-kicker");
+      if (one) one.title = l.one;
+      const two = rowEl.querySelector(".kit-title");
+      if (two) {
+        two.title = l.two;
+        two.className = `kit-title cb-tone-${r.tone ?? "muted"}`;
+      }
+    });
+    heads = [];
+    if (!body) return shown;
+    const listed = new Set(groups.map((g) => g.id));
+    let last = null;
+    shown.forEach((it, i) => {
+      if (listed.has(hooks.groupOf(it))) return;
+      rowEls[i]?.classList.add("cb-loose");
+      if (!shown.slice(0, i).some((x) => listed.has(hooks.groupOf(x))))
+        last = rowEls[i] ?? last;
+    });
+    for (const g of groups) {
+      const hd = head(g, opened.has(g.id));
+      const first = shown.findIndex((it) => hooks.groupOf(it) === g.id);
+      if (first >= 0) {
+        rowEls[first]?.before(hd);
+        let end = first;
+        while (end + 1 < shown.length && hooks.groupOf(shown[end + 1]) === g.id)
+          end++;
+        last = rowEls[end] ?? hd;
+      } else {
+        if (last) last.after(hd);
+        else body.prepend(hd);
+        last = hd;
+      }
+    }
+    paintHeads();
+    return shown;
+  }
+  function paintHeads() {
+    for (const hd of heads) hd.paint();
+  }
+  return {
+    el: el2,
+    handle,
+    ownRow,
+    tools,
+    setFilters(rows, selected) {
+      q = { ...q, filters: [...selected] };
+      filterBar.paint(rows, selected);
+    },
+    setFilterError(msg) {
+      filterBar.setError(msg);
+    },
+    setSearch(text) {
+      q = { ...q, q: text };
+      handle.setSearch(text);
+    },
+    query: () => ({ filters: [...q.filters], q: q.q }),
+    setRows,
+    paintHeads,
+    setMore(left) {
+      moreBtn.hidden = left <= 0;
+      moreBtn.textContent = `show ${left} more`;
+    },
+    setObs(text, state) {
+      obsText.textContent = text;
+      obsEl.dataset.state = state;
+      obsEl.hidden = !text;
+    },
+    setRail(text) {
+      railLabel.textContent = text;
+    }
+  };
+}
+
 // decide-list.ts
 var STRIP_MS = 6e3;
 var SUGGEST_RULES = "Please suggest rules for the items in the attached list: look at what they have in common and draft rules (casebook_rule_save) that would recommend a decision for many of them at once. Recommend nothing item by item.";
@@ -5887,7 +6224,6 @@ function emptyFilters() {
   return { filters: [], rule: null, q: "" };
 }
 var LEFT_OPEN = "left-open";
-var SIDEBAR = "casebook.sidebar";
 var GROUPING = "casebook.grouping";
 function storedFlat() {
   try {
@@ -5902,33 +6238,11 @@ function storeFlat(flat) {
   } catch {
   }
 }
-function getUrlQ() {
-  return new URLSearchParams(location.search).get("q") ?? "";
-}
-function setUrlQ(q) {
-  const p = new URLSearchParams(location.search);
-  if (q) {
-    p.set("q", q);
-  } else {
-    p.delete("q");
-  }
-  const qs = p.toString();
-  const newUrl = location.pathname + (qs ? "?" + qs : "") + location.hash;
-  history.replaceState(null, "", newUrl);
-}
-function ageOf(it) {
-  if (!it.created_at) return "";
-  const ms = Date.now() - new Date(it.created_at).getTime();
-  const days = Math.floor(ms / 864e5);
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
-}
 function isLeftOpen(it) {
   return it.status === "left-open";
 }
 function makeDecide(ctx) {
-  const readEl = h11("div", { class: "kit-read" });
+  const readEl = h12("div", { class: "kit-read" });
   let offset = 0;
   let totalItems = 0;
   let loadedItems = [];
@@ -5937,8 +6251,6 @@ function makeDecide(ctx) {
   let reloading = false;
   let loadingMore = false;
   let loads = 0;
-  let footEl = null;
-  let searchDebounceTimer = null;
   let totalItemsForView = 0;
   let groups = [];
   const opened = /* @__PURE__ */ new Set();
@@ -5955,7 +6267,7 @@ function makeDecide(ctx) {
   let lastUndo = [];
   let vocab2 = null;
   let syncingOpen = false;
-  const discardAllBtn = h11("button", {
+  const discardAllBtn = h12("button", {
     class: "kit-btn cb-discard-all",
     type: "button",
     hidden: true,
@@ -5964,13 +6276,13 @@ function makeDecide(ctx) {
     }
   });
   function renderReadEmpty() {
-    const prompt = h11(
+    const prompt = h12(
       "p",
       { class: "cb-read-empty-prompt" },
       "Select an item to see it here."
     );
     if (!vocab2)
-      return h11(
+      return h12(
         "div",
         { class: "cb-read-empty", "data-testid": "decide-summary" },
         prompt
@@ -5987,14 +6299,14 @@ function makeDecide(ctx) {
         "{n}",
         String(viewRecs)
       );
-    return h11(
+    return h12(
       "div",
       { class: "cb-read-empty", "data-testid": "decide-summary" },
-      h11("p", { class: "cb-read-empty-count" }, head ?? ""),
-      h11(
+      h12("p", { class: "cb-read-empty-count" }, head ?? ""),
+      h12(
         "ul",
         { class: "cb-summary-lines" },
-        ...rest.map((l) => h11("li", null, l))
+        ...rest.map((l) => h12("li", null, l))
       ),
       discardAllBtn,
       prompt
@@ -6100,72 +6412,69 @@ function makeDecide(ctx) {
     );
   }
   readEl.replaceChildren(renderReadEmpty());
-  function buildFoot() {
-    const footRight = h11(
-      "div",
-      { class: "cb-foot-right" },
-      h11(
-        "button",
-        {
-          class: "cb-foot-more",
-          hidden: true,
-          // shown by updateFoot() when there are more items
-          onclick() {
-            void loadMore();
-          }
-        },
-        `show ${PAGE_SIZE} more`
-      )
-    );
-    footEl = h11("div", { class: "cb-foot" }, footRight);
-    return footEl;
-  }
-  const handle = list2({
-    label: "",
-    filters: [],
-    selection,
-    openOnMove: false,
-    search: {
-      placeholder: "search by key or title",
-      onInput(text) {
-        if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
-        searchDebounceTimer = setTimeout(() => {
-          searchDebounceTimer = null;
-          filters.q = text;
-          setUrlQ(text);
-          void reload();
-        }, 200);
-      }
-    },
+  const pane = makePane(ctx, "decide", selection, {
     row(it) {
-      const displayKey = it.kind ? keyWithoutKind(it.key) : it.key;
-      const kindKey = it.kind ? `${it.kind} · ${displayKey}` : displayKey;
-      const left = isLeftOpen(it);
-      const age = left ? leftOpenMeta(it.decision?.decided_at) : ageOf(it);
+      const st = standsLine(vocab2, it, flat);
       return {
         id: it.key,
-        key: kindKey,
-        // Fallback: use display key (without kind prefix) so titleless items
-        // like branch:schuettc/hail@feat/client show "schuettc/hail@feat/client".
-        title: it.title ?? keyWithoutKind(it.key),
-        meta: age,
-        // An item new activity brought back says so ("new activity since
-        // you left it open"), before any recommendation's reason; the flat
-        // list, with no group heads, names the recommendation too.
-        sub: rowSub(vocab2, it, flat),
+        key: it.key,
+        title: it.title || void 0,
+        stands: st.text,
+        tone: it.new_activity && st.tone === "muted" ? "signal" : st.tone,
         // A draft filter's preview is only to look at.
         selectable: draft === null
       };
     },
+    groupOf: (it) => isLeftOpen(it) ? LEFT_OPEN : flat ? "" : it.group,
     onOpen(it) {
       if (syncingOpen || draft !== null) return;
       ctx.route.go("item", it.key);
       void openDetail(it.key);
     },
-    foot: buildFoot()
+    onQuery(q, clicked) {
+      if (clicked !== void 0) {
+        if (draft !== null) closeFilterEditor(false);
+        shownFilter = q.filters.includes(clicked) ? clicked : null;
+        selectFilters(q.filters);
+        return;
+      }
+      filters.q = q.q;
+      if (ctx.route.current().section === "decide" && draft === null)
+        setHashQuery(listQuery());
+      void reload();
+    },
+    onToggle(id) {
+      if (opened.has(id)) opened.delete(id);
+      else opened.add(id);
+      if (id === LEFT_OPEN) {
+        setRows();
+        markOpenRow();
+      } else void reload();
+    },
+    onTickGroup(id) {
+      const g = groups.find((x) => x.id === id);
+      if (g && draft === null) void tickGroup(g);
+    },
+    tickedIn: (id) => selection.ids().filter((k) => groupOfKey.get(k) === id),
+    onMore() {
+      void loadMore();
+    },
+    onFilterOpen(row) {
+      if (draft !== null) closeFilterEditor(true);
+      shownFilter = row.filter.id;
+      if (filters.rule) selectRule(null);
+      else {
+        if (currentOpenKey) goList();
+        showReadEmpty();
+      }
+    },
+    onFilterNew() {
+      openFilterEditor(null);
+    },
+    headActs: (id) => groupActs(id)
   });
-  handle.el.classList.add("cb-decide-list");
-  const groupSwitch = h11(
+  const handle = pane.handle;
+  const groupSwitch = h12(
     "button",
     {
       type: "button",
@@ -6187,25 +6496,6 @@ function makeDecide(ctx) {
   }
   paintSwitch();
   let filterRows = [];
-  const filterBar = makeFilterBar(ctx, {
-    onSelect(ids, clicked) {
-      if (draft !== null) closeFilterEditor(false);
-      shownFilter = ids.includes(clicked) ? clicked : null;
-      selectFilters(ids);
-    },
-    onOpen(row) {
-      if (draft !== null) closeFilterEditor(true);
-      shownFilter = row.filter.id;
-      if (filters.rule) selectRule(null);
-      else {
-        if (currentOpenKey) goList();
-        showReadEmpty();
-      }
-    },
-    onNew() {
-      openFilterEditor(null);
-    }
-  });
   let ruleRows = [];
   const ruleRow = makeRuleRow(ctx, {
     onSelect(id) {
@@ -6233,7 +6523,7 @@ function makeDecide(ctx) {
   function selectRule(id) {
     filters.rule = id;
     if (id) filters.filters = [];
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     paintRules();
     showReadEmpty();
@@ -6246,7 +6536,7 @@ function makeDecide(ctx) {
   let draftHash = "";
   let draftTimer = null;
   let before = null;
-  const previewLine = h11("span", { class: "cb-preview-line", hidden: true });
+  const previewLine = h12("span", { class: "cb-preview-line", hidden: true });
   const rowsScroller = () => handle.el.querySelector(".kit-rows");
   function paintPreviewLine(text) {
     previewLine.hidden = text === null;
@@ -6323,8 +6613,8 @@ function makeDecide(ctx) {
     readEl.replaceChildren(editor.el);
     document.addEventListener("keydown", onEditorEsc);
     handle.el.classList.add("cb-previewing");
-    filterBar.paint(filterRows, []);
-    filterBar.setError(null);
+    pane.setFilters(filterRows, []);
+    pane.setFilterError(null);
     paintRules();
     paintAll();
     void reload();
@@ -6379,7 +6669,7 @@ function makeDecide(ctx) {
     return filters.filters.length > 0 || filters.rule !== null;
   }
   function paintFilters() {
-    filterBar.paint(filterRows, draft !== null ? [] : filters.filters);
+    pane.setFilters(filterRows, draft !== null ? [] : filters.filters);
   }
   async function loadFilters() {
     try {
@@ -6392,89 +6682,44 @@ function makeDecide(ctx) {
     }
   }
   function goList() {
-    ctx.route.go(
-      "decide",
-      "",
-      decideQuery({
-        flat,
-        filters: filters.filters,
-        rule: filters.rule ?? ""
-      })
-    );
+    ctx.route.go("decide", "", listQuery());
+  }
+  function listQuery() {
+    return decideQuery({
+      flat,
+      filters: filters.filters,
+      rule: filters.rule ?? "",
+      q: filters.q
+    });
   }
   function selectFilters(ids) {
     filters.filters = ids;
     if (ids.length) filters.rule = null;
     paintRules();
     showReadEmpty();
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     goList();
     void reload();
   }
-  handle.el.querySelector('.kit-chips[data-group="view"]')?.after(
-    filterBar.el,
-    ruleRow.el,
-    h11("div", { class: "cb-list-tools" }, groupSwitch, previewLine)
-  );
+  pane.ownRow.append(ruleRow.el);
+  pane.tools.append(groupSwitch, previewLine);
   void loadFilters();
   void loadRules();
-  const hideBtn = h11(
-    "button",
-    {
-      type: "button",
-      class: "cb-list-hide",
-      onclick() {
-        setSidebar(false);
-      }
-    },
-    "«"
-  );
-  const showBtn = h11(
-    "button",
-    { type: "button", class: "cb-list-show" },
-    "»"
-  );
-  const railLabel = h11("span", { class: "cb-list-rail-label" });
-  const rail = h11(
-    "div",
-    {
-      class: "cb-list-rail",
-      onclick() {
-        setSidebar(true);
-      }
-    },
-    showBtn,
-    railLabel
-  );
-  handle.el.append(hideBtn, rail);
-  function storedSidebar() {
-    try {
-      return localStorage.getItem(SIDEBAR) !== "closed";
-    } catch {
-      return true;
-    }
-  }
-  function setSidebar(open) {
-    handle.el.classList.toggle("cb-list-closed", !open);
-    try {
-      localStorage.setItem(SIDEBAR, open ? "open" : "closed");
-    } catch {
-    }
-  }
-  handle.el.classList.toggle("cb-list-closed", !storedSidebar());
   function paintRail() {
-    railLabel.textContent = `${viewLabel()} · ${totalItemsForView}`;
-    if (vocab2) {
-      hideBtn.title = vocab2.hide_list;
-      showBtn.title = vocab2.show_list;
-    }
+    pane.setRail(`${viewLabel()} · ${totalItemsForView}`);
   }
   function buildQuery(pageOffset) {
-    const p = draft !== null ? { match: JSON.stringify(draft) } : filters.rule ? { view: "all", rule: filters.rule } : filtered() ? { filters: filters.filters.join(",") } : { view: "all" };
+    const p = draft !== null ? { match: JSON.stringify(draft) } : filters.rule ? { view: "all", rule: filters.rule } : { view: "all" };
+    Object.assign(
+      p,
+      paneParams({
+        filters: draft === null && !filters.rule ? filters.filters : [],
+        q: filters.q
+      })
+    );
     p["offset"] = String(pageOffset);
     p["limit"] = String(PAGE_SIZE);
-    if (filters.q) p["q"] = filters.q;
     if (flat) p["group"] = "false";
     else
       p["open"] = JSON.stringify([...opened].filter((id) => id !== LEFT_OPEN));
@@ -6525,7 +6770,7 @@ function makeDecide(ctx) {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       paintedQuery = asked2;
-      filterBar.setError(null);
+      pane.setFilterError(null);
       if (draft !== null) {
         editor?.showError(null);
         paintPreviewLine(
@@ -6542,7 +6787,7 @@ function makeDecide(ctx) {
         editor?.showError(err);
         paintPreviewLine(`previewing a draft ${editing} · not valid yet`);
       } else if (filtered() && refused) {
-        filterBar.setError(err.message);
+        pane.setFilterError(err.message);
       }
       if ((draft !== null || filtered()) && refused) {
         totalItems = 0;
@@ -6595,41 +6840,27 @@ function makeDecide(ctx) {
   }
   function setRows() {
     const withLeft = offset >= totalItems && leftOpenTotal > 0;
-    const left = withLeft && opened.has(LEFT_OPEN) ? leftOpen : [];
-    const open = flat ? loadedItems : loadedItems.filter((it) => opened.has(it.group));
-    shown = [...open, ...left];
-    handle.setItems(shown);
+    const gs = flat ? [] : groups.map(paneGroup);
+    if (withLeft)
+      gs.push({
+        id: LEFT_OPEN,
+        label: vocab2?.left_open ?? "",
+        n: leftOpenTotal,
+        box: false
+      });
+    shown = pane.setRows(
+      withLeft ? [...loadedItems, ...leftOpen] : loadedItems,
+      gs,
+      opened
+    );
     const rowEls = handle.el.querySelectorAll(
       ".kit-rows > .kit-row"
     );
-    open.forEach((it, i) => {
-      if (it.new_activity) rowEls[i]?.classList.add("cb-new-activity");
-    });
     shown.forEach((it, i) => {
-      for (const sel of [".kit-kicker", ".kit-title"]) {
-        const el2 = rowEls[i]?.querySelector(sel);
-        if (el2) el2.title = el2.textContent ?? "";
-      }
-      const col = rowEls[i]?.querySelector(".kit-title")?.parentElement;
-      if (!col) return;
-      col.querySelector(".cb-row-looking")?.remove();
-      const says = lookingLine(it.looking);
-      if (says) col.append(h11("div", { class: "cb-row-looking" }, says));
+      if (isLeftOpen(it)) rowEls[i]?.classList.add("cb-left-open");
     });
-    handle.el.classList.toggle("cb-flat", flat);
-    if (flat) heads = [];
-    else placeGroupHeads(open, rowEls);
     paintRail();
     refreshNav();
-    if (!withLeft) return;
-    for (let i = open.length; i < shown.length; i++) {
-      rowEls[i]?.classList.add("cb-left-open");
-    }
-    const head = leftOpenHead();
-    heads.push(head);
-    const first = rowEls[open.length];
-    if (first) first.before(head.el);
-    else handle.el.querySelector(".kit-rows")?.append(head.el);
   }
   function navOrder() {
     const rows = loadedItems.map((it) => ({
@@ -6675,7 +6906,7 @@ function makeDecide(ctx) {
       const g = navOrder().find((r) => r.key === k)?.group ?? "";
       return navGroups().find((x) => x.id === g)?.label ?? "";
     };
-    const button = (which, glyph, tip, target2, name, later) => h11(
+    const button = (which, glyph, tip, target2, name, later) => h12(
       "button",
       {
         type: "button",
@@ -6695,7 +6926,7 @@ function makeDecide(ctx) {
       glyph
     );
     const pos = words.position.replaceAll("{pos}", String(n.pos)).replaceAll("{total}", String(n.total)).replaceAll("{group}", n.label);
-    return h11(
+    return h12(
       "nav",
       { class: "cb-nav" },
       button(
@@ -6707,7 +6938,7 @@ function makeDecide(ctx) {
         false
       ),
       button("prev", "‹", words.prev_item, n.prev, shortKey, false),
-      h11("span", { class: "cb-nav-pos" }, pos),
+      h12("span", { class: "cb-nav-pos" }, pos),
       button("next", "›", words.next_item, n.next, shortKey, more),
       button(
         "nextGroup",
@@ -6793,79 +7024,24 @@ function makeDecide(ctx) {
   function tickedIn(g) {
     return selection.ids().filter((k) => groupOfKey.get(k) === g.id);
   }
-  let heads = [];
-  function placeGroupHeads(open, rowEls) {
-    const body = handle.el.querySelector(".kit-rows");
-    heads = [];
-    if (!body) return;
-    let last = null;
-    for (const g of groups) {
-      const head = groupHead(g);
-      heads.push(head);
-      const first = open.findIndex((it) => it.group === g.id);
-      if (first >= 0) {
-        rowEls[first]?.before(head.el);
-        let end = first;
-        while (end + 1 < open.length && open[end + 1].group === g.id) end++;
-        last = rowEls[end] ?? head.el;
-      } else {
-        if (last) last.after(head.el);
-        else body.prepend(head.el);
-        last = head.el;
-      }
-    }
-  }
-  function headShell(id, label, n, box, hint, data, tags = [], more = null) {
-    const isOpen = opened.has(id);
-    const toggleOpen = () => {
-      if (opened.has(id)) opened.delete(id);
-      else opened.add(id);
-      if (id === LEFT_OPEN) {
-        setRows();
-        markOpenRow();
-      } else void reload();
+  function paneGroup(g) {
+    const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
+    const rr = ruleId ? ruleRows.find((r) => r.rule.id === ruleId) : void 0;
+    const more = rr ? ruleMenu(rr, {
+      onEdit: () => openRuleEditor(rr, null),
+      onToggle: () => void toggleRule(ctx, rr).then(() => loadRules()).then(() => reload()).catch(
+        (err) => showReadError(err instanceof Error ? err.message : String(err))
+      )
+    }) : null;
+    return {
+      id: g.id,
+      label: ruleId ? rr?.rule.name || ruleId : g.label,
+      tag: ruleId ? `rule · ${g.label}` : void 0,
+      n: g.total,
+      box: true,
+      more,
+      data: { d: g.disposition, ...ruleId ? { rule: ruleId } : {} }
     };
-    const top = h11(
-      "div",
-      { class: "cb-group-top" },
-      h11(
-        "button",
-        {
-          type: "button",
-          class: "cb-group-caret",
-          "aria-expanded": String(isOpen),
-          "aria-label": label,
-          onclick: toggleOpen
-        },
-        isOpen ? "▼" : "▶"
-      ),
-      box ?? h11("span", { class: "cb-group-nobox" }),
-      h11(
-        "span",
-        { class: "cb-group-name", onclick: toggleOpen },
-        h11(
-          "span",
-          { class: "cb-group-line" },
-          h11("span", { class: "cb-group-label" }, label),
-          ...tags
-        ),
-        hint
-      ),
-      h11("span", { class: "cb-group-n" }, String(n)),
-      more
-    );
-    const acts = h11("div", { class: "cb-group-acts" });
-    const el2 = h11(
-      "div",
-      {
-        class: "cb-group" + (isOpen ? "" : " collapsed"),
-        role: "presentation",
-        dataset: data
-      },
-      top,
-      acts
-    );
-    return { el: el2, acts };
   }
   function groupSays(g) {
     for (const k of vocab2?.kinds ?? []) {
@@ -6881,7 +7057,7 @@ function makeDecide(ctx) {
     return el2;
   }
   function groupButton(id, cls, label, run, off = false) {
-    return h11(
+    return h12(
       "button",
       {
         type: "button",
@@ -6900,125 +7076,47 @@ function makeDecide(ctx) {
       label
     );
   }
-  function groupHead(g) {
-    const box = h11("span", {
-      class: "cb-group-box",
-      role: "checkbox",
-      "aria-checked": "false",
-      "aria-label": g.label,
-      onclick() {
-        if (draft === null) void tickGroup(g);
-      }
-    });
-    const hint = g.outward && vocab2?.to_apply_hint ? h11("span", { class: "cb-group-where" }, vocab2.to_apply_hint) : null;
-    const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
-    const rr = ruleId ? ruleRows.find((r) => r.rule.id === ruleId) : void 0;
-    const tags = ruleId ? [
-      h11("span", { class: "cb-group-tag" }, "rule"),
-      h11("span", { class: "cb-group-decision" }, g.label)
-    ] : [];
-    const more = rr ? ruleMenu(rr, {
-      onEdit: () => openRuleEditor(rr, null),
-      onToggle: () => void toggleRule(ctx, rr).then(() => loadRules()).then(() => reload()).catch(
-        (err) => showReadError(err instanceof Error ? err.message : String(err))
-      )
-    }) : null;
-    const { el: el2, acts } = headShell(
-      g.id,
-      ruleId ? rr?.rule.name || ruleId : g.label,
-      g.total,
-      box,
-      hint,
-      { group: g.id, d: g.disposition, ...ruleId ? { rule: ruleId } : {} },
-      tags,
-      more
-    );
+  function groupActs(id) {
+    const g = groups.find((x) => x.id === id);
+    if (!g || !vocab2) return [];
     const button = (cls, label, run, off = false) => groupButton(g.id, cls, label, run, off);
-    function paint() {
-      const ticked = tickedIn(g);
-      const n = ticked.length;
-      box.setAttribute(
-        "aria-checked",
-        n === 0 ? "false" : n >= g.total ? "true" : "mixed"
-      );
-      const t = ctx.dockTarget();
-      if (!vocab2) {
-        acts.replaceChildren();
-        return;
-      }
-      if (g.id === CAME_BACK || g.id === "none") {
-        let ask = null;
-        let note = null;
-        if (t && n > 0) {
-          const rows = loadedItems.filter((it) => it.group === g.id);
-          const looked = ticked.every(
-            (k) => rows.some((it) => it.key === k && it.looking) || !rows.some((it) => it.key === k) && lookedInto.has(`${t.id}
+    const ticked = tickedIn(g);
+    const n = ticked.length;
+    const t = ctx.dockTarget();
+    if (g.id === CAME_BACK || g.id === "none") {
+      if (t && n > 0) {
+        const rows = loadedItems.filter((it) => it.group === g.id);
+        const looked = ticked.every(
+          (k) => rows.some((it) => it.key === k && it.looking) || !rows.some((it) => it.key === k) && lookedInto.has(`${t.id}
 ${k}`)
-          );
-          ask = button(
+        );
+        return [
+          button(
             "fill cb-group-ask",
             vocab2.recommend_these,
             () => lookInto(tickedIn(g)),
             looked
-          );
-        } else if (t && g.id === "none" && !filtered()) {
-          if (asked === askedKey(t.id))
-            note = h11("span", { class: "cb-group-note" }, vocab2.asked);
-          else ask = button("fill cb-group-ask", vocab2.suggest_rules, askRules);
-        }
-        const untick = n > 0 ? h11(
-          "button",
-          {
-            type: "button",
-            class: "cb-group-untick",
-            onclick() {
-              selection.deselect(tickedIn(g));
-            }
-          },
-          vocab2.untick
-        ) : null;
-        acts.replaceChildren(...[ask, note, untick].filter((x) => x !== null));
-        return;
+          )
+        ];
       }
-      const w = groupButtons(g, n, vocab2);
-      acts.replaceChildren(
-        ...[
-          withSays(
-            button("fill cb-group-act", w.act, () => actGroup(g)),
-            groupSays(g)
-          ),
-          g.source.startsWith("rule:") ? null : button("cb-group-discard", w.discard, () => discardGroup(g)),
-          n > 0 ? h11(
-            "button",
-            {
-              type: "button",
-              class: "cb-group-untick",
-              onclick() {
-                selection.deselect(tickedIn(g));
-              }
-            },
-            vocab2.untick
-          ) : null
-        ].filter((x) => x !== null)
-      );
+      if (t && g.id === "none" && !filtered()) {
+        if (asked === askedKey(t.id))
+          return [h12("span", { class: "cb-group-note" }, vocab2.asked)];
+        return [button("fill cb-group-ask", vocab2.suggest_rules, askRules)];
+      }
+      return [];
     }
-    paint();
-    return { el: el2, paint };
-  }
-  function leftOpenHead() {
-    const { el: el2 } = headShell(
-      LEFT_OPEN,
-      vocab2?.left_open ?? "",
-      leftOpenTotal,
-      null,
-      null,
-      { group: LEFT_OPEN }
-    );
-    return { el: el2, paint() {
-    } };
+    const w = groupButtons(g, n, vocab2);
+    return [
+      withSays(
+        button("fill cb-group-act", w.act, () => actGroup(g)),
+        groupSays(g)
+      ),
+      ...g.source.startsWith("rule:") ? [] : [button("cb-group-discard", w.discard, () => discardGroup(g))]
+    ];
   }
   function paintAll() {
-    for (const head of heads) head.paint();
+    pane.paintHeads();
   }
   function groupFilters(g) {
     return { ...viewFilters(), group: g.id };
@@ -7157,18 +7255,7 @@ ${k}`);
     );
   }
   function updateFoot() {
-    if (!footEl) return;
-    const btn = footEl.querySelector(".cb-foot-more");
-    if (btn) {
-      const remaining = totalItems - offset;
-      if (remaining > 0) {
-        btn.textContent = `show ${Math.min(PAGE_SIZE, remaining)} more`;
-        btn.hidden = false;
-      } else {
-        btn.hidden = true;
-      }
-    }
-    footEl.hidden = false;
+    pane.setMore(Math.min(PAGE_SIZE, totalItems - offset));
   }
   function markOpenRow() {
     if (!currentOpenKey) return;
@@ -7264,7 +7351,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const w = lookIntoCard(words, t.name, key);
     const looking = lookingLine(shownDetail.item.looking);
     const n = Number(grid.dataset.cards) + 1;
-    const card6 = h11(
+    const card6 = h12(
       "button",
       {
         type: "button",
@@ -7290,8 +7377,8 @@ ${JSON.stringify(listAttached("none"))}`;
           } else void refreshLooking(key);
         }
       },
-      h11("span", { class: "cb-choice-mark" }),
-      h11("span", { class: "cb-choice-label" }, w.label)
+      h12("span", { class: "cb-choice-mark" }),
+      h12("span", { class: "cb-choice-label" }, w.label)
     );
     if (old) old.replaceWith(card6);
     else grid.append(card6);
@@ -7356,7 +7443,7 @@ ${JSON.stringify(listAttached("none"))}`;
       p.disposition,
       ruleNameOf(p.source)
     ) : "the recommendation changed";
-    const show2 = h11(
+    const show2 = h12(
       "button",
       {
         type: "button",
@@ -7365,10 +7452,10 @@ ${JSON.stringify(listAttached("none"))}`;
       },
       "show"
     );
-    const line = h11(
+    const line = h12(
       "p",
       { class: "cb-rec-fresh" },
-      h11("span", { class: "cb-rec-fresh-says" }, says),
+      h12("span", { class: "cb-rec-fresh-says" }, says),
       " · ",
       show2
     );
@@ -7393,17 +7480,17 @@ ${JSON.stringify(listAttached("none"))}`;
       return;
     }
     readEl.firstElementChild?.append(
-      h11("p", { class: "cb-choice-err" }, message5)
+      h12("p", { class: "cb-choice-err" }, message5)
     );
   }
   function showDone() {
     currentOpenKey = null;
     shownDetail = null;
     readEl.replaceChildren(
-      h11(
+      h12(
         "div",
         { class: "cb-read-empty" },
-        h11(
+        h12(
           "p",
           { class: "cb-read-done" },
           filtered() ? `Nothing left in ${viewLabel()}.` : "Nothing left to decide."
@@ -7424,7 +7511,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const expect = made?.[key];
     lastUndo = expect ? [{ key, prev: previous?.[key] ?? null, expect }] : [];
   }
-  const strip = h11("div", {
+  const strip = h12("div", {
     class: "cb-strip",
     role: "status",
     hidden: true
@@ -7439,7 +7526,7 @@ ${JSON.stringify(listAttached("none"))}`;
     if (!vocab2) return;
     strip.replaceChildren(
       ...waitingStrip(vocab2.waiting, text).map(
-        (part) => typeof part === "string" ? part : "link" in part ? h11("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h11(
+        (part) => typeof part === "string" ? part : "link" in part ? h12("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h12(
           "button",
           {
             type: "button",
@@ -7599,13 +7686,6 @@ ${JSON.stringify(listAttached("none"))}`;
       deciding = null;
     }
   }
-  {
-    const urlQ = getUrlQ();
-    if (urlQ) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
-    }
-  }
   void reload();
   selection.onChange(() => {
     paintAll();
@@ -7659,10 +7739,12 @@ ${JSON.stringify(listAttached("none"))}`;
     const wasActive = active;
     active = true;
     feedAttached();
-    const urlQ = getUrlQ();
-    if (urlQ !== filters.q) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
+    if (!sub) {
+      const urlQ = paneQuery(query).q;
+      if (urlQ !== filters.q) {
+        filters.q = urlQ;
+        pane.setSearch(urlQ);
+      }
     }
     const params = new URLSearchParams(query);
     const ids = sub ? [] : parseFilterIds(params.get("filters"));
@@ -7697,7 +7779,7 @@ ${JSON.stringify(listAttached("none"))}`;
       if (filtered()) {
         filters.filters = [];
         filters.rule = null;
-        filterBar.setError(null);
+        pane.setFilterError(null);
         paintFilters();
         paintRules();
       }
@@ -7801,7 +7883,7 @@ function latestInOrder(send) {
 }
 
 // dock.ts
-import { h as h14, card as card5 } from "/_kit/kit.js";
+import { h as h15, card as card5 } from "/_kit/kit.js";
 
 // time-utils.ts
 function ageMs(ts) {
@@ -7813,9 +7895,9 @@ function fmtAge(ts) {
   if (s < 60) return "now";
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h15 = Math.floor(m / 60);
-  if (h15 < 24) return `${h15}h`;
-  const d = Math.floor(h15 / 24);
+  const h16 = Math.floor(m / 60);
+  if (h16 < 24) return `${h16}h`;
+  const d = Math.floor(h16 / 24);
   if (d < 30) return `${d}d`;
   const mo = Math.floor(d / 30);
   if (mo < 12) return `${mo}mo`;
@@ -7841,7 +7923,7 @@ function dockOpen(hasMessages, focused, manual) {
 }
 
 // composer.ts
-import { h as h12, ApiError as ApiError5 } from "/_kit/kit.js";
+import { h as h13, ApiError as ApiError5 } from "/_kit/kit.js";
 
 // attached.ts
 var KIND_PLURAL = { branch: "branches" };
@@ -7968,7 +8050,7 @@ function makeComposer(ctx, dock) {
   let override = null;
   let sending = false;
   const effective = () => override ?? context;
-  const value = h12("span", {
+  const value = h13("span", {
     class: "cb-comp-attached-value",
     contenteditable: "true",
     role: "textbox",
@@ -7976,10 +8058,10 @@ function makeComposer(ctx, dock) {
     spellcheck: false,
     "data-testid": "composer-attached"
   });
-  const line = h12(
+  const line = h13(
     "div",
     { class: "cb-comp-attached" },
-    h12("span", { class: "cb-comp-attached-prefix" }, "attached: "),
+    h13("span", { class: "cb-comp-attached-prefix" }, "attached: "),
     value
   );
   let editing = false;
@@ -8025,7 +8107,7 @@ function makeComposer(ctx, dock) {
       value.blur();
     }
   });
-  const input = h12("textarea", {
+  const input = h13("textarea", {
     class: "cb-comp-input",
     rows: 1,
     placeholder: "Message the agent…",
@@ -8043,14 +8125,14 @@ function makeComposer(ctx, dock) {
     e.preventDefault();
     void send(false);
   });
-  const note = h12("span", { class: "cb-comp-note", role: "status" });
-  const footer = h12(
+  const note = h13("span", { class: "cb-comp-note", role: "status" });
+  const footer = h13(
     "div",
     { class: "cb-comp-foot" },
-    h12("span", {}, "↵ send · ⌘↵ add to batch"),
+    h13("span", {}, "↵ send · ⌘↵ add to batch"),
     note
   );
-  const el2 = h12(
+  const el2 = h13(
     "div",
     { class: "cb-comp", "data-testid": "composer" },
     line,
@@ -8168,26 +8250,26 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h13, card as card4, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
+import { h as h14, card as card4, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
   let drafts = [];
   let loadSeq = 0;
-  const label = h13("span", { class: "kit-card-head cb-batch-label" });
-  const sendBtn = h13("button", {
+  const label = h14("span", { class: "kit-card-head cb-batch-label" });
+  const sendBtn = h14("button", {
     class: "kit-btn fill cb-batch-send",
     "data-testid": "batch-send",
     onclick() {
       void sendBatch();
     }
   });
-  const list3 = h13("div", { class: "cb-batch-drafts" });
+  const list3 = h14("div", { class: "cb-batch-drafts" });
   const el2 = card4({
-    body: h13(
+    body: h14(
       "div",
       {},
-      h13("div", { class: "cb-batch-head" }, label, sendBtn),
+      h14("div", { class: "cb-batch-head" }, label, sendBtn),
       list3
     )
   });
@@ -8208,7 +8290,7 @@ function makeBatchTray(ctx, dock) {
     list3.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
   }
   function actionBtn(text, action, aria, run, disabled = false) {
-    return h13(
+    return h14(
       "button",
       {
         class: "cb-batch-act",
@@ -8221,12 +8303,12 @@ function makeBatchTray(ctx, dock) {
     );
   }
   function draftRow(d, i) {
-    const text = h13("span", { class: "cb-batch-text" }, d.body);
-    const row = h13(
+    const text = h14("span", { class: "cb-batch-text" }, d.body);
+    const row = h14(
       "div",
       { class: "cb-batch-draft", "data-draft-id": String(d.id) },
       text,
-      h13(
+      h14(
         "span",
         { class: "cb-batch-acts" },
         actionBtn(
@@ -8385,17 +8467,17 @@ function countText(n, total) {
 function makeProgressLine() {
   let prog = null;
   let at2 = 0;
-  const text = h13("span", { class: "cb-prog-text" });
-  const age = h13("span", { class: "cb-prog-age" });
-  const fill = h13("span", { class: "cb-prog-fill" });
-  const bar2 = h13("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
-  const el2 = h13(
+  const text = h14("span", { class: "cb-prog-text" });
+  const age = h14("span", { class: "cb-prog-age" });
+  const fill = h14("span", { class: "cb-prog-fill" });
+  const bar2 = h14("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
+  const el2 = h14(
     "div",
     { class: "cb-prog", "data-testid": "progress-line" },
-    h13(
+    h14(
       "div",
       { class: "cb-prog-row" },
-      h13("span", { class: "cb-prog-dot" }),
+      h14("span", { class: "cb-prog-dot" }),
       text,
       age
     ),
@@ -8434,11 +8516,11 @@ function makeProgressLine() {
   };
 }
 function makeWaitingStrip() {
-  const count2 = h13("span", {});
-  const el2 = h13(
+  const count2 = h14("span", {});
+  const el2 = h14(
     "div",
     { class: "cb-wait", "data-testid": "waiting-strip" },
-    h13("span", { class: "cb-wait-word" }, "waiting"),
+    h14("span", { class: "cb-wait-word" }, "waiting"),
     count2
   );
   el2.hidden = true;
@@ -8460,15 +8542,15 @@ function clock(ts) {
 }
 function workedFold(msg) {
   const lines = msg.worked?.lines ?? [];
-  const history2 = h13(
+  const history2 = h14(
     "ol",
     { class: "cb-worked-lines" },
     ...lines.map(
-      (l) => h13(
+      (l) => h14(
         "li",
         { class: "cb-worked-line" },
-        h13("span", { class: "cb-worked-at" }, clock(l.at)),
-        h13("span", {}, l.text + countText(l.n, l.total))
+        h14("span", { class: "cb-worked-at" }, clock(l.at)),
+        h14("span", {}, l.text + countText(l.n, l.total))
       )
     )
   );
@@ -8527,19 +8609,19 @@ function stateLabel(msg) {
   return base;
 }
 function sessionItem(s, extra = "") {
-  const el2 = h14(
+  const el2 = h15(
     "button",
     { class: "cb-dock-pick-item", "data-session": s.id },
-    h14("span", { class: "cb-dock-dot" }),
-    h14("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
+    h15("span", { class: "cb-dock-dot" }),
+    h15("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
   );
   const meta = [sessionMeta(s), extra].filter(Boolean).join(" · ");
-  if (meta) el2.append(h14("span", { class: "cb-dock-pick-meta" }, meta));
+  if (meta) el2.append(h15("span", { class: "cb-dock-pick-meta" }, meta));
   return el2;
 }
 function renderAgentBody(msg) {
-  const wrap = h14("div", { class: "cb-dock-body" });
-  const bodyP = h14("p", { class: "cb-dock-bodytext" });
+  const wrap = h15("div", { class: "cb-dock-body" });
+  const bodyP = h15("p", { class: "cb-dock-bodytext" });
   bodyP.textContent = msg.body;
   wrap.append(bodyP);
   const { attached } = msg;
@@ -8548,7 +8630,7 @@ function renderAgentBody(msg) {
     if (attached.keys && attached.keys.length > 0) {
       const shown = attached.keys.slice(0, 5);
       for (const k of shown) {
-        const a = h14("a", {
+        const a = h15("a", {
           class: "cb-dock-link",
           href: "#",
           onclick(e) {
@@ -8561,7 +8643,7 @@ function renderAgentBody(msg) {
       }
       if (attached.keys.length > 5) {
         links.push(
-          h14(
+          h15(
             "span",
             { class: "cb-dock-link-more" },
             `+${attached.keys.length - 5} more`
@@ -8571,7 +8653,7 @@ function renderAgentBody(msg) {
     }
     if (attached.open) {
       const k = attached.open;
-      const a = h14("a", {
+      const a = h15("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8584,7 +8666,7 @@ function renderAgentBody(msg) {
     }
     if (attached.rule) {
       const id = attached.rule;
-      const a = h14("a", {
+      const a = h15("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8597,7 +8679,7 @@ function renderAgentBody(msg) {
     }
     if (attached.job) {
       const id = attached.job;
-      const a = h14("a", {
+      const a = h15("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8609,7 +8691,7 @@ function renderAgentBody(msg) {
       links.push(a);
     }
     if (links.length > 0) {
-      const linkRow = h14("div", { class: "cb-dock-links" }, ...links);
+      const linkRow = h15("div", { class: "cb-dock-links" }, ...links);
       wrap.append(linkRow);
     }
   }
@@ -8620,24 +8702,24 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
   const isAgent = msg.author !== "court";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
   const age = fmtAge(msg.created_at);
-  const headEl = h14(
+  const headEl = h15(
     "div",
     { class: "cb-dock-ch" },
-    h14(
+    h15(
       "span",
       {
         class: isAgent ? "cb-dock-ch-name cb-dock-ch-agent" : "cb-dock-ch-name"
       },
       authorLabel
     ),
-    h14("span", { class: "cb-dock-ch-age" }, age)
+    h15("span", { class: "cb-dock-ch-age" }, age)
   );
   let bodyContent;
   if (isAgent) {
     bodyContent = renderAgentBody(msg);
   } else {
-    const bodyEl = h14("div", { class: "cb-dock-body" });
-    const bodyP = h14("p", { class: "cb-dock-bodytext" });
+    const bodyEl = h15("div", { class: "cb-dock-body" });
+    const bodyP = h15("p", { class: "cb-dock-bodytext" });
     bodyP.textContent = msg.body;
     bodyEl.append(bodyP);
     bodyContent = bodyEl;
@@ -8656,7 +8738,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       "interrupted"
     ];
     if (validStates.includes(msg.state)) {
-      stateEl = h14("div", {
+      stateEl = h15("div", {
         class: "cb-dock-state",
         "data-state": msg.state,
         style: `color:${stateColor(msg.state)}`
@@ -8664,7 +8746,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       stateEl.textContent = stateLabel(msg);
     }
   }
-  const fullBody = h14(
+  const fullBody = h15(
     "div",
     { class: "cb-dock-card-body" },
     headEl,
@@ -8678,12 +8760,12 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
       stateEl.textContent = "";
       stateEl.setAttribute("data-state", "stuck");
-      const stuckBold = h14("strong", { style: "font-weight:600" });
+      const stuckBold = h15("strong", { style: "font-weight:600" });
       stuckBold.textContent = "stuck";
       stateEl.append(`delivered ${ageStr} · `, stuckBold);
     }
     const d = delivery;
-    const releaseBtn = h14("button", {
+    const releaseBtn = h15("button", {
       class: "kit-btn",
       "data-action": "release",
       onclick() {
@@ -8694,7 +8776,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     const otherSessions = pickable(sessions).filter(
       (s) => s.id !== d.session_id
     );
-    const moveBtn = h14("button", {
+    const moveBtn = h15("button", {
       class: "kit-btn",
       "data-action": "move",
       onclick() {
@@ -8702,7 +8784,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       }
     });
     moveBtn.textContent = "move to another session";
-    fullBody.append(h14("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
+    fullBody.append(h15("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
   }
   const el2 = card5({
     edge: isAgent ? "agent" : "signal",
@@ -8737,16 +8819,16 @@ function openMoveSheet(ctx, delivery, targets) {
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h14(
+    const noOther = h15(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h15("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet5 = {
-    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h15("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8781,16 +8863,16 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h14(
+    const noOther = h15(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
+  const content = h15("div", { class: "cb-dock-pick-list" }, ...items);
   const sheet5 = {
-    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
+    el: h15("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
@@ -8817,10 +8899,10 @@ function buildSessionPicker(sessions, currentId, onSelect) {
   });
   if (items.length === 0) {
     items.push(
-      h14("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
+      h15("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
     );
   }
-  const picker = h14(
+  const picker = h15(
     "div",
     { class: "cb-dock-picker", role: "listbox" },
     ...items
@@ -8850,16 +8932,16 @@ function makeDock(ctx) {
   let currentDelivery = null;
   let urlRead = false;
   let auto = false;
-  const sessionDot = h14("span", { class: "cb-dock-dot" });
-  const sessionLabelEl = h14("span", {
+  const sessionDot = h15("span", { class: "cb-dock-dot" });
+  const sessionLabelEl = h15("span", {
     class: "cb-dock-session-label",
     "data-testid": "dock-session-name"
   });
-  const sessionMetaEl = h14("div", {
+  const sessionMetaEl = h15("div", {
     class: "cb-dock-meta-row",
     "data-testid": "dock-session-meta"
   });
-  const sessionPickerBtn = h14("button", {
+  const sessionPickerBtn = h15("button", {
     class: "cb-dock-agent-btn",
     "aria-label": "pick agent session",
     onclick(e) {
@@ -8875,7 +8957,7 @@ function makeDock(ctx) {
     }
   });
   sessionPickerBtn.textContent = "AGENT ▾";
-  const collapseBtn = h14(
+  const collapseBtn = h15(
     "button",
     {
       type: "button",
@@ -8888,7 +8970,7 @@ function makeDock(ctx) {
     },
     "›"
   );
-  const opener = h14(
+  const opener = h15(
     "button",
     {
       type: "button",
@@ -8899,31 +8981,31 @@ function makeDock(ctx) {
         setManual(true);
       }
     },
-    h14("span", { class: "cb-dock-opener-dot" }),
-    h14("span", { class: "cb-dock-opener-label" }, "agent")
+    h15("span", { class: "cb-dock-opener-dot" }),
+    h15("span", { class: "cb-dock-opener-label" }, "agent")
   );
-  const leftStatusRow = h14("div", { class: "cb-dock-left-row" });
+  const leftStatusRow = h15("div", { class: "cb-dock-left-row" });
   leftStatusRow.hidden = true;
-  const sessionHeader = h14(
+  const sessionHeader = h15(
     "div",
     { class: "cb-dock-header" },
-    h14(
+    h15(
       "div",
       { class: "cb-dock-header-row" },
-      h14("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
+      h15("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
       sessionPickerBtn,
       collapseBtn
     ),
     sessionMetaEl,
     leftStatusRow
   );
-  const chooser = h14("div", {
+  const chooser = h15("div", {
     class: "cb-dock-chooser",
     "data-testid": "dock-chooser"
   });
   chooser.hidden = true;
-  const threadChips = h14("div", { class: "cb-dock-threads" });
-  const messageArea = h14("div", {
+  const threadChips = h15("div", { class: "cb-dock-threads" });
+  const messageArea = h15("div", {
     class: "cb-dock-messages",
     "data-testid": "dock-messages"
   });
@@ -8957,7 +9039,7 @@ function makeDock(ctx) {
       void batchTray.load(t.id);
     }
   });
-  const rail = h14("div", { class: "cb-dock-inner" });
+  const rail = h15("div", { class: "cb-dock-inner" });
   rail.append(
     opener,
     sessionHeader,
@@ -9012,7 +9094,7 @@ function makeDock(ctx) {
     sessionHeader.title = sess.id;
     if (stale) {
       leftStatusRow.textContent = "";
-      const moveLink = h14("button", {
+      const moveLink = h15("button", {
         class: "cb-dock-move-link",
         "data-testid": "dock-move-link",
         onclick(e) {
@@ -9022,12 +9104,12 @@ function makeDock(ctx) {
         }
       });
       moveLink.textContent = "move to…";
-      const parts = [h14("span", {}, "left")];
+      const parts = [h15("span", {}, "left")];
       if (sess.queued > 0) {
-        parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
-        parts.push(h14("span", {}, `${sess.queued} queued`));
+        parts.push(h15("span", { class: "cb-dock-sep" }, "·"));
+        parts.push(h15("span", {}, `${sess.queued} queued`));
       }
-      parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
+      parts.push(h15("span", { class: "cb-dock-sep" }, "·"));
       parts.push(moveLink);
       leftStatusRow.append(...parts);
       leftStatusRow.hidden = false;
@@ -9051,7 +9133,7 @@ function makeDock(ctx) {
     chooser.hidden = false;
     chooser.setAttribute("data-state", state);
     const offered = pickable(sessions).filter((s) => s.id !== currentSessionId);
-    const lead = h14("p", {
+    const lead = h15("p", {
       class: "cb-dock-chooser-lead",
       "data-testid": "dock-chooser-lead"
     });
@@ -9073,7 +9155,7 @@ function makeDock(ctx) {
   function renderThreadChips() {
     threadChips.innerHTML = "";
     for (const t of threads) {
-      const chip = h14("button", {
+      const chip = h15("button", {
         class: "kit-chip" + (t.id === currentThreadId ? " on" : ""),
         "data-thread": String(t.id),
         onclick() {
@@ -9083,7 +9165,7 @@ function makeDock(ctx) {
       chip.textContent = t.name;
       threadChips.append(chip);
     }
-    const addChip = h14("button", {
+    const addChip = h15("button", {
       class: "kit-chip cb-dock-add",
       "data-testid": "dock-add-thread",
       onclick() {
@@ -9102,7 +9184,7 @@ function makeDock(ctx) {
     }
     const cards = [];
     if (messages.length === 0) {
-      cards.push(h14("p", { class: "cb-dock-empty" }, "no messages"));
+      cards.push(h15("p", { class: "cb-dock-empty" }, "no messages"));
     }
     const name = agentName();
     for (const msg of messages) {
