@@ -23,7 +23,7 @@ const ownerQuery = `query($login: String!, $after: String) {
         latestRelease { publishedAt }
         pullRequests(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage }
-          nodes { number title url state isDraft mergeStateStatus headRefName createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } comments(last: 1) { nodes { author { login __typename } createdAt } } }
+          nodes { number title url state isDraft mergeStateStatus headRefName headRepository { nameWithOwner } createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } comments(last: 1) { nodes { author { login __typename } createdAt } } }
         }
         issues(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage }
@@ -37,7 +37,7 @@ const ownerQuery = `query($login: String!, $after: String) {
 const searchQuery = `query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { number title url state isDraft mergeStateStatus headRefName createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } repository { nameWithOwner } comments(last: 1) { nodes { author { login __typename } createdAt } } } }
+    nodes { ... on PullRequest { number title url state isDraft mergeStateStatus headRefName headRepository { nameWithOwner } createdAt updatedAt author { login __typename } bodyText labels(first: 10) { nodes { name } } repository { nameWithOwner } comments(last: 1) { nodes { author { login __typename } createdAt } } } }
   }
 }`
 
@@ -58,18 +58,21 @@ type loginNode struct {
 }
 
 type gqlPR struct {
-	Number     int        `json:"number"`
-	Title      string     `json:"title"`
-	URL        string     `json:"url"`
-	State      string     `json:"state"`
-	IsDraft    bool       `json:"isDraft"`
-	MergeState string     `json:"mergeStateStatus"`
-	HeadRef    string     `json:"headRefName"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	Author     *loginNode `json:"author"`
-	BodyText   string     `json:"bodyText"`
-	Labels     struct {
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	State      string `json:"state"`
+	IsDraft    bool   `json:"isDraft"`
+	MergeState string `json:"mergeStateStatus"`
+	HeadRef    string `json:"headRefName"`
+	HeadRepo   *struct {
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"headRepository"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+	Author    *loginNode `json:"author"`
+	BodyText  string     `json:"bodyText"`
+	Labels    struct {
 		Nodes []struct {
 			Name string `json:"name"`
 		} `json:"nodes"`
@@ -357,6 +360,9 @@ func toRepo(n gqlRepo) RepoObs {
 func toPR(n gqlPR, repo string) PRObs {
 	p := PRObs{Repo: repo, Number: n.Number, Title: n.Title, State: n.State, Draft: n.IsDraft,
 		MergeState: n.MergeState, HeadRef: n.HeadRef, CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt, URL: n.URL, Author: "ghost"}
+	if n.HeadRepo != nil {
+		p.HeadRepo = strings.ToLower(n.HeadRepo.NameWithOwner)
+	}
 	if n.Author != nil {
 		p.Author = n.Author.Login
 		p.AuthorIsBot = n.Author.TypeName == "Bot"

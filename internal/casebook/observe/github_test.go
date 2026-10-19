@@ -278,7 +278,7 @@ func TestBodyTruncationIsRuneSafe(t *testing.T) {
 }
 
 func TestRefreshRecordsMergeState(t *testing.T) {
-	pr := `{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"mergeStateStatus":"BEHIND","headRefName":"feat/x",
+	pr := `{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"mergeStateStatus":"BEHIND","headRefName":"feat/x","headRepository":{"nameWithOwner":"Court/Hail"},
 	 "createdAt":"2026-09-01T00:00:00Z","updatedAt":"2026-09-02T00:00:00Z","author":{"login":"bob"},"comments":{"nodes":[]}}`
 	var sent string
 	gh := &fakeGh{handle: func(a []string) (string, error) {
@@ -290,8 +290,8 @@ func TestRefreshRecordsMergeState(t *testing.T) {
 			sent = field(a, "query")
 			return fmt.Sprintf(ownerPage, false, fmt.Sprintf(repoNode, "schuettc/hail", pr)), nil
 		case isQuery(a, "search("):
-			if !strings.Contains(field(a, "query"), "mergeStateStatus") || !strings.Contains(field(a, "query"), "headRefName") {
-				t.Errorf("search query lacks mergeStateStatus/headRefName")
+			if q := field(a, "query"); !strings.Contains(q, "mergeStateStatus") || !strings.Contains(q, "headRefName") || !strings.Contains(q, "headRepository { nameWithOwner }") {
+				t.Errorf("search query lacks mergeStateStatus/headRefName/headRepository")
 			}
 			return `{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, nil
 		}
@@ -302,10 +302,10 @@ func TestRefreshRecordsMergeState(t *testing.T) {
 		t.Fatalf("errors: %v", rep.Errors)
 	}
 	p := g.Owners["schuettc"].Repos[0].PRs[0]
-	if p.MergeState != "BEHIND" || p.HeadRef != "feat/x" {
-		t.Errorf("pr %+v, want MergeState BEHIND and HeadRef feat/x", p)
+	if p.MergeState != "BEHIND" || p.HeadRef != "feat/x" || p.HeadRepo != "court/hail" {
+		t.Errorf("pr %+v, want MergeState BEHIND, HeadRef feat/x and HeadRepo court/hail", p)
 	}
-	if !strings.Contains(sent, "mergeStateStatus") || !strings.Contains(sent, "headRefName") {
+	if !strings.Contains(sent, "mergeStateStatus") || !strings.Contains(sent, "headRefName") || !strings.Contains(sent, "headRepository { nameWithOwner }") {
 		t.Errorf("owner query lacks mergeStateStatus/headRefName:\n%s", sent)
 	}
 }

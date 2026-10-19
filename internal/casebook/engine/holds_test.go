@@ -172,6 +172,22 @@ func TestHoldOpenPRStopsOnlyTheGitHubHalf(t *testing.T) {
 	}
 }
 
+// TestHoldOpenPRFromAForkIntoUpstream: a PR into upstream u/p from the
+// fork c/p holds the fork's branch, not upstream's of the same name.
+func TestHoldOpenPRFromAForkIntoUpstream(t *testing.T) {
+	in := holdsInput(func(in *Input, c *observe.Clone) {
+		c.Repo = "c/p"
+		in.GitHub.Owners["u"] = &observe.Owner{Login: "u", Reachable: true, FetchedAt: now, Repos: []observe.RepoObs{{Repo: "u/p", DefaultBranch: "main",
+			PRs: []observe.PRObs{{Repo: "u/p", Number: 7, State: "OPEN", HeadRef: "feat/x", HeadRepo: "c/p"}}}}}
+	})
+	it := holdsOf(t, in, "branch:c/p@feat/x")
+	want := []Hold{{Kind: HoldOpenPR, Text: "open PR #7 uses this branch: deleting it on GitHub closes that PR",
+		Fix: "Merge or close PR #7 first, or decide this again.", By: "pr:u/p#7", Stops: deleteOnly, Remote: true}}
+	if !reflect.DeepEqual(it.Holds, want) {
+		t.Errorf("holds %+v\nwant %+v", it.Holds, want)
+	}
+}
+
 func TestCopiesSayWhereItIs(t *testing.T) {
 	pro := observe.Snapshot{Version: 1, Machine: "pro-2", Clones: []observe.Clone{{Path: "/p", Repo: "o/r"}}}
 	in := holdsInput(func(in *Input, c *observe.Clone) {

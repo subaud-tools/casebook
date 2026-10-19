@@ -180,9 +180,18 @@ func checkBranchGitHub(ctx context.Context, step JobStep, env Env) (Checked, err
 		out, err := env.Gh.Gh(ctx, append([]string{"api"}, args...)...)
 		return strings.TrimSpace(string(out)), err
 	}
-	def, err := read(repo, "--jq", ".default_branch")
+	// The default branch, and the parent when the repo is a fork: a PR
+	// into the parent can use this branch too.
+	about, err := read(repo, "--jq", `.default_branch + " " + (.parent.full_name // "")`)
 	if err != nil {
 		return Checked{Reason: "cannot read the repo on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	}
+	var def, parent string
+	if f := strings.Fields(about); len(f) > 0 {
+		def = f[0]
+		if len(f) > 1 {
+			parent = f[1]
+		}
 	}
 	if observe.LongLived(branch, def) {
 		return Checked{Reason: branch + " is a long-lived branch: casebook never deletes it"}, nil
@@ -210,16 +219,22 @@ func checkBranchGitHub(ctx context.Context, step JobStep, env Env) (Checked, err
 			return Checked{Reason: "branch is not landed"}, nil
 		}
 	}
-	open, err := read(repo+"/pulls?state=open&head="+k.Owner+":"+url.QueryEscape(branch), "--jq", "[.[].number]")
-	if err != nil {
-		return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	in := []string{repo}
+	if parent != "" {
+		in = append(in, "repos/"+parent)
 	}
-	var prs []int
-	if err := json.Unmarshal([]byte(open), &prs); err != nil {
-		return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
-	}
-	if len(prs) > 0 {
-		return Checked{Reason: fmt.Sprintf("open PR #%d uses this branch: deleting it on GitHub closes that PR", prs[0])}, nil
+	for _, r := range in {
+		open, err := read(r+"/pulls?state=open&head="+k.Owner+":"+url.QueryEscape(branch), "--jq", "[.[].number]")
+		if err != nil {
+			return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		}
+		var prs []int
+		if err := json.Unmarshal([]byte(open), &prs); err != nil {
+			return Checked{Reason: "cannot read the branch's open pull requests on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		}
+		if len(prs) > 0 {
+			return Checked{Reason: fmt.Sprintf("open PR #%d uses this branch: deleting it on GitHub closes that PR", prs[0])}, nil
+		}
 	}
 	return Checked{OK: true, Tip: sha, Branch: branch}, nil
 }

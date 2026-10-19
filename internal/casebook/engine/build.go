@@ -129,7 +129,7 @@ type builder struct {
 	branchUses   map[string][]wtUse         // branch item ID → linked worktrees it is checked out in
 	branchHeads  map[string][]place         // branch item ID → clones it is the current branch of
 	branchCopies map[string]map[string]Copy // branch item ID → machine → first clone holding it
-	branchPRs    map[string][]int           // branch item ID → open PRs whose head it is
+	branchPRs    map[string][]item.Key      // branch item ID → open PRs whose head it is
 	remoteTips   map[string]string          // branch item ID → first upstream tip a snapshot saw
 	longLived    map[string]bool            // branch item ID → a snapshot called it long-lived
 }
@@ -166,7 +166,7 @@ func Build(in Input) Result {
 		branchUses:   map[string][]wtUse{},
 		branchHeads:  map[string][]place{},
 		branchCopies: map[string]map[string]Copy{},
-		branchPRs:    map[string][]int{},
+		branchPRs:    map[string][]item.Key{},
 		remoteTips:   map[string]string{},
 		longLived:    map[string]bool{},
 	}
@@ -290,8 +290,14 @@ func (b *builder) pr(k item.Key, p observe.PRObs, dir string, fresh bool) {
 	it.Evidence = append(it.Evidence, fmt.Sprintf("%s by %s, updated %s", strings.ToLower(p.State), p.Author, p.UpdatedAt.Format("2006-01-02")))
 	b.f.prs[k.String()] = p
 	if k.Kind == item.KindPR && p.State == "OPEN" && p.HeadRef != "" {
-		bk := item.BranchKey(p.Repo, p.HeadRef).String()
-		b.branchPRs[bk] = append(b.branchPRs[bk], p.Number)
+		// The PR's branch is in its head repo: a fork's PR into upstream
+		// uses the fork's branch.
+		head := p.HeadRepo
+		if head == "" {
+			head = p.Repo
+		}
+		bk := item.BranchKey(head, p.HeadRef).String()
+		b.branchPRs[bk] = append(b.branchPRs[bk], k)
 	}
 }
 

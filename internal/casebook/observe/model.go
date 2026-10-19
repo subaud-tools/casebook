@@ -45,6 +45,7 @@ type PRObs struct {
 	Body              string    `json:"body,omitempty"`        // first 600 chars of GitHub bodyText
 	MergeState        string    `json:"merge_state,omitempty"` // GitHub's mergeStateStatus verbatim (BEHIND, BLOCKED, CLEAN, DIRTY, ...)
 	HeadRef           string    `json:"head_ref,omitempty"`    // the PR's branch
+	HeadRepo          string    `json:"head_repo,omitempty"`   // the repo that branch is in, lower case owner/name ("" when GitHub has none)
 }
 
 // Owner is one account's or org's observation. A failed or blocked fetch

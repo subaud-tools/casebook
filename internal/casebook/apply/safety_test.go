@@ -75,7 +75,7 @@ func TestLongLivedBranchIsNeverDeleted(t *testing.T) {
 		Precondition: PreconditionGitHubTip,
 		ExpectedTip:  tip,
 	}
-	gh := &ghScript{t: t, reply: map[string]ghReply{"api repos/schuettc/hail --jq .default_branch": {out: "main"}}}
+	gh := &ghScript{t: t, reply: map[string]ghReply{"api repos/schuettc/hail --jq " + repoJq: {out: "main"}}}
 	chk, err := Check(ctx, remote, Env{Gh: gh})
 	if err != nil {
 		t.Fatal(err)

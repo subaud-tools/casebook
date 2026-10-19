@@ -116,11 +116,17 @@ func (b *builder) holds(it *Item) ([]Hold, []string) {
 				Fix: "Switch that clone to another branch.", Stops: []item.Disposition{item.Delete}, Local: true, Machine: p.machine})
 		}
 		hs = append(hs, b.otherMac(it)...)
-		prs := b.branchPRs[it.ID]
-		sort.Ints(prs)
-		for _, n := range prs {
+		prs := slices.Clone(b.branchPRs[it.ID])
+		sort.Slice(prs, func(i, j int) bool {
+			if prs[i].Owner+"/"+prs[i].Name != prs[j].Owner+"/"+prs[j].Name {
+				return prs[i].Owner+"/"+prs[i].Name < prs[j].Owner+"/"+prs[j].Name
+			}
+			return prs[i].Number < prs[j].Number
+		})
+		for _, pr := range prs {
+			n := pr.Number
 			hs = append(hs, Hold{Kind: HoldOpenPR, Text: fmt.Sprintf("open PR #%d uses this branch: deleting it on GitHub closes that PR", n),
-				Fix: fmt.Sprintf("Merge or close PR #%d first, or decide this again.", n), By: item.PRKey(it.Repo, n).String(),
+				Fix: fmt.Sprintf("Merge or close PR #%d first, or decide this again.", n), By: pr.String(),
 				Stops: []item.Disposition{item.Delete}, Remote: true})
 		}
 	case item.KindPR, item.KindIssue:

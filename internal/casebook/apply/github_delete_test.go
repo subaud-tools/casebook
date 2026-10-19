@@ -59,7 +59,7 @@ func ghDeleteArgs(repoID, branch, tip string) string {
 // in main, with no open PR, and the delete itself.
 func landedScript(t *testing.T, tip string) *ghScript {
 	return &ghScript{t: t, reply: map[string]ghReply{
-		"api repos/o/r --jq .default_branch":                               {out: "main\n"},
+		"api repos/o/r --jq " + repoJq:                                     {out: "main\n"},
 		"api repos/o/r/git/ref/heads/feat/x --jq .object.sha":              {out: tip + "\n"},
 		"api repos/o/r/compare/main..." + tip + " --jq .status":            {out: "behind\n"},
 		"api repos/o/r/pulls?state=open&head=o:feat%2Fx --jq [.[].number]": {out: "[]\n"},
@@ -111,7 +111,7 @@ func TestGitHubDeleteEscapesTheBranch(t *testing.T) {
 		t.Fatalf("parse branch %q %v", b, err)
 	}
 	gh := &ghScript{t: t, reply: map[string]ghReply{
-		"api repos/o/r --jq .default_branch":                                       {out: "main"},
+		"api repos/o/r --jq " + repoJq:                                             {out: "main"},
 		"api repos/o/r/git/ref/heads/fix/a%2Bb%20%232 --jq .object.sha":            {out: tipOne},
 		"api repos/o/r/compare/main..." + tipOne + " --jq .status":                 {out: "identical"},
 		"api repos/o/r/pulls?state=open&head=o:fix%2Fa%2Bb+%232 --jq [.[].number]": {out: "[]"},
@@ -168,7 +168,7 @@ func TestGitHubBranchNotLandedIsRefused(t *testing.T) {
 }
 
 func TestGitHubLongLivedIsRefused(t *testing.T) {
-	gh := &ghScript{t: t, reply: map[string]ghReply{"api repos/o/r --jq .default_branch": {out: "trunk\n"}}}
+	gh := &ghScript{t: t, reply: map[string]ghReply{"api repos/o/r --jq " + repoJq: {out: "trunk\n"}}}
 	res, _ := ghRunner(t, gh).RunStep(context.Background(), ghStep("trunk", tipOne), Env{Gh: gh})
 	if res.State != StepSkipped || res.Detail != "trunk is a long-lived branch: casebook never deletes it" {
 		t.Fatalf("RunStep %+v", res)
@@ -187,6 +187,25 @@ func TestGitHubBranchWithAnOpenPRIsRefused(t *testing.T) {
 	}
 	if gh.sent("updateRefs") {
 		t.Error("a delete was sent for a branch with an open PR")
+	}
+}
+
+// repoJq is the precondition's repo read: the default branch and the
+// parent a fork has.
+const repoJq = `.default_branch + " " + (.parent.full_name // "")`
+
+// TestGitHubBranchWithAnOpenPRUpstreamIsRefused: a fork's branch that is
+// the head of an open PR into its parent is refused, as one into the fork.
+func TestGitHubBranchWithAnOpenPRUpstreamIsRefused(t *testing.T) {
+	gh := landedScript(t, tipOne)
+	gh.reply["api repos/o/r --jq "+repoJq] = ghReply{out: "main u/p\n"}
+	gh.reply["api repos/u/p/pulls?state=open&head=o:feat%2Fx --jq [.[].number]"] = ghReply{out: "[7]\n"}
+	res, _ := ghRunner(t, gh).RunStep(context.Background(), ghStep("feat/x", tipOne), Env{Gh: gh})
+	if res.State != StepSkipped || res.Detail != "open PR #7 uses this branch: deleting it on GitHub closes that PR" {
+		t.Fatalf("RunStep %+v", res)
+	}
+	if gh.sent("updateRefs") {
+		t.Error("a delete was sent for a branch with an open PR upstream")
 	}
 }
 
