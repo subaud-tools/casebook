@@ -26,8 +26,14 @@ import {
   observations,
   heldOutside,
   planTitle,
+  actionTags,
+  stepTags,
+  tagText,
+  publicLine,
+  runsNow,
+  reviewKicker,
 } from './apply-text.ts';
-import type { Job, JobStep, NeedsYou } from './wire.d.ts';
+import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
 let ids = 1;
 function step(
@@ -422,5 +428,128 @@ describe('planTitle', () => {
       ),
       'Delete 1 local branch, delete 1 remote branch, close 1 pr',
     );
+  });
+});
+
+describe('review tags and lines', () => {
+  const st = (action: string, extra: Partial<Step> = {}): Step => ({
+    key: 'pr:o/r#1',
+    action,
+    lane:
+      action.startsWith('branch') || action === 'worktree-remove'
+        ? 'casebook'
+        : 'agent',
+    command: 'c',
+    ...extra,
+  });
+  test('actionTags', () => {
+    assert.deepEqual(actionTags('repo-delete'), ['permanent']);
+    assert.deepEqual(actionTags('pr-merge'), ['permanent']);
+    assert.deepEqual(actionTags('pr-close'), ['github-undo']);
+    assert.deepEqual(actionTags('issue-close'), ['github-undo']);
+    assert.deepEqual(actionTags('repo-archive'), ['github-undo']);
+    assert.deepEqual(actionTags('branch-delete-local'), []);
+  });
+  test('stepTags counts each kind', () => {
+    const steps = [
+      st('pr-merge'),
+      st('pr-merge'),
+      st('pr-close', { posts: true }),
+      st('pr-close', { posts: true }),
+      st('pr-close'),
+      st('repo-delete'),
+    ];
+    assert.deepEqual(stepTags(steps), [
+      { kind: 'permanent', n: 3 },
+      { kind: 'posts', n: 2 },
+      { kind: 'github-undo', n: 3 },
+    ]);
+    assert.deepEqual(stepTags([st('branch-delete-local')]), []);
+  });
+  test('tagText', () => {
+    assert.equal(tagText({ kind: 'permanent', n: 2 }, 2), "can't be undone");
+    assert.equal(tagText({ kind: 'permanent', n: 3 }, 0), "3 can't be undone");
+    assert.equal(
+      tagText({ kind: 'posts', n: 2 }, 3),
+      '2 post a public comment',
+    );
+    assert.equal(
+      tagText({ kind: 'posts', n: 1 }, 3),
+      '1 posts a public comment',
+    );
+    assert.equal(tagText({ kind: 'posts', n: 1 }, 1), 'posts a public comment');
+    assert.equal(tagText({ kind: 'github-undo', n: 3 }, 0), '3 undo on GitHub');
+    assert.equal(tagText({ kind: 'github-undo', n: 3 }, 3), 'undo on GitHub');
+  });
+  test('publicLine', () => {
+    assert.equal(
+      publicLine(
+        st('pr-close', {
+          posts: true,
+          comment: 'Closing as stale',
+          public: true,
+        }),
+      ),
+      'posts publicly on a public repo: \u201cClosing as stale\u201d',
+    );
+    assert.equal(
+      publicLine(st('pr-close', { posts: true, comment: 'Superseded' })),
+      'posts publicly: \u201cSuperseded\u201d',
+    );
+  });
+  test('runsNow', () => {
+    const plan: Plan = {
+      built_at: '',
+      steps: [
+        st('worktree-remove'),
+        st('worktree-remove'),
+        st('branch-delete-remote'),
+        st('branch-delete-remote'),
+        st('branch-delete-remote'),
+        st('branch-delete-local'),
+      ],
+      waiting: [1, 2, 3, 4].map((n) => ({
+        key: `branch:o/r@b${n}`,
+        machine: 'pro-2',
+      })),
+      held_back: [{ key: 'branch:o/r@dev', holds: [] }],
+    };
+    assert.equal(
+      runsNow(plan),
+      'Runs now: 2 worktrees removed first, 3 deleted on GitHub, 1 deleted here.\nWaits for pro-2: 4 local copies. Held: 1.',
+    );
+    assert.equal(
+      runsNow({
+        built_at: '',
+        steps: [st('pr-merge'), st('pr-close'), st('repo-delete')],
+      }),
+      '3 steps \u00b7 all on GitHub, through the agent.',
+    );
+    assert.equal(
+      runsNow({
+        built_at: '',
+        steps: [st('branch-delete-local'), st('repo-archive')],
+      }),
+      'Runs now: 1 deleted here, 1 on GitHub, through the agent.',
+    );
+    assert.equal(
+      runsNow({
+        built_at: '',
+        steps: [],
+        held_back: [{ key: 'pr:o/r#3', holds: [] }],
+      }),
+      'Nothing runs now.\nHeld: 1.',
+    );
+    assert.equal(
+      runsNow({
+        built_at: '',
+        steps: Array.from({ length: 1240 }, () => st('branch-delete-remote')),
+      }),
+      'Runs now: 1,240 deleted on GitHub.',
+    );
+  });
+  test('reviewKicker', () => {
+    assert.equal(reviewKicker(1), 'review');
+    assert.equal(reviewKicker(3), 'review \u00b7 3 groups ticked');
   });
 });

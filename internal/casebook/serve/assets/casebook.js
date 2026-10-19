@@ -459,7 +459,7 @@ function makeWalkthrough(ctx) {
     overlay.setAttribute("aria-label", "walkthrough");
     const ring = el("div", "cb-walk-ring");
     const card6 = el("div", "cb-walk-card");
-    const count = el("p", "cb-walk-count");
+    const count2 = el("p", "cb-walk-count");
     const note = el("p", "cb-walk-note");
     const skipBtn = el("button", "kit-btn cb-walk-skip", "skip");
     const nextBtn = el("button", "kit-btn fill cb-walk-next", "next");
@@ -467,7 +467,7 @@ function makeWalkthrough(ctx) {
     nextBtn.type = "button";
     const acts = el("div", "cb-walk-acts");
     acts.append(skipBtn, nextBtn);
-    card6.append(count, note, acts);
+    card6.append(count2, note, acts);
     ring.hidden = true;
     card6.hidden = true;
     overlay.append(ring, card6);
@@ -522,7 +522,7 @@ function makeWalkthrough(ctx) {
         target.scrollIntoView({ block: "nearest", inline: "nearest" });
         at2 = i;
         overlay.dataset.step = step.id;
-        count.textContent = `${i + 1} of ${steps.length}`;
+        count2.textContent = `${i + 1} of ${steps.length}`;
         note.textContent = step.note;
         nextBtn.textContent = i === steps.length - 1 ? "done" : "next";
         ring.hidden = false;
@@ -1207,8 +1207,8 @@ function lookIntoCard(words, session, key) {
   };
 }
 function discardConfirm(vocab2, n, view) {
-  const count = n === 1 ? vocab2.discard_one : vocab2.discard_some.replaceAll("{n}", String(n));
-  return vocab2.discard_confirm.replaceAll("{count}", count).replaceAll("{view}", view);
+  const count2 = n === 1 ? vocab2.discard_one : vocab2.discard_some.replaceAll("{n}", String(n));
+  return vocab2.discard_confirm.replaceAll("{count}", count2).replaceAll("{view}", view);
 }
 var PICK_KINDS = {
   pr: ["pr"],
@@ -1828,18 +1828,6 @@ function nextSteps(steps) {
   }
   return out;
 }
-function planSummary(steps) {
-  let local = 0;
-  let out = 0;
-  for (const s of steps) {
-    if (s.lane === "agent") out++;
-    else local++;
-  }
-  const parts = [pluralize(steps.length, "step")];
-  if (local) parts.push(`${local} local`);
-  if (out) parts.push(`${out} outward`);
-  return parts.join(" · ");
-}
 function needsSession(steps) {
   return steps.some((s) => s.lane === "agent");
 }
@@ -1904,6 +1892,85 @@ function heldOutside(jobs, id, loaded) {
       if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
   }
   return held.size;
+}
+var ACTION_TAGS = {
+  "repo-delete": ["permanent"],
+  "pr-merge": ["permanent"],
+  "pr-close": ["github-undo"],
+  "issue-close": ["github-undo"],
+  "repo-archive": ["github-undo"]
+};
+function actionTags(action) {
+  return ACTION_TAGS[action] ?? [];
+}
+function stepTags(steps) {
+  const n = {
+    permanent: 0,
+    posts: 0,
+    "github-undo": 0
+  };
+  for (const s of steps) {
+    for (const k of actionTags(s.action)) n[k]++;
+    if (s.posts) n.posts++;
+  }
+  return ["permanent", "posts", "github-undo"].filter((k) => n[k] > 0).map((kind) => ({ kind, n: n[kind] }));
+}
+function tagText(t, of) {
+  const counted = of === 0 || t.n < of;
+  const lead = counted ? `${count(t.n)} ` : "";
+  switch (t.kind) {
+    case "permanent":
+      return `${lead}can't be undone`;
+    case "github-undo":
+      return `${lead}undo on GitHub`;
+    case "posts":
+      return `${lead}${counted && t.n > 1 ? "post" : "posts"} a public comment`;
+  }
+}
+function publicLine(s) {
+  return `posts publicly${s.public ? " on a public repo" : ""}: “${s.comment ?? ""}”`;
+}
+function count(n) {
+  return n.toLocaleString("en-US");
+}
+function runsNow(plan) {
+  const steps = plan.steps ?? [];
+  const by = (a) => steps.filter((s) => s.action === a).length;
+  const agent = steps.filter((s) => s.lane === "agent").length;
+  const wt = by("worktree-remove");
+  const remote = by("branch-delete-remote");
+  const local = by("branch-delete-local");
+  let first;
+  if (steps.length && agent === steps.length) {
+    first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
+  } else if (!steps.length) {
+    first = "Nothing runs now.";
+  } else {
+    const parts = [];
+    if (wt)
+      parts.push(
+        `${count(wt)} ${wt === 1 ? "worktree" : "worktrees"} removed${remote + local ? " first" : ""}`
+      );
+    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
+    if (local) parts.push(`${count(local)} deleted here`);
+    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
+    first = `Runs now: ${parts.join(", ")}.`;
+  }
+  const rest = [];
+  const waits = /* @__PURE__ */ new Map();
+  for (const w of plan.waiting ?? [])
+    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
+  for (const [m, n] of waits)
+    rest.push(
+      `Waits for ${m}: ${count(n)} ${n === 1 ? "local copy" : "local copies"}.`
+    );
+  const held = plan.held_back?.length ?? 0;
+  if (held) rest.push(`Held: ${count(held)}.`);
+  return rest.length ? `${first}
+${rest.join(" ")}` : first;
+}
+function reviewKicker(groups) {
+  return groups > 1 ? `review · ${groups} groups ticked` : "review";
 }
 
 // coalesce.ts
@@ -2003,6 +2070,7 @@ function makeApply(ctx) {
   let followTimer = null;
   const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
   let reviewKeys = [];
+  let reviewTicked = 0;
   let reviewView = null;
   let drawnView = null;
   let reviewNote = "";
@@ -2625,7 +2693,9 @@ function makeApply(ctx) {
       focusHead(g.id);
     }
     const mine = planSeq.next();
-    let keys = tickedIn(g);
+    const ticked = groups.filter((x) => tickedIn(x).length > 0);
+    let keys = ticked.length > 1 ? ticked.flatMap(tickedIn) : tickedIn(g);
+    const nTicked = ticked.length > 1 ? ticked.length : 1;
     if (!keys.length) {
       keys = waiting(g).map((it) => it.key);
       if (itemsTotal > items.length) {
@@ -2642,6 +2712,7 @@ function makeApply(ctx) {
     if (!planSeq.isLatest(mine)) return;
     if (follow && sameKeys(keys, reviewKeys)) return;
     reviewKeys = keys;
+    reviewTicked = nTicked;
     if (!follow) drawReview();
     if (!keys.length) return;
     opening = true;
@@ -2697,6 +2768,7 @@ function makeApply(ctx) {
     reviewGroup = "";
     reviewView = null;
     reviewKeys = [];
+    reviewTicked = 0;
     reviewNote = "";
     opening = false;
     markOpenGroup();
@@ -2927,7 +2999,7 @@ function makeApply(ctx) {
         "data-testid": "review-group",
         "data-group": reviewGroup
       },
-      h4("p", { class: "kit-kick" }, "review"),
+      h4("p", { class: "kit-kick" }, reviewKicker(reviewTicked)),
       h4(
         "h1",
         { class: "kit-h1" },
@@ -2954,7 +3026,9 @@ function makeApply(ctx) {
     }
     if (!v || !j) return paint(doc);
     const steps = j.steps ?? [];
-    if (!steps.length) {
+    const held2 = v.plan.held_back ?? [];
+    const waits = v.plan.waiting ?? [];
+    if (!steps.length && !held2.length && !waits.length) {
       doc.append(
         h4(
           "p",
@@ -2964,8 +3038,8 @@ function makeApply(ctx) {
       );
       return paint(doc);
     }
-    drawnView = v;
-    doc.append(runBlock(j));
+    if (steps.length) drawnView = v;
+    doc.append(runBlock(v));
     const agent = runnerAgent() ?? "an agent";
     const parts2 = (v.groups ?? []).map((x) => ({
       action: x.action,
@@ -2973,7 +3047,13 @@ function makeApply(ctx) {
       undo: x.undo,
       steps: x.steps ?? []
     }));
-    for (const p of parts2.length ? parts2 : groupSteps(steps)) {
+    const deletesBranches = steps.some((s) => s.action.startsWith("branch-"));
+    const shown2 = !steps.length ? [] : parts2.length ? parts2 : groupSteps(steps);
+    for (const p of shown2) {
+      const github = p.action === "branch-delete-remote";
+      const first = p.action === "worktree-remove" && deletesBranches;
+      const title = github ? "Delete on GitHub" : first ? "Remove worktrees first" : actionTitle(p.action);
+      const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
       doc.append(
         h4(
           "h3",
@@ -2981,14 +3061,15 @@ function makeApply(ctx) {
           h4(
             "span",
             { class: `cb-lanename cb-lanename-${p.lane}` },
-            laneLabel(p.lane, agent)
+            github ? "casebook · github" : laneLabel(p.lane, agent)
           ),
-          ` · ${actionTitle(p.action)} · ${p.steps.length}`
+          ` · ${title} · ${p.steps.length}`,
+          ...tagEls(stepTags(p.steps), p.steps.length)
         ),
         h4(
           "p",
           { class: "cb-plan-where", "data-testid": "plan-where" },
-          p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : `Runs here, on ${j.machine}.`,
+          where,
           p.undo ? h4(
             "span",
             { class: "cb-plan-undo", "data-testid": "plan-undo" },
@@ -3007,28 +3088,143 @@ function makeApply(ctx) {
               "div",
               { class: "kit-tr cb-plan-step", "data-key": s.key },
               h4("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
-              h4("code", { class: "cb-cmd" }, s.command)
+              h4(
+                "code",
+                { class: "cb-cmd", "data-cmd": s.command },
+                s.command,
+                github && s.expected_tip ? h4(
+                  "span",
+                  { class: "cb-cmd-if" },
+                  ` (if still at ${s.expected_tip.slice(0, 7)})`
+                ) : null
+              ),
+              s.posts && s.comment ? h4("span", { class: "cb-publine" }, publicLine(s)) : null
             )
           )
         )
       );
     }
+    drawWaits(doc, waits);
+    drawHeld(doc, held2);
     paint(doc);
   }
-  function runBlock(j) {
+  function drawWaits(doc, waits) {
+    const byMachine = /* @__PURE__ */ new Map();
+    for (const w of waits)
+      byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
+    for (const [m, ws] of byMachine) {
+      doc.append(
+        h4(
+          "h3",
+          { class: "kit-label cb-group-label cb-wait-h" },
+          `Waits for ${m} · ${ws.length}`
+        ),
+        h4(
+          "p",
+          { class: "cb-plan-where" },
+          `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`
+        ),
+        h4(
+          "div",
+          {
+            class: "kit-table cb-plan-group cb-waits",
+            "data-testid": "plan-waits"
+          },
+          ...ws.map(
+            (w) => h4(
+              "div",
+              { class: "kit-tr cb-plan-step" },
+              h4("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
+              h4(
+                "span",
+                { class: "cb-cmd" },
+                `on ${m}${w.path ? ` · ${w.path}` : ""}`
+              )
+            )
+          )
+        )
+      );
+    }
+  }
+  function drawHeld(doc, held2) {
+    if (!held2.length) return;
+    doc.append(
+      h4(
+        "h3",
+        { class: "kit-label cb-group-label cb-held-h" },
+        `Held · ${held2.length}`
+      ),
+      h4(
+        "p",
+        { class: "cb-plan-where" },
+        "Not in this run. Each says what holds it; settle that and it joins the next run."
+      ),
+      h4(
+        "div",
+        {
+          class: "kit-table cb-plan-group cb-held",
+          "data-testid": "plan-held"
+        },
+        ...held2.map((x) => {
+          const holds = x.holds ?? [];
+          const links = [];
+          for (const hd of holds) {
+            if (hd.by)
+              links.push(
+                h4(
+                  "a",
+                  { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+                  keyWithoutKind(hd.by)
+                )
+              );
+            else if (hd.kind === "long-lived")
+              links.push(
+                h4(
+                  "a",
+                  { class: "cb-link", href: `#/decide/${pathEscape(x.key)}` },
+                  "decide again"
+                )
+              );
+          }
+          return h4(
+            "div",
+            { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
+            h4("span", { class: "cb-step-k" }, keyWithoutKind(x.key)),
+            h4(
+              "span",
+              { class: "cb-held-why" },
+              holds.map((hd) => hd.text).join(" · "),
+              ...links.flatMap((a) => [" · ", a])
+            )
+          );
+        })
+      )
+    );
+  }
+  function tagEls(tags, of) {
+    return tags.map(
+      (t) => h4("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
+    );
+  }
+  function runBlock(v) {
+    const j = v.job;
     const steps = j.steps ?? [];
-    const outward = steps.some((s) => s.lane === "agent");
-    const permanent = steps.some((s) => s.permanent);
     const rc = runCheck();
     const el2 = h4("div", { class: "cb-approve", "data-testid": "run-group" });
+    const [first, rest] = runsNow(v.plan).split("\n");
     el2.append(
       h4(
         "p",
         { class: "cb-approve-what" },
-        `${planSummary(steps)}${outward ? "" : ", all local"}.`,
-        permanent ? h4("span", { class: "cb-approve-warn" }, " Cannot be undone.") : null
+        first,
+        rest ? h4("br") : null,
+        rest ?? null
       )
     );
+    const tags = stepTags(steps);
+    if (tags.length)
+      el2.append(h4("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
+    if (!steps.length) return el2;
     const row = h4("div", { class: "cb-approve-row" });
     if (rc?.text)
       row.append(
@@ -4138,7 +4334,7 @@ function conditionEditor(ctx, rule, onChange) {
         r.classList.toggle("on", i === at2);
       });
     }
-    const option = (value, count, hint, pat) => h7(
+    const option = (value, count2, hint, pat) => h7(
       "div",
       {
         class: pat ? "cb-cond-sugg-row cb-cond-sugg-pat" : "cb-cond-sugg-row",
@@ -4157,7 +4353,7 @@ function conditionEditor(ctx, rule, onChange) {
         value,
         hint ? h7("span", { class: "cb-cond-sugg-hint" }, ` · ${hint}`) : null
       ),
-      h7("span", { class: "cb-cond-sugg-n" }, String(count))
+      h7("span", { class: "cb-cond-sugg-n" }, String(count2))
     );
     async function suggest() {
       const typedQ = input.value.trim();
@@ -8118,19 +8314,19 @@ function makeProgressLine() {
   };
 }
 function makeWaitingStrip() {
-  const count = h13("span", {});
+  const count2 = h13("span", {});
   const el2 = h13(
     "div",
     { class: "cb-wait", "data-testid": "waiting-strip" },
     h13("span", { class: "cb-wait-word" }, "waiting"),
-    count
+    count2
   );
   el2.hidden = true;
   return {
     el: el2,
     setQueued(n) {
       el2.hidden = n <= 0;
-      count.textContent = ` · ${n} queued for the end of this turn`;
+      count2.textContent = ` · ${n} queued for the end of this turn`;
     }
   };
 }

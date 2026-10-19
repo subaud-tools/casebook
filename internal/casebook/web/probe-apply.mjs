@@ -145,7 +145,7 @@ export async function applyScenarios(shared, t) {
 }
 
 // PROBE_SCENARIO (with PROBE_ONLY=apply) runs only the scenario groups
-// whose name has it: main, same, ticked, changed.
+// whose name has it: main, same, ticked, changed, holds.
 const runs = (name) =>
   !process.env.PROBE_SCENARIO || name.includes(process.env.PROBE_SCENARIO);
 
@@ -155,6 +155,7 @@ async function applyScenariosIn(context, t) {
     ['same', { seedRepos: [dormant('t10-same')] }, sameGroupScenario],
     ['ticked', TICKED_SEED, tickedRunScenario],
     ['changed', CHANGED_SEED, changedPlanScenario],
+    ['holds', HOLDS_SEED, holdsScenario],
   ];
   for (const [name, seed, run] of groups) {
     if (!runs(name)) continue;
@@ -199,14 +200,17 @@ const sameCmds = (job, drawn) => {
   return ran.length > 0 && ran.join('\n') === [...drawn].sort().join('\n');
 };
 
-// The open group's commands and its button, read in one go.
+// The open group's commands and its button, read in one go (a step's
+// command, not what waits or is held).
 const readGroup = (pg) =>
   pg.evaluate(() => {
     const doc = document.querySelector('[data-testid="review-group"]');
     return {
-      cmds: [...(doc?.querySelectorAll('.cb-plan-step .cb-cmd') ?? [])].map(
-        (e) => e.textContent,
-      ),
+      cmds: [
+        ...(doc?.querySelectorAll(
+          '.cb-plan-group[data-action] .cb-plan-step .cb-cmd',
+        ) ?? []),
+      ].map((e) => e.dataset.cmd ?? e.textContent),
       btns: [
         ...(doc?.querySelectorAll('[data-testid="run-group"] .kit-btn') ?? []),
       ].map((b) => (b.disabled ? 'off' : 'on')),
@@ -923,6 +927,112 @@ async function changedPlanScenario(context, t, s) {
     );
   } finally {
     clearInterval(keep);
+    await pg.close();
+  }
+}
+
+// ---- what stands in the way ------------------------------------------------
+// Court 2026-10-18: two PR closes failed because their repos are archived;
+// review didn't say so. A held item shows in review under Held, with why.
+const T11_PR = 'pr:schuettc/t11-archived#3';
+const T11_REPO = 'repo:schuettc/t11-dormant';
+const HOLDS_SEED = {
+  seedRepos: [
+    dormant('t11-dormant'),
+    {
+      repo: 'schuettc/t11-archived',
+      archived: true,
+      pushed_at: '2024-01-10T00:00:00Z',
+      default_branch: 'main',
+      prs: [
+        {
+          repo: 'schuettc/t11-archived',
+          number: 3,
+          title: 'old fix',
+          author: 'bob',
+          state: 'OPEN',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        },
+      ],
+      issues: [],
+    },
+  ],
+};
+async function holdsScenario(context, t, s) {
+  const { check, until } = t;
+  console.log('\nscenario: review and the item page say what holds an item');
+  const agent = createAgent(s.base, s.token);
+  await agent.api('POST', '/api/decide', {
+    keys: [T11_REPO],
+    disposition: 'archive',
+  });
+  await agent.api('POST', '/api/decide', {
+    keys: [T11_PR],
+    disposition: 'close',
+    note: 'stale',
+  });
+  const pg = await context.newPage();
+  try {
+    await pg.goto(s.url + '#/review', {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    await pg.waitForSelector(HEAD('close|pr'), { timeout: 8000 });
+    await pg.click(HEAD('close|pr'));
+    const held = await until(
+      pg,
+      () => {
+        const doc = document.querySelector('[data-testid="review-group"]');
+        return (
+          !!doc &&
+          doc.querySelector('.cb-held-h')?.textContent === 'Held \u00b7 1' &&
+          (doc.textContent ?? '').includes(
+            'schuettc/t11-archived is archived: GitHub refuses any change to it',
+          )
+        );
+      },
+      null,
+      8000,
+    );
+    check(
+      "review shows an archived repo's PR under Held with its reason",
+      held,
+    );
+
+    // Tick an item in each group: one review of both (opening close|pr
+    // unfolded it; archive|repo starts folded).
+    await pg.click('.cb-apply-part[data-part="archive|repo"] .cb-group-caret');
+    for (const k of [T11_PR, T11_REPO]) {
+      await until(
+        pg,
+        (key) =>
+          !!document.querySelector(
+            `.cb-apply-list .kit-row[data-key="${key}"]`,
+          ),
+        k,
+      );
+      await pg.click(`.cb-apply-list .kit-row[data-key="${k}"] .kit-box`);
+    }
+    const combined = await until(
+      pg,
+      () => {
+        const doc = document.querySelector('[data-testid="review-group"]');
+        return (
+          doc?.querySelector('.kit-kick')?.textContent ===
+            'review \u00b7 2 groups ticked' &&
+          !!doc.querySelector('.cb-tags-line .cb-tag-github-undo') &&
+          !!doc.querySelector('.cb-held-row')
+        );
+      },
+      null,
+      8000,
+    );
+    check(
+      'ticking two groups makes one review: "review \u00b7 2 groups ticked", an "undo on GitHub" tag in its summary',
+      combined,
+    );
+  } finally {
     await pg.close();
   }
 }
