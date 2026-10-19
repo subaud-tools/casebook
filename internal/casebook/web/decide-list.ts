@@ -40,19 +40,21 @@ import type {
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
 import { renderItem } from './item.ts';
-import { getVocab } from './decide.ts';
+import { getVocab, renderTicked } from './decide.ts';
 import {
   pluralize,
   nextInView,
   MORE,
   recommendLine,
-  groupButtons,
   lookIntoCard,
   navTargets,
   shortKey,
   standsLine,
   decideSummary,
-  CAME_BACK,
+  splitTicked,
+  tickedWords,
+  countWord,
+  kindFromKey,
   decideRoute,
   doneWords,
   waitingStrip,
@@ -174,8 +176,9 @@ export function makeDecide(ctx: Ctx): Section {
   // A ticked item on a page not loaded is counted and acted on from here.
   const groupOfKey = new Map<string, string>();
   const proposalOfKey = new Map<string, number>();
-  // The groups whose button is running (their buttons wait).
-  const busyGroups = new Set<string>();
+  // Every item the page has seen (loaded rows and a group fetched whole):
+  // a ticked item on a page not loaded shows in the middle pane from here.
+  const itemOfKey = new Map<string, ItemView>();
   // The view's left-open group (kept items still open: they need no
   // decision, so the view's count and move-on leave them out). It is the
   // last group, once every page of the items that need a decision is
@@ -252,6 +255,27 @@ export function makeDecide(ctx: Ctx): Section {
         '{n}',
         String(viewRecs),
       );
+    // At volume the agent is asked for rules, not item by item: "ask agent
+    // to suggest rules" for the not recommended, with a session attached
+    // (not while filtered: the list then holds decided items too).
+    const t = ctx.dockTarget();
+    const none = groups.some((g) => g.id === 'none' && g.total > 0);
+    const suggest =
+      t && none && !filtered()
+        ? asked === askedKey(t.id)
+          ? h('span', { class: 'cb-group-note' }, vocab.asked)
+          : h(
+              'button',
+              {
+                type: 'button',
+                class: 'kit-btn cb-suggest-rules',
+                onclick() {
+                  void askRules();
+                },
+              },
+              vocab.suggest_rules,
+            )
+        : null;
     return h(
       'div',
       { class: 'cb-read-empty', 'data-testid': 'decide-summary' },
@@ -262,6 +286,7 @@ export function makeDecide(ctx: Ctx): Section {
         ...rest.map((l) => h('li', null, l)),
       ),
       discardAllBtn,
+      suggest,
       prompt,
     );
   }
@@ -312,6 +337,7 @@ export function makeDecide(ctx: Ctx): Section {
 
   // Show the empty reading-column state (replaces any open item detail).
   function showReadEmpty(): void {
+    tickedOn = false;
     currentOpenKey = null;
     shownDetail = null;
     // A selected rule shows in the middle pane until an item is opened;
@@ -471,7 +497,6 @@ export function makeDecide(ctx: Ctx): Section {
     onFilterNew() {
       openFilterEditor(null);
     },
-    headActs: (id: string) => groupActs(id),
   });
   const handle = pane.handle;
 
@@ -1215,6 +1240,7 @@ export function makeDecide(ctx: Ctx): Section {
   // know records the group and the pending proposal of each item.
   function know(items: ItemView[]): void {
     for (const it of items) {
+      itemOfKey.set(it.key, it);
       if (!it.group) continue;
       groupOfKey.set(it.key, it.group);
       if (it.proposal?.state === 'pending')
@@ -1254,110 +1280,6 @@ export function makeDecide(ctx: Ctx): Section {
       more,
       data: { d: g.disposition, ...(ruleId ? { rule: ruleId } : {}) },
     };
-  }
-
-  // groupButton is one of group id's buttons: while one runs, the group's
-  // buttons wait.
-  // groupSays is what a group's decision does, in serve's words (the
-  // choice whose label the group carries): its button's hover.
-  function groupSays(g: GroupView): string {
-    for (const k of vocab?.kinds ?? []) {
-      const c = (k.choices ?? []).find(
-        (x) => x.disposition === g.disposition && x.label === g.label,
-      );
-      if (c) return c.says;
-    }
-    return '';
-  }
-  function withSays(el: HTMLElement, says: string): HTMLElement {
-    if (says) el.title = says;
-    return el;
-  }
-
-  function groupButton(
-    id: string,
-    cls: string,
-    label: string,
-    run: () => Promise<void> | void,
-    off = false,
-  ): HTMLElement {
-    return h(
-      'button',
-      {
-        type: 'button',
-        class: 'kit-btn ' + cls,
-        disabled: off || busyGroups.has(id) || draft !== null,
-        onclick() {
-          if (busyGroups.has(id)) return;
-          busyGroups.add(id);
-          paintAll();
-          void Promise.resolve(run()).finally(() => {
-            busyGroups.delete(id);
-            paintAll();
-          });
-        },
-      },
-      label,
-    );
-  }
-
-  // groupActs is a group's buttons on its head: they act on the whole
-  // group or its ticked items. "came back" and not recommended yet have
-  // none but the ask (each of their items is decided on its own).
-  function groupActs(id: string): HTMLElement[] {
-    const g = groups.find((x) => x.id === id);
-    if (!g || !vocab) return [];
-    const button = (
-      cls: string,
-      label: string,
-      run: () => Promise<void> | void,
-      off = false,
-    ): HTMLElement => groupButton(g.id, cls, label, run, off);
-    const ticked = tickedIn(g);
-    const n = ticked.length;
-    const t = ctx.dockTarget();
-    if (g.id === CAME_BACK || g.id === 'none') {
-      // What needs a recommendation: with a session attached, ticked
-      // items get "ask agent to recommend these" (the look-into message,
-      // naming them). Unticked, the not recommended get "ask agent to
-      // suggest rules", the list's group attached; not while filtered:
-      // the group then holds decided items too, which no rule recommends.
-      if (t && n > 0) {
-        // Underway: serve says the row is being looked into, or (a
-        // row not loaded) this page asked this session about it.
-        const rows = loadedItems.filter((it) => it.group === g.id);
-        const looked = ticked.every(
-          (k) =>
-            rows.some((it) => it.key === k && it.looking) ||
-            (!rows.some((it) => it.key === k) &&
-              lookedInto.has(`${t.id}\n${k}`)),
-        );
-        return [
-          button(
-            'fill cb-group-ask',
-            vocab.recommend_these,
-            () => lookInto(tickedIn(g)),
-            looked,
-          ),
-        ];
-      }
-      if (t && g.id === 'none' && !filtered()) {
-        if (asked === askedKey(t.id))
-          return [h('span', { class: 'cb-group-note' }, vocab.asked)];
-        return [button('fill cb-group-ask', vocab.suggest_rules, askRules)];
-      }
-      return [];
-    }
-    const w = groupButtons(g, n, vocab);
-    return [
-      withSays(
-        button('fill cb-group-act', w.act, () => actGroup(g)),
-        groupSays(g),
-      ),
-      ...(g.source.startsWith('rule:')
-        ? []
-        : [button('cb-group-discard', w.discard, () => discardGroup(g))]),
-    ];
   }
 
   function paintAll(): void {
@@ -1409,75 +1331,6 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
-  // target is what a group's button acts on: its ticked items, or with
-  // none ticked every item of the group (every page).
-  async function target(
-    g: GroupView,
-  ): Promise<{ keys: string[]; ids: number[] }> {
-    let keys = tickedIn(g);
-    if (!keys.length) keys = (await fetchGroup(g)).map((it) => it.key);
-    const ids: number[] = [];
-    for (const k of keys) {
-      const id = proposalOfKey.get(k);
-      if (id !== undefined) ids.push(id);
-    }
-    return { keys, ids };
-  }
-
-  // actGroup accepts the recommendations of a group (or its ticked items).
-  // An outward choice only goes to apply, and the strip says so ("Deleted
-  // all 3 · waiting in apply · undo"; its undo takes them all back). When
-  // the open item was one of them, the next undecided item opens; with
-  // none open, the first undecided one does.
-  async function actGroup(g: GroupView): Promise<void> {
-    if (deciding) return;
-    const open = currentOpenKey;
-    deciding = open ?? '\u0000group';
-    try {
-      const ticked = tickedIn(g).length;
-      const { keys, ids } = await target(g);
-      if (!ids.length) return;
-      const order = await orderFor(open);
-      const r = await ctx.api.post<AcceptResult>('/proposals/accept', {
-        ids,
-      });
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join('; ') || 'nothing was accepted');
-        return;
-      }
-      selection.deselect(keys);
-      // Undo puts back what each had, as serve says it was when it
-      // decided (not the list's rows: a group's items aren't all loaded,
-      // and a live reload may already show the new decisions).
-      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
-        key,
-        prev: r.previous?.[key] ?? null,
-        expect,
-      }));
-      if (g.outward && vocab)
-        waited(
-          doneWords(vocab, g.disposition, {
-            label: g.label,
-            total: g.total,
-            ticked,
-          }),
-          applyGroupLink(g.disposition, keys[0] ?? ''),
-        );
-      else hideStrip();
-      if (!open || keys.includes(open)) {
-        await moveOn(open ?? '', order);
-      } else {
-        void reload();
-      }
-      const errs = r.errors ?? [];
-      if (errs.length) showReadError(errs.join('; '));
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
-    }
-  }
-
   // lookInto sends the attached session one message naming keys, all of
   // them attached, with the look-into purpose (serve marks each while it is
   // underway, and the rows say so). It decides nothing.
@@ -1497,38 +1350,197 @@ export function makeDecide(ctx: Ctx): Section {
       }
       if (t) for (const k of keys) lookedInto.add(`${t.id}\n${k}`);
       await reload();
+      if (tickedOn) showTicked();
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  // discardGroup confirms, then withdraws the group's agent
-  // recommendations (every page), or exactly its ticked items'.
-  function discardGroup(g: GroupView): void {
-    if (!vocab) return;
-    const ticked = tickedIn(g);
-    if (ticked.length && ticked.length < g.total) {
-      const ids = ticked
-        .map((k) => proposalOfKey.get(k))
-        .filter((id): id is number => id !== undefined);
-      openDiscardSheet(
+  // ---- what is ticked: the middle pane ---------------------------------------
+
+  // tickedOn: the middle pane shows the ticked items (it waits to show the
+  // open item until none is ticked).
+  let tickedOn = false;
+
+  // tickedItems is every ticked item as the page knows it.
+  function tickedItems(): ItemView[] {
+    return selection
+      .ids()
+      .map((k) => itemOfKey.get(k) ?? ({ key: k } as ItemView));
+  }
+
+  // groupName is a group's name as its head shows it: its rule's name, else
+  // its label.
+  function groupName(g: GroupView): string {
+    const ruleId = g.source.startsWith('rule:') ? g.source.slice(5) : '';
+    if (!ruleId) return g.label;
+    return ruleRows.find((r) => r.rule.id === ruleId)?.rule.name || ruleId;
+  }
+
+  // tickedWhere is the group the ticks are in, by name, or how many groups.
+  function tickedWhere(keys: string[]): string {
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ''))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) return groupName(g);
+    if (ids.length === 1 && ids[0] === LEFT_OPEN) return vocab?.left_open ?? '';
+    return `${ids.length} groups`;
+  }
+
+  // showTicked puts the ticked items in the middle pane: the decision
+  // buttons for all of them, "ask agent to recommend these" (with a session
+  // attached) and "discard N" (when an agent recommends every one).
+  function showTicked(): void {
+    if (!vocab || draft !== null) return;
+    tickedOn = true;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    readEl.replaceChildren(
+      renderTicked(
         ctx,
-        vocab,
-        ids.length,
-        discardWhere(),
-        { ids },
-        discarded,
-      );
-      return;
-    }
-    openDiscardSheet(
-      ctx,
-      vocab,
-      g.total,
-      discardWhere(),
-      groupFilters(g),
-      discarded,
+        items,
+        tickedWords(vocab, items, tickedWhere(keys)),
+        decideTicked,
+        tickedExtra(items),
+      ),
     );
+  }
+
+  function tickedExtra(items: ItemView[]): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    const t = ctx.dockTarget();
+    const keys = items.map((it) => it.key);
+    if (!vocab) return out;
+    if (t) {
+      const looked = keys.every(
+        (k) => !!itemOfKey.get(k)?.looking || lookedInto.has(`${t.id}\n${k}`),
+      );
+      out.push(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'kit-btn cb-ticked-ask',
+            disabled: looked,
+            onclick() {
+              void lookInto(keys);
+            },
+          },
+          vocab.recommend_these,
+        ),
+      );
+    }
+    const ids = items
+      .map((it) => it.proposal)
+      .filter((p) => p?.state === 'pending' && !p.source.startsWith('rule:'))
+      .map((p) => p?.id ?? 0);
+    if (ids.length && ids.length === items.length) {
+      const words = vocab;
+      out.push(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'kit-btn cb-ticked-discard',
+            onclick() {
+              openDiscardSheet(
+                ctx,
+                words,
+                ids.length,
+                discardWhere(),
+                { ids },
+                discarded,
+              );
+            },
+          },
+          vocab.discard_many.replaceAll('{n}', String(ids.length)),
+        ),
+      );
+    }
+    return out;
+  }
+
+  // tickedDone is what deciding the ticked items did, in serve's words
+  // ("Deleted all 3"), for the strip.
+  function tickedDone(d: string, keys: string[]): string {
+    if (!vocab) return '';
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ''))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) {
+      const w = doneWords(vocab, d, {
+        label: g.label,
+        total: g.total,
+        ticked: keys.length,
+      });
+      if (w) return w;
+    }
+    if (keys.length === 1) return doneWords(vocab, d, { key: keys[0] });
+    const c = (vocab.kinds ?? [])
+      .find((k) => k.kind === kindFromKey(keys[0] ?? ''))
+      ?.choices?.find((x) => x.disposition === d);
+    return c
+      ? c.done_many.replaceAll(
+          '{n}',
+          countWord(keys.length, keys.length, vocab.count_words),
+        )
+      : '';
+  }
+
+  // decideTicked decides every ticked item (every page): a pending
+  // recommendation of exactly this decision is accepted, every other item
+  // decided. An outward one says where it went (the strip, whose undo takes
+  // them all back). The open item, if it was one of them, moves on.
+  async function decideTicked(d: string, until?: string): Promise<void> {
+    if (deciding || !vocab) return;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    if (!keys.length) return;
+    const { accept, decide } = splitTicked(items, d, until ?? '');
+    const open = currentOpenKey;
+    deciding = '\u0000ticked';
+    try {
+      const order = await orderFor(open);
+      const made: Record<string, Committed> = {};
+      const previous: Record<string, Committed> = {};
+      const errs: string[] = [];
+      if (accept.length) {
+        const r = await ctx.api.post<AcceptResult>('/proposals/accept', {
+          ids: accept,
+        });
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...(r.errors ?? []));
+      }
+      if (decide.length) {
+        const body: Record<string, unknown> = { keys: decide, disposition: d };
+        if (until) body['until'] = until;
+        const r = await ctx.api.post<DecideResult>('/decide', body);
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...(r.errors ?? []));
+      }
+      const decided = Object.keys(made);
+      if (!decided.length) {
+        showReadError(errs.join('; ') || 'nothing was decided');
+        return;
+      }
+      lastUndo = decided.map((key) => ({
+        key,
+        prev: previous[key] ?? null,
+        expect: made[key],
+      }));
+      const done = tickedDone(d, keys);
+      selection.deselect(keys);
+      if (outwardChoice(keys[0], d))
+        waited(done, applyGroupLink(d, decided[0]));
+      else hideStrip();
+      if (open && decided.includes(open)) await moveOn(open, order);
+      else void reload();
+      if (errs.length) showReadError(errs.join('; '));
+    } catch (err) {
+      showReadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      deciding = null;
+    }
   }
 
   function updateFoot(): void {
@@ -1565,7 +1577,10 @@ export function makeDecide(ctx: Ctx): Section {
   // lookedInto is each session\nkey this page asked to recommend: a row
   // not loaded (past the first pages) still counts as underway.
   const lookedInto = new Set<string>();
-  ctx.onDockTarget(() => paintAll());
+  ctx.onDockTarget(() => {
+    updateReadEmptyCount();
+    if (tickedOn) showTicked();
+  });
 
   async function askRules(): Promise<void> {
     const t = ctx.dockTarget();
@@ -1576,7 +1591,7 @@ export function makeDecide(ctx: Ctx): Section {
     if (why) showReadError(why);
     else {
       asked = askedKey(t.id);
-      paintAll();
+      updateReadEmptyCount();
     }
   }
 
@@ -1616,6 +1631,7 @@ export function makeDecide(ctx: Ctx): Section {
   }
 
   async function openDetail(key: string): Promise<void> {
+    tickedOn = false;
     currentOpenKey = key;
     markOpenRow();
     feedAttached();
@@ -1639,6 +1655,8 @@ export function makeDecide(ctx: Ctx): Section {
   // paintDetail renders detail (key's) in the reading column.
   function paintDetail(key: string, detail: ItemDetailView): void {
     shownDetail = detail;
+    // What is ticked has the middle pane: the item waits for it to go.
+    if (tickedOn) return;
     const el = renderItem(ctx, detail, {
       decide: (d, until, note) => void decideOpen(key, d, until, note),
       cardsReady: () => renderAsk(),
@@ -2135,11 +2153,18 @@ export function makeDecide(ctx: Ctx): Section {
 
   void reload();
 
-  // Ticked items act through their group: the groups' ticked counts and
-  // buttons follow the selection (no bar primary, no d, no foot count).
+  // Ticked items show in the middle pane with their buttons; unticking them
+  // all brings back the open item, or the summary. The groups' heads count
+  // the ticks.
   selection.onChange(() => {
     paintAll();
     feedAttached();
+    if (selection.ids().length) showTicked();
+    else if (tickedOn) {
+      tickedOn = false;
+      if (currentOpenKey) void openDetail(currentOpenKey);
+      else showReadEmpty();
+    }
   });
 
   // shownProposal is the pending proposal the reading column shows: what

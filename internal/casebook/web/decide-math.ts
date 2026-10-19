@@ -695,3 +695,70 @@ export function applyGroupLink(disposition: string, key: string): string {
   const kind = key.slice(0, key.indexOf(':'));
   return `#/review?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
 }
+
+// ---- ticked items -------------------------------------------------------------
+
+/**
+ * splitTicked splits ticked items for a decision: the pending
+ * recommendations of exactly it are accepted (their ids), every other item
+ * is decided (its key).
+ */
+export function splitTicked(
+  items: ItemView[],
+  disposition: string,
+  until = '',
+): { accept: number[]; decide: string[] } {
+  const out = { accept: [] as number[], decide: [] as string[] };
+  for (const it of items) {
+    const p = it.proposal;
+    if (
+      p?.state === 'pending' &&
+      p.disposition === disposition &&
+      (p.until ?? '') === until
+    )
+      out.accept.push(p.id);
+    else out.decide.push(it.key);
+  }
+  return out;
+}
+
+/**
+ * tickedWords is the middle pane's lines for ticked items: where they are
+ * ticked ("decide · 2 ticked in Landed branches"), what they are ("2
+ * branches"; "3 items" of several kinds), and the recommendation they share
+ * ("Landed branches recommends delete it for both"), if they share one.
+ */
+export function tickedWords(
+  vocab: DecisionVocabView,
+  items: ItemView[],
+  groupLabel: string,
+): { kick: string; title: string; ctx: string } {
+  const n = items.length;
+  const kinds = [...new Set(items.map((it) => kindFromKey(it.key)))];
+  const kv =
+    kinds.length === 1
+      ? (vocab.kinds ?? []).find((k) => k.kind === kinds[0])
+      : undefined;
+  const title = kv?.nouns
+    ? `${n} ${n === 1 ? kv.noun : kv.nouns}`
+    : pluralize(n, 'item');
+  const ps = items.map((it) =>
+    it.proposal?.state === 'pending' ? it.proposal : undefined,
+  );
+  const first = ps[0];
+  const shared =
+    !!first &&
+    ps.every(
+      (p) => p?.disposition === first.disposition && p?.source === first.source,
+    );
+  let ctx = 'not recommended yet';
+  if (shared && first) {
+    const all = n === 1 ? 'it' : n === 2 ? 'both' : `all ${n}`;
+    ctx = `${recommendsWho(vocab, first.source, groupLabel)} ${choiceLabel(vocab, items[0].key, first.disposition)} for ${all}`;
+  } else if (ps.some(Boolean)) ctx = 'their recommendations differ';
+  return {
+    kick: `decide \u00b7 ${n} ticked in ${groupLabel}`,
+    title,
+    ctx,
+  };
+}

@@ -194,10 +194,21 @@ async function decisionsScenario(context, t, s) {
   // First, so no other decision's strip is up when its own is looked for.
   const OLDS = [1, 2, 3].map(IPOLD);
   const OLD = `${LIST} .cb-group[data-rule="${IP_OLD.id}"]`;
-  await pg.waitForSelector(`${OLD} .cb-group-act`, { timeout: 8000 });
+  await pg.waitForSelector(`${OLD} .cb-group-box`, { timeout: 8000 });
   const oldBefore = await Promise.all(OLDS.map(held));
   posts.length = 0;
-  await pg.click(`${OLD} .cb-group-act`);
+  // Ticking the group shows its three in the middle, the rule's choice
+  // filled; nothing is decided until it is pressed.
+  await pg.click(`${OLD} .cb-group-box`);
+  const FILLED = `${READ} .cb-mid-acts .cb-choice.on[data-d="delete"]`;
+  await pg.waitForSelector(FILLED, { timeout: 8000 });
+  check(
+    `ticking the group decides nothing: its three show in the middle, "1 ticked" aside (${posts.length} POSTs)`,
+    posts.filter((p) => /^\/api\/(decide|proposals\/)/.test(p)).length === 0 &&
+      (await pg.$eval(`${OLD} .cb-group-ticked`, (e) => e.textContent)) ===
+        '3 ticked \u00b7 untick',
+  );
+  await pg.click(FILLED);
   const groupDecided = await eventually(async () => {
     const now = await Promise.all(OLDS.map(held));
     return now.every(
@@ -209,7 +220,7 @@ async function decisionsScenario(context, t, s) {
     /^\/api\/(decide|proposals\/)/.test(p),
   );
   check(
-    `the group's Delete all 3 decides each of the three delete, once: one commit each, from one POST (${groupPosts.join(', ')})`,
+    `ticked, the three's delete decides each of them, once: one commit each, from one POST (${groupPosts.join(', ')})`,
     groupDecided && groupPosts.length === 1,
   );
   await until(

@@ -20,6 +20,8 @@ import {
   shortKey,
   standsLine,
   decideSummary,
+  splitTicked,
+  tickedWords,
 } from './decide-math.ts';
 import type {
   DecisionVocabView,
@@ -587,4 +589,88 @@ describe('decideSummary', () => {
   test('nothing to decide: the one line', () => {
     assert.deepEqual(decideSummary([], 0, rules, vocab), ['0 to decide']);
   });
+});
+
+// ---- ticked items -------------------------------------------------------------
+
+describe('ticked items', () => {
+  let n = 0;
+  const withProp = (key: string, id: number, d: string): ItemView =>
+    ({
+      key,
+      kind: 'branch',
+      proposal: { id, state: 'pending', disposition: d, source: 'rule:x' },
+    }) as unknown as ItemView;
+  const bare = (key: string): ItemView =>
+    ({ key, kind: 'branch' }) as unknown as ItemView;
+  const VOCAB = {
+    recommends: 'agent recommends',
+    rule_recommends: '{rule} recommends',
+    kinds: [
+      {
+        kind: 'branch',
+        noun: 'branch',
+        nouns: 'branches',
+        choices: [{ disposition: 'delete', label: 'delete it' }],
+      },
+      {
+        kind: 'pr',
+        noun: 'PR',
+        nouns: 'PRs',
+        choices: [{ disposition: 'close', label: 'close it' }],
+      },
+    ],
+  } as unknown as DecisionVocabView;
+  const branchRec = (rule: string): ItemView =>
+    ({
+      key: `branch:o/r@b${n++}`,
+      kind: 'branch',
+      group: `rule:landed|delete|delete it`,
+      proposal: {
+        id: n,
+        state: 'pending',
+        disposition: 'delete',
+        source: 'rule:landed',
+      },
+      title: rule,
+    }) as unknown as ItemView;
+
+  test('splitTicked accepts matching recommendations and decides the rest', () =>
+    assert.deepEqual(
+      splitTicked(
+        [withProp('a', 7, 'delete'), withProp('b', 8, 'keep'), bare('c')],
+        'delete',
+      ),
+      { accept: [7], decide: ['b', 'c'] },
+    ));
+  test('tickedWords for two from one rule', () =>
+    assert.deepEqual(
+      tickedWords(
+        VOCAB,
+        [branchRec('Landed branches'), branchRec('Landed branches')],
+        'Landed branches',
+      ),
+      {
+        kick: 'decide \u00b7 2 ticked in Landed branches',
+        title: '2 branches',
+        ctx: 'Landed branches recommends delete it for both',
+      },
+    ));
+  test('tickedWords for mixed kinds and no common recommendation', () =>
+    assert.deepEqual(
+      tickedWords(
+        VOCAB,
+        [
+          bare('branch:o/r@x'),
+          { key: 'pr:o/r#1', kind: 'pr' } as ItemView,
+          bare('branch:o/r@y'),
+        ],
+        '2 groups',
+      ),
+      {
+        kick: 'decide \u00b7 3 ticked in 2 groups',
+        title: '3 items',
+        ctx: 'not recommended yet',
+      },
+    ));
 });

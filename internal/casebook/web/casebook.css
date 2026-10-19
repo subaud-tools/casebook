@@ -3187,7 +3187,7 @@ button.cb-cond-menu-row[aria-disabled='true'] {
 .cb-mid-acts .kit-btn {
   height: 26px;
   box-sizing: border-box;
-  padding: 0 10px;
+  padding: 0 8px;
   font-size: 12px;
   line-height: 24px;
   white-space: nowrap;
@@ -3259,4 +3259,34 @@ button.cb-cond-menu-row[aria-disabled='true'] {
 .cb-step-here {
   font: 12px var(--kit-mono);
   color: var(--kit-signal);
+}
+
+/* ---- ticked items in the middle (decide.ts renderTicked, apply.ts) ------- */
+/* The decision buttons on the buttons' line: one line, 26px, the shared
+ * recommendation filled; no "recommended" mark above them (the context
+ * line says it). Not now's picker and an error stay under the line. */
+.cb-mid-acts > .cb-choices {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 0;
+}
+/* The middle pane's documents for ticked items, a plan and a run item use
+ * the room they have, as the item page does. */
+.kit-doc:has(> .cb-apply-doc) {
+  max-width: 860px;
+}
+.cb-mid-acts .cb-choice-mark {
+  display: none;
+}
+.cb-mid-acts .cb-choice.kit-btn.on {
+  background: var(--kit-signal);
+  border-color: var(--kit-signal);
+  box-shadow: none;
+}
+.cb-mid-acts .cb-choice.kit-btn.on .cb-choice-label {
+  color: var(--kit-signal-ink);
+}
+.cb-ticked > .cb-choices-wrap .cb-notnow {
+  margin: 0 0 12px;
 }

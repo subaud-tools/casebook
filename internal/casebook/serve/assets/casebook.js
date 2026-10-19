@@ -1008,7 +1008,7 @@ import {
   facts as facts3,
   buttons as buttons4,
   card as card3,
-  sheet as sheet2
+  sheet
 } from "/_kit/kit.js";
 
 // sessions.ts
@@ -1197,14 +1197,6 @@ function countWord(total, ticked, words) {
   if (total === 2) return words.two;
   return words.all.replaceAll("{n}", String(total));
 }
-function groupButtons(g, ticked, vocab2) {
-  const n = countWord(g.total, ticked, vocab2.count_words);
-  const fill = (s) => s.replaceAll("{n}", n);
-  return {
-    act: fill(g.many || g.label),
-    discard: fill(vocab2.discard_many)
-  };
-}
 function lookIntoCard(words, session, key) {
   return {
     label: words.label,
@@ -1345,6 +1337,39 @@ function waitingStrip(w, done) {
 function applyGroupLink(disposition, key) {
   const kind = key.slice(0, key.indexOf(":"));
   return `#/review?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
+}
+function splitTicked(items, disposition, until = "") {
+  const out = { accept: [], decide: [] };
+  for (const it of items) {
+    const p = it.proposal;
+    if (p?.state === "pending" && p.disposition === disposition && (p.until ?? "") === until)
+      out.accept.push(p.id);
+    else out.decide.push(it.key);
+  }
+  return out;
+}
+function tickedWords(vocab2, items, groupLabel) {
+  const n = items.length;
+  const kinds = [...new Set(items.map((it) => kindFromKey(it.key)))];
+  const kv = kinds.length === 1 ? (vocab2.kinds ?? []).find((k) => k.kind === kinds[0]) : void 0;
+  const title = kv?.nouns ? `${n} ${n === 1 ? kv.noun : kv.nouns}` : pluralize(n, "item");
+  const ps = items.map(
+    (it) => it.proposal?.state === "pending" ? it.proposal : void 0
+  );
+  const first = ps[0];
+  const shared = !!first && ps.every(
+    (p) => p?.disposition === first.disposition && p?.source === first.source
+  );
+  let ctx = "not recommended yet";
+  if (shared && first) {
+    const all = n === 1 ? "it" : n === 2 ? "both" : `all ${n}`;
+    ctx = `${recommendsWho(vocab2, first.source, groupLabel)} ${choiceLabel(vocab2, items[0].key, first.disposition)} for ${all}`;
+  } else if (ps.some(Boolean)) ctx = "their recommendations differ";
+  return {
+    kick: `decide · ${n} ticked in ${groupLabel}`,
+    title,
+    ctx
+  };
 }
 
 // apply-text.ts
@@ -1742,9 +1767,44 @@ function aroundSteps(steps, key, span) {
   const shown = steps.slice(Math.max(0, i - span), i + span + 1);
   return { steps: shown, hidden: steps.length - shown.length };
 }
+function runActions(steps, cards) {
+  const open = (s, kinds) => cards.some(
+    (c) => c.state === "open" && c.step_id === s.id && kinds.includes(c.kind)
+  );
+  const all = (f) => steps.length > 0 && steps.every(f);
+  return {
+    skip: all((s) => open(s, ["failed", "paused"])),
+    hand: all((s) => open(s, ["failed"])),
+    undo: all((s) => !!s.undoable)
+  };
+}
+var STATE_WORD = {
+  failed: "failed",
+  paused: "paused",
+  needs_you: "waiting",
+  skipped: "skipped",
+  verified: "done",
+  reported: "reported",
+  running: "running",
+  pending: "queued"
+};
+function tickedRunWords(marks, groupLabel) {
+  const n = marks.length;
+  const steps = marks.map(standsStep).filter(Boolean);
+  const states = [
+    ...new Set(steps.map((s) => s.undone_at ? "undone" : s.state))
+  ];
+  const word = states.length === 1 ? states[0] === "undone" ? "undone" : STATE_WORD[states[0]] : "";
+  const jobs = [...new Set(marks.map((m) => m.job))].sort((a, b) => a - b);
+  return {
+    kick: `run · ${n} ticked in ${groupLabel}`,
+    title: word ? `${n} ${word} ${n === 1 ? "step" : "steps"}` : pluralize(n, "item"),
+    ctx: jobs.length === 1 ? `job #${jobs[0]}` : `jobs ${jobs.map((j) => `#${j}`).join(", ")}`
+  };
+}
 
 // decide.ts
-import { sheet, h as h3, noteField as noteField2 } from "/_kit/kit.js";
+import { h as h4 } from "/_kit/kit.js";
 
 // choices.ts
 import { h as h2, noteField, buttons } from "/_kit/kit.js";
@@ -2039,6 +2099,36 @@ function renderChoices(ctx, kind, opts) {
   return root;
 }
 
+// mid.ts
+import { h as h3 } from "/_kit/kit.js";
+function midHead(o) {
+  return [
+    h3("p", { class: "cb-mid-kick", title: o.kick }, o.kick),
+    h3("h1", { class: "cb-mid-title", title: o.title }, o.title),
+    h3("p", { class: "cb-mid-ctx", title: o.ctx }, o.ctx),
+    h3("div", { class: "cb-mid-acts" }, ...o.acts)
+  ];
+}
+function midRows(rows, more) {
+  return h3(
+    "div",
+    { class: "cb-mid-rows" },
+    ...rows.map(
+      (r) => h3(
+        "div",
+        { class: "cb-mid-row", "data-key": r.key },
+        h3("div", { class: "cb-mid-k", title: r.key }, keyWithoutKind(r.key)),
+        h3(
+          "div",
+          { class: `cb-mid-st cb-tone-${r.tone ?? "muted"}`, title: r.stands },
+          r.stands
+        )
+      )
+    ),
+    more > 0 ? h3("div", { class: "cb-mid-row cb-mid-more" }, `… ${more} more`) : null
+  );
+}
+
 // decide.ts
 var _vocab = null;
 async function getVocab(ctx) {
@@ -2047,6 +2137,49 @@ async function getVocab(ctx) {
   return _vocab;
 }
 var DANGER_DISPS = /* @__PURE__ */ new Set(["close", "delete", "archive"]);
+function renderTicked(ctx, items, words, onDecide, extra) {
+  const keys = items.map((it) => it.key);
+  const kinds = [...new Set(keys.map(kindFromKey))];
+  const recs = items.map(
+    (it) => it.proposal?.state === "pending" ? it.proposal.disposition : ""
+  );
+  const common = recs.every((r) => r && r === recs[0]) ? recs[0] : void 0;
+  const choices2 = renderChoices(ctx, kinds[0] ?? "", {
+    keys,
+    recommended: common,
+    chosen: common,
+    onPick(d, until) {
+      void onDecide(d, until);
+    }
+  });
+  const grid = choices2.querySelector(".cb-choices");
+  const shown = items.slice(0, TICKED_ROWS);
+  return h4(
+    "div",
+    { class: "kit-doc" },
+    h4(
+      "article",
+      { class: "cb-apply-doc cb-ticked", "data-testid": "ticked" },
+      ...midHead({
+        ...words,
+        acts: [...grid ? [grid] : [], ...extra]
+      }),
+      choices2,
+      midRows(
+        shown.map((it) => {
+          const p = it.proposal?.state === "pending" ? it.proposal : void 0;
+          return {
+            key: it.key,
+            stands: p?.note || "not recommended yet",
+            tone: "muted"
+          };
+        }),
+        items.length - shown.length
+      )
+    )
+  );
+}
+var TICKED_ROWS = 20;
 
 // coalesce.ts
 function coalesced(load) {
@@ -2072,13 +2205,13 @@ function coalesced(load) {
 }
 
 // list-pane.ts
-import { list, h as h6 } from "/_kit/kit.js";
+import { list, h as h7 } from "/_kit/kit.js";
 
 // filters.ts
-import { h as h5, ApiError, buttons as buttons2, card } from "/_kit/kit.js";
+import { h as h6, ApiError, buttons as buttons2, card } from "/_kit/kit.js";
 
 // conditions.ts
-import { h as h4 } from "/_kit/kit.js";
+import { h as h5 } from "/_kit/kit.js";
 
 // rules-text.ts
 function trackRecord(r) {
@@ -2282,13 +2415,13 @@ function newCondition(f) {
   return { field: f.name, op, value: first };
 }
 function select(cls, label, options, labelOf, value, onPick) {
-  const el2 = h4(
+  const el2 = h5(
     "select",
     { class: cls, "aria-label": label },
-    ...options.map((o) => h4("option", { value: o }, labelOf(o)))
+    ...options.map((o) => h5("option", { value: o }, labelOf(o)))
   );
   if (!options.includes(value)) {
-    el2.prepend(h4("option", { value }, labelOf(value)));
+    el2.prepend(h5("option", { value }, labelOf(value)));
   }
   el2.value = value;
   el2.addEventListener("change", () => onPick(el2.value));
@@ -2300,12 +2433,12 @@ function conditionEditor(ctx, rule, onChange) {
   let fields = [];
   let ops = [];
   const fieldOf = (name) => fields.find((f) => f.name === name);
-  const el2 = h4("div", {
+  const el2 = h5("div", {
     class: "kit-table cb-conds",
     "data-testid": "conditions"
   });
-  const rowsEl = h4("div", { class: "cb-cond-rows" });
-  const general = h4("div", { class: "cb-cond-err", hidden: true });
+  const rowsEl = h5("div", { class: "cb-cond-rows" });
+  const general = h5("div", { class: "cb-cond-err", hidden: true });
   el2.append(rowsEl, general);
   const changed = () => {
     if (editable && fields.length) fillMenu();
@@ -2313,7 +2446,7 @@ function conditionEditor(ctx, rule, onChange) {
   };
   function pickControl(c, f) {
     const multi = f.type === ENUM;
-    const wrap = h4("div", {
+    const wrap = h5("div", {
       class: "cb-cond-v cb-cond-picks",
       role: "group",
       "aria-label": `${fieldLabel(f)} value`,
@@ -2330,7 +2463,7 @@ function conditionEditor(ctx, rule, onChange) {
     };
     for (const v of choices(f)) {
       wrap.append(
-        h4(
+        h5(
           "button",
           {
             type: "button",
@@ -2359,12 +2492,12 @@ function conditionEditor(ctx, rule, onChange) {
     const c = conds[i];
     if (!editable || !f) {
       const shown = c.op === "in" || c.op === "not-in" ? pickedValues(c).values.map((v) => valueLabel(f, v)).join(" or ") : f?.type === DURATION ? durationWords(c.op, c.value) : valueLabel(f, c.value);
-      return h4("span", { class: "cb-cond-v", "data-value": c.value }, shown);
+      return h5("span", { class: "cb-cond-v", "data-value": c.value }, shown);
     }
     if (picks(f)) return pickControl(c, f);
     if (typed(f)) return typedControl(c, f);
     if (f.type === DURATION) return durationControl(c);
-    const input = h4("input", {
+    const input = h5("input", {
       class: "cb-cond-v",
       type: "text",
       value: c.value,
@@ -2379,8 +2512,8 @@ function conditionEditor(ctx, rule, onChange) {
     return input;
   }
   function typedControl(c, f) {
-    const chips = h4("span", { class: "cb-cond-typed-chips" });
-    const input = h4("input", {
+    const chips = h5("span", { class: "cb-cond-typed-chips" });
+    const input = h5("input", {
       class: "cb-cond-typed-in",
       type: "text",
       placeholder: "search or type",
@@ -2388,16 +2521,16 @@ function conditionEditor(ctx, rule, onChange) {
       autocomplete: "off",
       "aria-label": `${fieldLabel(f)} value`
     });
-    const list2 = h4("div", {
+    const list2 = h5("div", {
       class: "cb-cond-sugg",
       hidden: true,
       role: "listbox"
     });
-    const wrap = h4(
+    const wrap = h5(
       "div",
       { class: "cb-cond-v cb-cond-typed", "data-value": c.value },
       chips,
-      h4("span", { class: "cb-cond-typed-box" }, input, list2)
+      h5("span", { class: "cb-cond-typed-box" }, input, list2)
     );
     let at2 = 0;
     let shown = [];
@@ -2418,14 +2551,14 @@ function conditionEditor(ctx, rule, onChange) {
     function paint() {
       chips.replaceChildren(
         ...values().values.map(
-          (v) => h4(
+          (v) => h5(
             "span",
             {
               class: "kit-chip cb-cond-pick on cb-cond-typed-chip",
               "data-value": v
             },
             v,
-            h4(
+            h5(
               "button",
               {
                 type: "button",
@@ -2446,7 +2579,7 @@ function conditionEditor(ctx, rule, onChange) {
         r.classList.toggle("on", i === at2);
       });
     }
-    const option = (value, count2, hint, pat) => h4(
+    const option = (value, count2, hint, pat) => h5(
       "div",
       {
         class: pat ? "cb-cond-sugg-row cb-cond-sugg-pat" : "cb-cond-sugg-row",
@@ -2459,13 +2592,13 @@ function conditionEditor(ctx, rule, onChange) {
           add2(value);
         }
       },
-      h4(
+      h5(
         "span",
         { class: "cb-cond-sugg-v" },
         value,
-        hint ? h4("span", { class: "cb-cond-sugg-hint" }, ` · ${hint}`) : null
+        hint ? h5("span", { class: "cb-cond-sugg-hint" }, ` · ${hint}`) : null
       ),
-      h4("span", { class: "cb-cond-sugg-n" }, String(count2))
+      h5("span", { class: "cb-cond-sugg-n" }, String(count2))
     );
     async function suggest() {
       const typedQ = input.value.trim();
@@ -2483,7 +2616,7 @@ function conditionEditor(ctx, rule, onChange) {
       at2 = 0;
       const noun = NOUNS[f.name] ?? "values";
       list2.replaceChildren(
-        h4(
+        h5(
           "div",
           { class: "cb-cond-sugg-head" },
           `${hits.length} ${noun}${q ? ` matching “${typedQ}”` : ""}`
@@ -2526,7 +2659,7 @@ function conditionEditor(ctx, rule, onChange) {
   function durationControl(c) {
     if (c.op === "before" || c.op === "on-or-after") return dateControl(c);
     const m = /^(\d+)([hdw])$/.exec(c.value.trim());
-    const num = h4("input", {
+    const num = h5("input", {
       class: "cb-cond-num",
       type: "number",
       min: "1",
@@ -2535,14 +2668,14 @@ function conditionEditor(ctx, rule, onChange) {
       placeholder: "2",
       "aria-label": "how many"
     });
-    const unit = h4(
+    const unit = h5(
       "select",
       { class: "cb-cond-unit", "aria-label": "unit" },
       ...[
         ["h", "hours"],
         ["d", "days"],
         ["w", "weeks"]
-      ].map(([v, l]) => h4("option", { value: v }, l))
+      ].map(([v, l]) => h5("option", { value: v }, l))
     );
     unit.value = m ? m[2] : "d";
     const set = () => {
@@ -2553,23 +2686,23 @@ function conditionEditor(ctx, rule, onChange) {
     };
     num.addEventListener("input", set);
     unit.addEventListener("change", set);
-    const wrap = h4(
+    const wrap = h5(
       "span",
       { class: "cb-cond-v cb-cond-dur", "data-value": c.value },
       num,
       unit,
-      c.op === "older-than" ? h4("span", { class: "cb-cond-ago" }, "ago") : null
+      c.op === "older-than" ? h5("span", { class: "cb-cond-ago" }, "ago") : null
     );
     return wrap;
   }
   function dateControl(c) {
-    const day = h4("input", {
+    const day = h5("input", {
       class: "cb-cond-date",
       type: "date",
       value: /^\d{4}-\d{2}-\d{2}$/.test(c.value) ? c.value : "",
       "aria-label": "date"
     });
-    const wrap = h4(
+    const wrap = h5(
       "span",
       { class: "cb-cond-v cb-cond-dur", "data-value": c.value },
       day
@@ -2584,7 +2717,7 @@ function conditionEditor(ctx, rule, onChange) {
   function opControl(c, f) {
     const readOp = c.op === "in" ? "is" : c.op === "not-in" ? "is-not" : c.op;
     if (!editable || !f) {
-      return h4(
+      return h5(
         "span",
         { class: "cb-cond-o", "data-value": c.op },
         opLabel(ops, readOp)
@@ -2635,7 +2768,7 @@ function conditionEditor(ctx, rule, onChange) {
   function row(i) {
     const c = conds[i];
     const f = fieldOf(c.field);
-    const remove = editable ? h4(
+    const remove = editable ? h5(
       "button",
       {
         type: "button",
@@ -2649,13 +2782,13 @@ function conditionEditor(ctx, rule, onChange) {
       },
       "×"
     ) : null;
-    return h4(
+    return h5(
       "div",
       { class: "cb-cond", "data-index": i },
-      h4(
+      h5(
         "div",
         { class: "kit-tr cb-cond-row" + (editable ? " cb-cond-edit" : "") },
-        h4(
+        h5(
           "span",
           { class: "cb-cond-f", "data-name": c.field },
           f ? fieldLabel(f) : c.field
@@ -2664,7 +2797,7 @@ function conditionEditor(ctx, rule, onChange) {
         valueControl(i, f),
         remove
       ),
-      h4("div", { class: "cb-cond-err", hidden: true })
+      h5("div", { class: "cb-cond-err", hidden: true })
     );
   }
   function render() {
@@ -2672,7 +2805,7 @@ function conditionEditor(ctx, rule, onChange) {
     const e = errors.get(el2);
     if (e) setConditionError(el2, e.index, e.message);
   }
-  const search = h4("input", {
+  const search = h5("input", {
     class: "cb-cond-search",
     type: "text",
     placeholder: "find a field",
@@ -2680,18 +2813,18 @@ function conditionEditor(ctx, rule, onChange) {
     "aria-label": "find a field",
     autocomplete: "off"
   });
-  const options = h4("div", {
+  const options = h5("div", {
     class: "cb-cond-menu-list",
     role: "listbox",
     "aria-label": "fields"
   });
-  const menu = h4(
+  const menu = h5(
     "div",
     { class: "cb-cond-menu", hidden: true },
     search,
     options
   );
-  const add = h4(
+  const add = h5(
     "button",
     {
       type: "button",
@@ -2704,7 +2837,7 @@ function conditionEditor(ctx, rule, onChange) {
     },
     "+ condition"
   );
-  const addWrap = h4("div", { class: "cb-cond-add-wrap" }, add, menu);
+  const addWrap = h5("div", { class: "cb-cond-add-wrap" }, add, menu);
   addWrap.addEventListener("focusout", (e) => {
     if (!menu.hidden && !addWrap.contains(e.relatedTarget))
       setMenu(false);
@@ -2770,7 +2903,7 @@ function conditionEditor(ctx, rule, onChange) {
       const applies = fieldApplies(f, types);
       const taken = used.has(f.name) || !applies;
       const where = fieldTypes(f, kind) || "any type";
-      const chip = h4(
+      const chip = h5(
         "button",
         {
           type: "button",
@@ -2789,11 +2922,11 @@ function conditionEditor(ctx, rule, onChange) {
     }
     options.replaceChildren(
       ...[...groups].map(
-        ([where, chips]) => h4(
+        ([where, chips]) => h5(
           "div",
           { class: "cb-cond-group" },
-          h4("span", { class: "cb-cond-group-l" }, where),
-          h4("span", { class: "cb-cond-group-c" }, ...chips)
+          h5("span", { class: "cb-cond-group-l" }, where),
+          h5("span", { class: "cb-cond-group-c" }, ...chips)
         )
       )
     );
@@ -2884,11 +3017,11 @@ function message(err) {
 function makeFilterBar(_ctx, hooks) {
   let rows = [];
   let selected = [];
-  const chipsEl = h5("div", {
+  const chipsEl = h6("div", {
     class: "kit-chips cb-filter-chips",
     "data-group": "filters"
   });
-  const addBtn = h5(
+  const addBtn = h6(
     "button",
     {
       type: "button",
@@ -2899,18 +3032,18 @@ function makeFilterBar(_ctx, hooks) {
     },
     "+ filter"
   );
-  const errEl = h5("p", { class: "cb-filter-err", hidden: true });
-  const el2 = h5(
+  const errEl = h6("p", { class: "cb-filter-err", hidden: true });
+  const el2 = h6(
     "div",
     { class: "cb-filters", "aria-label": "saved filters" },
-    h5("span", { class: "cb-bar-label" }, "filters"),
+    h6("span", { class: "cb-bar-label" }, "filters"),
     chipsEl,
     errEl
   );
   function chip(row) {
     const id = row.filter.id;
     const on = selected.includes(id);
-    const b = h5(
+    const b = h6(
       "button",
       {
         type: "button",
@@ -2948,7 +3081,7 @@ function makeFilterBar(_ctx, hooks) {
 }
 function renderFilter(ctx, row, hooks) {
   const f = row.filter;
-  const note = h5("p", { class: "cb-rule-note", role: "status" });
+  const note = h6("p", { class: "cb-rule-note", role: "status" });
   const bs = [{ label: "edit", run: () => hooks.onEdit() }];
   if (!row.invalid)
     bs.push({ label: "make a rule", run: () => hooks.onMakeRule() });
@@ -2961,36 +3094,36 @@ function renderFilter(ctx, row, hooks) {
       });
     }
   });
-  return h5(
+  return h6(
     "div",
     { class: "kit-doc" },
-    h5(
+    h6(
       "article",
       { class: "cb-rule cb-filter-doc", "data-filter": f.id },
-      h5("p", { class: "kit-kick" }, "filter"),
-      h5("h1", { class: "kit-h1" }, f.name || f.id),
+      h6("p", { class: "kit-kick" }, "filter"),
+      h6("h1", { class: "kit-h1" }, f.name || f.id),
       row.invalid ? card({
         edge: "signal",
         head: "not valid",
-        body: h5(
+        body: h6(
           "div",
           null,
-          h5("p", { class: "cb-invalid-msg" }, row.invalid),
-          h5(
+          h6("p", { class: "cb-invalid-msg" }, row.invalid),
+          h6(
             "p",
             { class: "cb-invalid-help" },
             "This filter selects nothing until it is valid. Edit it to fix it."
           )
         )
       }) : null,
-      h5("h3", { class: "kit-label" }, "items that match all of"),
+      h6("h3", { class: "kit-label" }, "items that match all of"),
       conditionEditor(
         ctx,
         { match: f.match, status: "active", editable: false },
         () => {
         }
       ),
-      h5("div", { class: "cb-rule-actions" }, buttons2(bs), note)
+      h6("div", { class: "cb-rule-actions" }, buttons2(bs), note)
     )
   );
 }
@@ -3007,7 +3140,7 @@ function filterEditor(ctx, row, hooks) {
   if (row?.invalid) {
     setConditionError(editor, conditionErrorIndex(row.invalid), row.invalid);
   }
-  const name = h5("input", {
+  const name = h6("input", {
     class: "cb-filter-name",
     type: "text",
     placeholder: "name",
@@ -3020,7 +3153,7 @@ function filterEditor(ctx, row, hooks) {
     }
   });
   if (row) name.value = row.filter.name;
-  const nameErr = h5("p", { class: "cb-filter-name-err", hidden: true });
+  const nameErr = h6("p", { class: "cb-filter-name-err", hidden: true });
   function showNameError(msg) {
     nameErr.hidden = msg === null;
     nameErr.textContent = msg ?? "";
@@ -3057,22 +3190,22 @@ function filterEditor(ctx, row, hooks) {
       setConditionError(editor, i, msg);
     }
   }
-  const el2 = h5(
+  const el2 = h6(
     "div",
     { class: "kit-doc" },
-    h5(
+    h6(
       "article",
       { class: "cb-filter-edit", "data-testid": "filter-editor" },
-      h5(
+      h6(
         "h1",
         { class: "kit-h1 cb-filter-title" },
         row ? `edit ${row.filter.name || row.filter.id}` : "new filter"
       ),
-      h5(
+      h6(
         "div",
         { class: "cb-filter-acts" },
         name,
-        h5(
+        h6(
           "button",
           {
             type: "button",
@@ -3083,7 +3216,7 @@ function filterEditor(ctx, row, hooks) {
           },
           "save"
         ),
-        h5(
+        h6(
           "button",
           {
             type: "button",
@@ -3141,7 +3274,7 @@ function setHashQuery(query) {
 function makePane(ctx, tab, selection2, hooks) {
   let q = { filters: [], q: "" };
   let timer = null;
-  const moreBtn = h6("button", {
+  const moreBtn = h7("button", {
     type: "button",
     class: "cb-foot-more",
     hidden: true,
@@ -3149,14 +3282,14 @@ function makePane(ctx, tab, selection2, hooks) {
       hooks.onMore();
     }
   });
-  const obsText = h6("span", { "data-testid": "observations" });
-  const obsEl = h6(
+  const obsText = h7("span", { "data-testid": "observations" });
+  const obsEl = h7(
     "div",
     { class: "cb-apply-obs", hidden: true },
-    h6("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
+    h7("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
     obsText
   );
-  const foot = h6("div", { class: "cb-pane-foot" }, obsEl, moreBtn);
+  const foot = h7("div", { class: "cb-pane-foot" }, obsEl, moreBtn);
   const handle = list({
     label: "",
     selection: selection2,
@@ -3202,8 +3335,8 @@ function makePane(ctx, tab, selection2, hooks) {
       hooks.onFilterNew();
     }
   });
-  const ownRow = h6("div", { class: "cb-own" });
-  const tools = h6("div", { class: "cb-pane-tools" });
+  const ownRow = h7("div", { class: "cb-own" });
+  const tools = h7("div", { class: "cb-pane-tools" });
   const lh = el2.querySelector(".kit-lh");
   const search = el2.querySelector(".kit-search");
   if (lh) {
@@ -3216,7 +3349,7 @@ function makePane(ctx, tab, selection2, hooks) {
     );
   }
   const storeKey = `casebook.sidebar.${tab}`;
-  const hideBtn = h6(
+  const hideBtn = h7(
     "button",
     {
       type: "button",
@@ -3228,13 +3361,13 @@ function makePane(ctx, tab, selection2, hooks) {
     },
     "«"
   );
-  const showBtn = h6(
+  const showBtn = h7(
     "button",
     { type: "button", class: "cb-list-show", title: "show the list" },
     "»"
   );
-  const railLabel = h6("span", { class: "cb-list-rail-label" });
-  const rail = h6(
+  const railLabel = h7("span", { class: "cb-list-rail-label" });
+  const rail = h7(
     "div",
     {
       class: "cb-list-rail",
@@ -3268,7 +3401,7 @@ function makePane(ctx, tab, selection2, hooks) {
   let heads = [];
   function head(g, open) {
     const toggle = () => hooks.onToggle(g.id);
-    const box = g.box ? h6("span", {
+    const box = g.box ? h7("span", {
       class: "cb-group-box",
       role: "checkbox",
       "aria-checked": "false",
@@ -3276,13 +3409,13 @@ function makePane(ctx, tab, selection2, hooks) {
       onclick() {
         hooks.onTickGroup(g.id);
       }
-    }) : h6("span", { class: "cb-group-nobox" });
-    const tickedN = h6("span", { class: "cb-group-ticked-n" });
-    const ticked = h6(
+    }) : h7("span", { class: "cb-group-nobox" });
+    const tickedN = h7("span", { class: "cb-group-ticked-n" });
+    const ticked = h7(
       "span",
       { class: "cb-group-ticked", hidden: true },
       tickedN,
-      h6(
+      h7(
         "button",
         {
           type: "button",
@@ -3294,12 +3427,11 @@ function makePane(ctx, tab, selection2, hooks) {
         "untick"
       )
     );
-    const acts = h6("span", { class: "cb-group-acts" });
     const named = [g.label, g.tag].filter(Boolean).join(" · ");
-    const top = h6(
+    const top = h7(
       "div",
       { class: "cb-group-top" },
-      h6(
+      h7(
         "button",
         {
           type: "button",
@@ -3311,20 +3443,19 @@ function makePane(ctx, tab, selection2, hooks) {
         open ? "▼" : "▶"
       ),
       box,
-      h6(
+      h7(
         "span",
         { class: "cb-group-name", title: named, onclick: toggle },
-        h6("span", { class: "cb-group-label" }, g.label),
-        g.tag ? h6("span", { class: "cb-group-tag" }, g.tag) : null
+        h7("span", { class: "cb-group-label" }, g.label),
+        g.tag ? h7("span", { class: "cb-group-tag" }, g.tag) : null
       ),
       ticked,
-      acts,
-      h6("span", { class: "cb-group-n" }, String(g.n)),
+      h7("span", { class: "cb-group-n" }, String(g.n)),
       g.more ?? null
     );
     const data = { group: g.id, ...g.data ?? {} };
     if (tab !== "decide") data["part"] = g.id;
-    const hd = h6(
+    const hd = h7(
       "div",
       {
         class: "cb-group" + (tab !== "decide" ? " cb-apply-part" : "") + (open ? "" : " collapsed"),
@@ -3342,7 +3473,6 @@ function makePane(ctx, tab, selection2, hooks) {
         );
         ticked.hidden = n === 0;
         tickedN.textContent = `${n} ticked · `;
-        acts.replaceChildren(...hooks.headActs?.(g.id) ?? []);
       }
     });
     return hd;
@@ -3435,17 +3565,6 @@ function makePane(ctx, tab, selection2, hooks) {
       railLabel.textContent = text;
     }
   };
-}
-
-// mid.ts
-import { h as h7 } from "/_kit/kit.js";
-function midHead(o) {
-  return [
-    h7("p", { class: "cb-mid-kick", title: o.kick }, o.kick),
-    h7("h1", { class: "cb-mid-title", title: o.title }, o.title),
-    h7("p", { class: "cb-mid-ctx", title: o.ctx }, o.ctx),
-    h7("div", { class: "cb-mid-acts" }, ...o.acts)
-  ];
 }
 
 // ran.ts
@@ -4240,6 +4359,14 @@ function makeApply(ctx) {
   let runTotal = 0;
   let runGroups = [];
   const runGroupOfKey = /* @__PURE__ */ new Map();
+  const runItemOf = /* @__PURE__ */ new Map();
+  const noteRun = (it) => {
+    runGroupOfKey.set(it.key, it.group);
+    runItemOf.set(it.key, it);
+  };
+  const noteReview = (it) => {
+    groupOfKey.set(it.key, it.group);
+  };
   const runSeq = makeSeq();
   let ranKey = "";
   let ranDetail = null;
@@ -4348,6 +4475,16 @@ function makeApply(ctx) {
     runPane.el.hidden = mode !== "run";
   }
   showPane();
+  let runTickedOn = false;
+  runSel.onChange(() => {
+    runPane.paintHeads();
+    runTickedOn = runSel.ids().length > 0;
+    if (mode !== "run") return;
+    if (runTickedOn) drawRunTicked();
+    else if (openId !== null) drawOpen();
+    else if (ranKey) drawRan();
+    else drawOverview();
+  });
   reviewSel.onChange(() => {
     reviewPane.paintHeads();
     if (mode !== "review") return;
@@ -4542,7 +4679,7 @@ function makeApply(ctx) {
       groups = v.groups ?? [];
       for (const it of got) groupOfKey.set(it.key, it.group);
       if (offset === 0 && reviewSel.ids().length) {
-        const shown = itemsTotal <= items.length ? items.map((it) => it.key) : await viewKeys("to-apply", reviewQ, groupOfKey);
+        const shown = itemsTotal <= items.length ? items.map((it) => it.key) : await viewKeys("to-apply", reviewQ, noteReview);
         if (!itemsSeq.isLatest(mine)) return;
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
@@ -4730,7 +4867,7 @@ function makeApply(ctx) {
     drawReview();
     feed();
   }
-  async function viewKeys(view, q, groupOf, group = "") {
+  async function viewKeys(view, q, note2, group = "") {
     const keys = [];
     for (let total = Infinity; keys.length < total; ) {
       const v = await ctx.api.get("/items", {
@@ -4743,14 +4880,14 @@ function makeApply(ctx) {
       const got = v.items ?? [];
       total = v.total;
       if (!got.length) break;
-      for (const it of got) groupOf.set(it.key, it.group);
+      for (const it of got) note2(it);
       keys.push(...got.map((i) => i.key));
     }
     return keys;
   }
   async function groupKeys2(id) {
     const h0 = held();
-    const keys = await viewKeys("to-apply", reviewQ, groupOfKey, id);
+    const keys = await viewKeys("to-apply", reviewQ, noteReview, id);
     return keys.filter((k) => !h0.has(k));
   }
   async function loadRun(offset = 0, narrowed = false) {
@@ -4770,9 +4907,9 @@ function makeApply(ctx) {
       runItems = offset ? [...runItems, ...got] : got;
       runTotal = v.total;
       runGroups = v.groups ?? [];
-      for (const it of got) runGroupOfKey.set(it.key, it.group);
+      for (const it of got) noteRun(it);
       if (offset === 0 && runSel.ids().length) {
-        const shown = runTotal <= runItems.length ? runItems.map((it) => it.key) : await viewKeys("run", runQ, runGroupOfKey);
+        const shown = runTotal <= runItems.length ? runItems.map((it) => it.key) : await viewKeys("run", runQ, noteRun);
         if (!runSeq.isLatest(mine)) return;
         const gone = untickHidden(runSel.ids(), new Set(shown));
         if (gone.length) runSel.deselect(gone);
@@ -4800,7 +4937,7 @@ function makeApply(ctx) {
     let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
     if (keys.length < g.total) {
       try {
-        keys = await viewKeys("run", runQ, runGroupOfKey, id);
+        keys = await viewKeys("run", runQ, noteRun, id);
       } catch {
         return;
       }
@@ -4840,9 +4977,100 @@ function makeApply(ctx) {
       );
     }
   }
+  function drawRunTicked() {
+    if (!active || mode !== "run") return;
+    const its = runSel.ids().map((k) => runItemOf.get(k)).filter((x) => !!x?.ran);
+    const marks = its.map((it) => it.ran).filter((m) => !!m);
+    const steps = marks.map(standsStep).filter((x) => !!x);
+    const can = runActions(steps, cards);
+    const hand = can.hand && steps.every((x) => !!jobs.find((j) => j.id === x.job_id)?.session);
+    const gs = [...new Set(its.map((it) => it.group))];
+    const where = gs.length === 1 ? runGroups.find((g) => g.id === gs[0])?.label ?? gs[0] : `${gs.length} groups`;
+    const btn = (label, run) => h10(
+      "button",
+      { type: "button", class: "kit-btn", disabled: busy, onclick: run },
+      label
+    );
+    const acts = [];
+    if (can.skip) acts.push(btn("skip", () => void answerAll(steps, "skip")));
+    if (can.undo) acts.push(btn("undo", () => void undoAll(steps)));
+    if (hand)
+      acts.push(
+        btn("hand to agent", () => void answerAll(steps, "hand-to-agent"))
+      );
+    const shown = its.slice(0, 20);
+    paint(
+      h10(
+        "article",
+        { class: "cb-apply-doc cb-ticked", "data-testid": "run-ticked" },
+        ...midHead({ ...tickedRunWords(marks, where), acts }),
+        note ? h10("p", { class: "cb-apply-note", role: "status" }, note) : null,
+        midRows(
+          shown.map((it) => {
+            const l = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
+            return { key: it.key, stands: l.text, tone: l.tone };
+          }),
+          its.length - shown.length
+        )
+      )
+    );
+  }
+  async function answerAll(steps, action) {
+    if (busy) return;
+    busy = true;
+    note = "";
+    const done = [];
+    try {
+      for (const st of steps) {
+        const c = cards.find(
+          (x) => x.state === "open" && x.step_id === st.id && (x.kind === "failed" || action === "skip" && x.kind === "paused")
+        );
+        if (!c) continue;
+        await ctx.api.post("/jobs/answer", {
+          needs_you: c.id,
+          action,
+          text: ""
+        });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message2(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
+  async function undoAll(steps) {
+    if (busy) return;
+    busy = true;
+    note = "";
+    const done = [];
+    try {
+      for (const st of steps) {
+        await ctx.api.post("/jobs/undo", { step: st.id });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message2(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
   function drawRan() {
     if (!active || mode !== "run" || !ranKey || openId !== null || !ranDetail)
       return;
+    if (runTickedOn) return;
     paint(renderRan(ctx, ranDetail, ranJob, cards, jobHooks));
   }
   function closeReview() {
@@ -4909,7 +5137,7 @@ function makeApply(ctx) {
     if (!permanent.length) return go2();
     const title = titleOf(j);
     const keys = [...new Set(permanent.map((s) => s.key))];
-    const sh = sheet2({
+    const sh = sheet({
       title: `${title}?`,
       body: h10(
         "div",
@@ -5040,6 +5268,7 @@ function makeApply(ctx) {
       );
       return;
     }
+    if (runTickedOn) return drawRunTicked();
     if (openId !== null || ranKey) return;
     const o = order();
     const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
@@ -5324,6 +5553,7 @@ function makeApply(ctx) {
   }
   function drawOpen() {
     if (!open || !active || mode !== "run") return;
+    if (runTickedOn) return;
     const j = open.job;
     if (j.state === "planned" || j.state === "cancelled") {
       paint(
@@ -5492,6 +5722,7 @@ function makeApply(ctx) {
       }
       const item = new URLSearchParams(query ?? "").get("item") ?? "";
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, "")) : NaN;
+      if (item || sub) runTickedOn = false;
       if (sub && Number.isFinite(id)) ranKey = "";
       if ((!sub || !Number.isFinite(id)) && item) {
         closeJob();
@@ -5568,7 +5799,7 @@ import {
 } from "/_kit/kit.js";
 
 // proposals.ts
-import { sheet as sheet3, h as h11 } from "/_kit/kit.js";
+import { sheet as sheet2, h as h11 } from "/_kit/kit.js";
 function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
   let submitting = false;
   let sh = null;
@@ -5588,7 +5819,7 @@ function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
       submitting = false;
     }
   }
-  sh = sheet3({
+  sh = sheet2({
     title: vocab2.discard_title,
     body: h11(
       "div",
@@ -6032,7 +6263,7 @@ function ruleEditor(ctx, row, seed, hooks) {
 }
 
 // rules.ts
-import { h as h13, facts as facts4, buttons as buttons5, card as card4, sheet as sheet4 } from "/_kit/kit.js";
+import { h as h13, facts as facts4, buttons as buttons5, card as card4, sheet as sheet3 } from "/_kit/kit.js";
 var PREVIEW_DEBOUNCE_MS = 300;
 var PAGE2 = 200;
 function message4(err) {
@@ -6306,7 +6537,7 @@ function renderRule(ctx, detail, hooks) {
         void go2();
       }
     });
-    const sh = sheet4({
+    const sh = sheet3({
       title: `exclude ${keyWithoutKind(key)}`,
       body: h13(
         "div",
@@ -6426,7 +6657,7 @@ function makeDecide(ctx) {
   const opened = /* @__PURE__ */ new Set();
   const groupOfKey = /* @__PURE__ */ new Map();
   const proposalOfKey = /* @__PURE__ */ new Map();
-  const busyGroups = /* @__PURE__ */ new Set();
+  const itemOfKey = /* @__PURE__ */ new Map();
   let leftOpen = [];
   let leftOpenTotal = 0;
   let shown = [];
@@ -6469,6 +6700,19 @@ function makeDecide(ctx) {
         "{n}",
         String(viewRecs)
       );
+    const t = ctx.dockTarget();
+    const none = groups.some((g) => g.id === "none" && g.total > 0);
+    const suggest = t && none && !filtered() ? asked === askedKey(t.id) ? h14("span", { class: "cb-group-note" }, vocab2.asked) : h14(
+      "button",
+      {
+        type: "button",
+        class: "kit-btn cb-suggest-rules",
+        onclick() {
+          void askRules();
+        }
+      },
+      vocab2.suggest_rules
+    ) : null;
     return h14(
       "div",
       { class: "cb-read-empty", "data-testid": "decide-summary" },
@@ -6479,6 +6723,7 @@ function makeDecide(ctx) {
         ...rest.map((l) => h14("li", null, l))
       ),
       discardAllBtn,
+      suggest,
       prompt
     );
   }
@@ -6510,6 +6755,7 @@ function makeDecide(ctx) {
     return l;
   }
   function showReadEmpty() {
+    tickedOn = false;
     currentOpenKey = null;
     shownDetail = null;
     const rr = filters.rule && draft === null ? ruleRows.find((r) => r.rule.id === filters.rule) : void 0;
@@ -6640,8 +6886,7 @@ function makeDecide(ctx) {
     },
     onFilterNew() {
       openFilterEditor(null);
-    },
-    headActs: (id) => groupActs(id)
+    }
   });
   const handle = pane.handle;
   const groupSwitch = h14(
@@ -7076,7 +7321,7 @@ function makeDecide(ctx) {
       const g = navOrder().find((r) => r.key === k)?.group ?? "";
       return navGroups().find((x) => x.id === g)?.label ?? "";
     };
-    const button = (which, glyph, tip, target2, name, later) => h14(
+    const button = (which, glyph, tip, target, name, later) => h14(
       "button",
       {
         type: "button",
@@ -7084,10 +7329,10 @@ function makeDecide(ctx) {
         dataset: {
           nav: which === "prevGroup" ? "prev-group" : which === "nextGroup" ? "next-group" : which
         },
-        disabled: !target2 && !later,
+        disabled: !target && !later,
         title: tip.replaceAll(
           "{target}",
-          target2 ? name(target2) : later ? words.later : words.none
+          target ? name(target) : later ? words.later : words.none
         ),
         onclick() {
           void navGo(which);
@@ -7137,22 +7382,22 @@ function makeDecide(ctx) {
     if (which === "nextGroup" || which === "prevGroup" || atGroupEdge(key, ahead))
       await openNeighbour(key, ahead);
     if (currentOpenKey !== key) return;
-    let target2 = navTargets(navOrder(), navGroups(), key)[which];
-    while (!target2 && ahead && offset < totalItems) {
+    let target = navTargets(navOrder(), navGroups(), key)[which];
+    while (!target && ahead && offset < totalItems) {
       const before2 = offset;
       if (reloading) await reload();
       else await loadMore();
       if (currentOpenKey !== key) return;
-      target2 = navTargets(navOrder(), navGroups(), key)[which];
-      if (!target2 && offset === before2 && !reloading) break;
+      target = navTargets(navOrder(), navGroups(), key)[which];
+      if (!target && offset === before2 && !reloading) break;
     }
-    if (!target2 || currentOpenKey !== key) return;
-    const group = navOrder().find((r) => r.key === target2)?.group ?? "";
+    if (!target || currentOpenKey !== key) return;
+    const group = navOrder().find((r) => r.key === target)?.group ?? "";
     if (!opened.has(group)) {
       opened.add(group);
       setRows();
     }
-    openKey(target2);
+    openKey(target);
   }
   function atGroupEdge(key, ahead) {
     const order = navOrder();
@@ -7184,6 +7429,7 @@ function makeDecide(ctx) {
   }
   function know(items) {
     for (const it of items) {
+      itemOfKey.set(it.key, it);
       if (!it.group) continue;
       groupOfKey.set(it.key, it.group);
       if (it.proposal?.state === "pending")
@@ -7212,78 +7458,6 @@ function makeDecide(ctx) {
       more,
       data: { d: g.disposition, ...ruleId ? { rule: ruleId } : {} }
     };
-  }
-  function groupSays(g) {
-    for (const k of vocab2?.kinds ?? []) {
-      const c = (k.choices ?? []).find(
-        (x) => x.disposition === g.disposition && x.label === g.label
-      );
-      if (c) return c.says;
-    }
-    return "";
-  }
-  function withSays(el2, says) {
-    if (says) el2.title = says;
-    return el2;
-  }
-  function groupButton(id, cls, label, run, off = false) {
-    return h14(
-      "button",
-      {
-        type: "button",
-        class: "kit-btn " + cls,
-        disabled: off || busyGroups.has(id) || draft !== null,
-        onclick() {
-          if (busyGroups.has(id)) return;
-          busyGroups.add(id);
-          paintAll();
-          void Promise.resolve(run()).finally(() => {
-            busyGroups.delete(id);
-            paintAll();
-          });
-        }
-      },
-      label
-    );
-  }
-  function groupActs(id) {
-    const g = groups.find((x) => x.id === id);
-    if (!g || !vocab2) return [];
-    const button = (cls, label, run, off = false) => groupButton(g.id, cls, label, run, off);
-    const ticked = tickedIn(g);
-    const n = ticked.length;
-    const t = ctx.dockTarget();
-    if (g.id === CAME_BACK || g.id === "none") {
-      if (t && n > 0) {
-        const rows = loadedItems.filter((it) => it.group === g.id);
-        const looked = ticked.every(
-          (k) => rows.some((it) => it.key === k && it.looking) || !rows.some((it) => it.key === k) && lookedInto.has(`${t.id}
-${k}`)
-        );
-        return [
-          button(
-            "fill cb-group-ask",
-            vocab2.recommend_these,
-            () => lookInto(tickedIn(g)),
-            looked
-          )
-        ];
-      }
-      if (t && g.id === "none" && !filtered()) {
-        if (asked === askedKey(t.id))
-          return [h14("span", { class: "cb-group-note" }, vocab2.asked)];
-        return [button("fill cb-group-ask", vocab2.suggest_rules, askRules)];
-      }
-      return [];
-    }
-    const w = groupButtons(g, n, vocab2);
-    return [
-      withSays(
-        button("fill cb-group-act", w.act, () => actGroup(g)),
-        groupSays(g)
-      ),
-      ...g.source.startsWith("rule:") ? [] : [button("cb-group-discard", w.discard, () => discardGroup(g))]
-    ];
   }
   function paintAll() {
     pane.paintHeads();
@@ -7324,61 +7498,6 @@ ${k}`)
       showReadError(err instanceof Error ? err.message : String(err));
     }
   }
-  async function target(g) {
-    let keys = tickedIn(g);
-    if (!keys.length) keys = (await fetchGroup(g)).map((it) => it.key);
-    const ids = [];
-    for (const k of keys) {
-      const id = proposalOfKey.get(k);
-      if (id !== void 0) ids.push(id);
-    }
-    return { keys, ids };
-  }
-  async function actGroup(g) {
-    if (deciding) return;
-    const open = currentOpenKey;
-    deciding = open ?? "\0group";
-    try {
-      const ticked = tickedIn(g).length;
-      const { keys, ids } = await target(g);
-      if (!ids.length) return;
-      const order = await orderFor(open);
-      const r = await ctx.api.post("/proposals/accept", {
-        ids
-      });
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join("; ") || "nothing was accepted");
-        return;
-      }
-      selection.deselect(keys);
-      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
-        key,
-        prev: r.previous?.[key] ?? null,
-        expect
-      }));
-      if (g.outward && vocab2)
-        waited(
-          doneWords(vocab2, g.disposition, {
-            label: g.label,
-            total: g.total,
-            ticked
-          }),
-          applyGroupLink(g.disposition, keys[0] ?? "")
-        );
-      else hideStrip();
-      if (!open || keys.includes(open)) {
-        await moveOn(open ?? "", order);
-      } else {
-        void reload();
-      }
-      const errs = r.errors ?? [];
-      if (errs.length) showReadError(errs.join("; "));
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
-    }
-  }
   async function lookInto(keys) {
     if (!ctx.dockTarget() || !vocab2) return;
     try {
@@ -7396,33 +7515,164 @@ ${k}`)
       if (t) for (const k of keys) lookedInto.add(`${t.id}
 ${k}`);
       await reload();
+      if (tickedOn) showTicked();
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
     }
   }
-  function discardGroup(g) {
-    if (!vocab2) return;
-    const ticked = tickedIn(g);
-    if (ticked.length && ticked.length < g.total) {
-      const ids = ticked.map((k) => proposalOfKey.get(k)).filter((id) => id !== void 0);
-      openDiscardSheet(
+  let tickedOn = false;
+  function tickedItems() {
+    return selection.ids().map((k) => itemOfKey.get(k) ?? { key: k });
+  }
+  function groupName(g) {
+    const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
+    if (!ruleId) return g.label;
+    return ruleRows.find((r) => r.rule.id === ruleId)?.rule.name || ruleId;
+  }
+  function tickedWhere(keys) {
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ""))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) return groupName(g);
+    if (ids.length === 1 && ids[0] === LEFT_OPEN) return vocab2?.left_open ?? "";
+    return `${ids.length} groups`;
+  }
+  function showTicked() {
+    if (!vocab2 || draft !== null) return;
+    tickedOn = true;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    readEl.replaceChildren(
+      renderTicked(
         ctx,
-        vocab2,
-        ids.length,
-        discardWhere(),
-        { ids },
-        discarded
-      );
-      return;
-    }
-    openDiscardSheet(
-      ctx,
-      vocab2,
-      g.total,
-      discardWhere(),
-      groupFilters(g),
-      discarded
+        items,
+        tickedWords(vocab2, items, tickedWhere(keys)),
+        decideTicked,
+        tickedExtra(items)
+      )
     );
+  }
+  function tickedExtra(items) {
+    const out = [];
+    const t = ctx.dockTarget();
+    const keys = items.map((it) => it.key);
+    if (!vocab2) return out;
+    if (t) {
+      const looked = keys.every(
+        (k) => !!itemOfKey.get(k)?.looking || lookedInto.has(`${t.id}
+${k}`)
+      );
+      out.push(
+        h14(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn cb-ticked-ask",
+            disabled: looked,
+            onclick() {
+              void lookInto(keys);
+            }
+          },
+          vocab2.recommend_these
+        )
+      );
+    }
+    const ids = items.map((it) => it.proposal).filter((p) => p?.state === "pending" && !p.source.startsWith("rule:")).map((p) => p?.id ?? 0);
+    if (ids.length && ids.length === items.length) {
+      const words = vocab2;
+      out.push(
+        h14(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn cb-ticked-discard",
+            onclick() {
+              openDiscardSheet(
+                ctx,
+                words,
+                ids.length,
+                discardWhere(),
+                { ids },
+                discarded
+              );
+            }
+          },
+          vocab2.discard_many.replaceAll("{n}", String(ids.length))
+        )
+      );
+    }
+    return out;
+  }
+  function tickedDone(d, keys) {
+    if (!vocab2) return "";
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ""))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) {
+      const w = doneWords(vocab2, d, {
+        label: g.label,
+        total: g.total,
+        ticked: keys.length
+      });
+      if (w) return w;
+    }
+    if (keys.length === 1) return doneWords(vocab2, d, { key: keys[0] });
+    const c = (vocab2.kinds ?? []).find((k) => k.kind === kindFromKey(keys[0] ?? ""))?.choices?.find((x) => x.disposition === d);
+    return c ? c.done_many.replaceAll(
+      "{n}",
+      countWord(keys.length, keys.length, vocab2.count_words)
+    ) : "";
+  }
+  async function decideTicked(d, until) {
+    if (deciding || !vocab2) return;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    if (!keys.length) return;
+    const { accept, decide } = splitTicked(items, d, until ?? "");
+    const open = currentOpenKey;
+    deciding = "\0ticked";
+    try {
+      const order = await orderFor(open);
+      const made = {};
+      const previous = {};
+      const errs = [];
+      if (accept.length) {
+        const r = await ctx.api.post("/proposals/accept", {
+          ids: accept
+        });
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...r.errors ?? []);
+      }
+      if (decide.length) {
+        const body = { keys: decide, disposition: d };
+        if (until) body["until"] = until;
+        const r = await ctx.api.post("/decide", body);
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...r.errors ?? []);
+      }
+      const decided = Object.keys(made);
+      if (!decided.length) {
+        showReadError(errs.join("; ") || "nothing was decided");
+        return;
+      }
+      lastUndo = decided.map((key) => ({
+        key,
+        prev: previous[key] ?? null,
+        expect: made[key]
+      }));
+      const done = tickedDone(d, keys);
+      selection.deselect(keys);
+      if (outwardChoice(keys[0], d))
+        waited(done, applyGroupLink(d, decided[0]));
+      else hideStrip();
+      if (open && decided.includes(open)) await moveOn(open, order);
+      else void reload();
+      if (errs.length) showReadError(errs.join("; "));
+    } catch (err) {
+      showReadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      deciding = null;
+    }
   }
   function updateFoot() {
     pane.setMore(Math.min(PAGE_SIZE, totalItems - offset));
@@ -7444,7 +7694,10 @@ ${k}`);
   const askedKey = (session) => `${session}
 ${JSON.stringify(listAttached("none"))}`;
   const lookedInto = /* @__PURE__ */ new Set();
-  ctx.onDockTarget(() => paintAll());
+  ctx.onDockTarget(() => {
+    updateReadEmptyCount();
+    if (tickedOn) showTicked();
+  });
   async function askRules() {
     const t = ctx.dockTarget();
     if (!t) return;
@@ -7454,7 +7707,7 @@ ${JSON.stringify(listAttached("none"))}`;
     if (why) showReadError(why);
     else {
       asked = askedKey(t.id);
-      paintAll();
+      updateReadEmptyCount();
     }
   }
   let viewRecs = 0;
@@ -7481,6 +7734,7 @@ ${JSON.stringify(listAttached("none"))}`;
     );
   }
   async function openDetail(key) {
+    tickedOn = false;
     currentOpenKey = key;
     markOpenRow();
     feedAttached();
@@ -7498,6 +7752,7 @@ ${JSON.stringify(listAttached("none"))}`;
   }
   function paintDetail(key, detail) {
     shownDetail = detail;
+    if (tickedOn) return;
     const el2 = renderItem(ctx, detail, {
       decide: (d, until, note) => void decideOpen(key, d, until, note),
       cardsReady: () => renderAsk(),
@@ -7860,6 +8115,12 @@ ${JSON.stringify(listAttached("none"))}`;
   selection.onChange(() => {
     paintAll();
     feedAttached();
+    if (selection.ids().length) showTicked();
+    else if (tickedOn) {
+      tickedOn = false;
+      if (currentOpenKey) void openDetail(currentOpenKey);
+      else showReadEmpty();
+    }
   });
   function shownProposal() {
     const d = shownDetail;
@@ -8424,7 +8685,7 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h16, card as card5, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
+import { h as h16, card as card5, fold as fold2, noteField as noteField2 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
@@ -8520,7 +8781,7 @@ function makeBatchTray(ctx, dock) {
       if (editing === field) editing = null;
       render();
     };
-    const field = noteField3({
+    const field = noteField2({
       value: d.body,
       onCommit(v) {
         const body = v.trim();
@@ -8988,7 +9249,7 @@ function openMoveSheet(ctx, delivery, targets) {
     const el2 = sessionItem(s);
     el2.onclick = () => {
       void moveDelivery(ctx, delivery.id, s.id);
-      sheet5.close();
+      sheet4.close();
     };
     return el2;
   });
@@ -9001,16 +9262,16 @@ function openMoveSheet(ctx, delivery, targets) {
     items.push(noOther);
   }
   const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
-  const sheet5 = {
+  const sheet4 = {
     el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
   };
-  document.body.append(sheet5.el);
+  document.body.append(sheet4.el);
   function onKey(e) {
     if (e.key === "Escape") {
-      sheet5.close();
+      sheet4.close();
       document.removeEventListener("keydown", onKey);
     }
   }
@@ -9032,7 +9293,7 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     const el2 = sessionItem(s);
     el2.onclick = () => {
       void moveSession(ctx, fromSession, s.id);
-      sheet5.close();
+      sheet4.close();
     };
     return el2;
   });
@@ -9045,16 +9306,16 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     items.push(noOther);
   }
   const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
-  const sheet5 = {
+  const sheet4 = {
     el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
   };
-  document.body.append(sheet5.el);
+  document.body.append(sheet4.el);
   function onKey(e) {
     if (e.key === "Escape") {
-      sheet5.close();
+      sheet4.close();
       document.removeEventListener("keydown", onKey);
     }
   }

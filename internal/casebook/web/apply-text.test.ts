@@ -38,6 +38,8 @@ import {
   heldText,
   otherHalf,
   ranLine,
+  runActions,
+  tickedRunWords,
   standsStep,
   aroundSteps,
   actionVerb,
@@ -757,4 +759,73 @@ describe('run rows', () => {
     );
     assert.equal(aroundSteps(steps, 'k0', 3).hidden, 1);
   });
+});
+
+describe('ticked run items', () => {
+  const failed = (id: number): JobStep => ({
+    id,
+    job_id: 33,
+    key: `k${id}`,
+    action: 'branch-delete-remote',
+    lane: 'casebook',
+    command: '',
+    state: 'failed',
+  });
+  const verifiedUndoable = (id: number): JobStep => ({
+    id,
+    job_id: 28,
+    key: `k${id}`,
+    action: 'branch-delete-local',
+    lane: 'casebook',
+    command: '',
+    state: 'verified',
+    undoable: true,
+  });
+  const card = (step: number, kind: string): NeedsYou => ({
+    id: 100 + step,
+    job_id: 33,
+    step_id: step,
+    kind,
+    question: '',
+    text: '',
+    state: 'open',
+    answer: '',
+    created_at: '',
+  });
+  const failedMark = (job: number) => ({
+    job,
+    group: 'needs-you',
+    steps: [failed(job * 10 + 1)],
+  });
+  test('runActions shows nothing for a failed and a done step together', () =>
+    assert.deepEqual(
+      runActions([failed(1), verifiedUndoable(2)], [card(1, 'failed')]),
+      { skip: false, hand: false, undo: false },
+    ));
+  test('runActions on two failed steps', () =>
+    assert.deepEqual(
+      runActions(
+        [failed(1), failed(2)],
+        [card(1, 'failed'), card(2, 'failed')],
+      ),
+      { skip: true, hand: true, undo: false },
+    ));
+  test('runActions on two undoable steps', () =>
+    assert.deepEqual(
+      runActions([verifiedUndoable(1), verifiedUndoable(2)], []),
+      {
+        skip: false,
+        hand: false,
+        undo: true,
+      },
+    ));
+  test('tickedRunWords', () =>
+    assert.deepEqual(
+      tickedRunWords([failedMark(33), failedMark(33)], 'needs you'),
+      {
+        kick: 'run \u00b7 2 ticked in needs you',
+        title: '2 failed steps',
+        ctx: 'job #33',
+      },
+    ));
 });

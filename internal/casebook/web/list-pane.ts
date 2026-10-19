@@ -50,8 +50,6 @@ export interface PaneHooks<T> {
   onMore(): void;
   onFilterOpen(row: FilterRow): void;
   onFilterNew(): void;
-  /** A group's buttons on its head (decide's, until ticked items move to the middle). */
-  headActs?(id: string): HTMLElement[];
 }
 
 export type ObsState = '' | 'fresh' | 'stale' | 'syncing';
@@ -262,7 +260,6 @@ export function makePane<T>(
         'untick',
       ),
     );
-    const acts = h('span', { class: 'cb-group-acts' });
     const named = [g.label, g.tag].filter(Boolean).join(' \u00b7 ');
     const top = h(
       'div',
@@ -286,7 +283,6 @@ export function makePane<T>(
         g.tag ? h('span', { class: 'cb-group-tag' }, g.tag) : null,
       ),
       ticked,
-      acts,
       h('span', { class: 'cb-group-n' }, String(g.n)),
       g.more ?? null,
     );
@@ -313,7 +309,6 @@ export function makePane<T>(
         );
         ticked.hidden = n === 0;
         tickedN.textContent = `${n} ticked \u00b7 `;
-        acts.replaceChildren(...(hooks.headActs?.(g.id) ?? []));
       },
     });
     return hd;

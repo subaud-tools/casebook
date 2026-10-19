@@ -692,3 +692,70 @@ export function aroundSteps(
   const shown = steps.slice(Math.max(0, i - span), i + span + 1);
   return { steps: shown, hidden: steps.length - shown.length };
 }
+
+/**
+ * runActions is which buttons fit every ticked step: skip when each has an
+ * open failed or paused card, hand to agent when each has an open failed
+ * one, undo when each can be undone.
+ */
+export function runActions(
+  steps: JobStep[],
+  cards: NeedsYou[],
+): { skip: boolean; hand: boolean; undo: boolean } {
+  const open = (s: JobStep, kinds: string[]) =>
+    cards.some(
+      (c) => c.state === 'open' && c.step_id === s.id && kinds.includes(c.kind),
+    );
+  const all = (f: (s: JobStep) => boolean) =>
+    steps.length > 0 && steps.every(f);
+  return {
+    skip: all((s) => open(s, ['failed', 'paused'])),
+    hand: all((s) => open(s, ['failed'])),
+    undo: all((s) => !!s.undoable),
+  };
+}
+
+// A step's state as ticked steps are counted: "2 failed steps".
+const STATE_WORD: Record<string, string> = {
+  failed: 'failed',
+  paused: 'paused',
+  needs_you: 'waiting',
+  skipped: 'skipped',
+  verified: 'done',
+  reported: 'reported',
+  running: 'running',
+  pending: 'queued',
+};
+
+/**
+ * tickedRunWords is the middle pane's lines for ticked run items: where
+ * they are ticked, what their steps are ("2 failed steps"; "3 items" when
+ * they differ), and their jobs.
+ */
+export function tickedRunWords(
+  marks: RunMark[],
+  groupLabel: string,
+): { kick: string; title: string; ctx: string } {
+  const n = marks.length;
+  const steps = marks.map(standsStep).filter(Boolean);
+  const states = [
+    ...new Set(steps.map((s) => (s.undone_at ? 'undone' : s.state))),
+  ];
+  const word =
+    states.length === 1
+      ? states[0] === 'undone'
+        ? 'undone'
+        : STATE_WORD[states[0]]
+      : '';
+  const jobs = [...new Set(marks.map((m) => m.job))].sort((a, b) => a - b);
+  return {
+    kick: `run \u00b7 ${n} ticked in ${groupLabel}`,
+    title: word
+      ? `${n} ${word} ${n === 1 ? 'step' : 'steps'}`
+      : pluralize(n, 'item'),
+    ctx:
+      jobs.length === 1
+        ? `job #${jobs[0]}`
+        : `jobs ${jobs.map((j) => `#${j}`).join(', ')}`,
+  };
+}

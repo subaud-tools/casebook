@@ -98,6 +98,9 @@ import {
   reviewLine,
   untickHidden,
   ranLine,
+  runActions,
+  standsStep,
+  tickedRunWords,
   waitBlocks,
   heldText,
   otherHalf,
@@ -129,7 +132,7 @@ import {
   withPane,
   type PaneQuery,
 } from './list-pane-text.ts';
-import { midHead } from './mid.ts';
+import { midHead, midRows } from './mid.ts';
 import { renderJob, renderRan, type JobHooks } from './ran.ts';
 
 // Decided items are fetched 200 at a time (serve's cap, like decide).
@@ -372,6 +375,14 @@ export function makeApply(ctx: Ctx): Section {
   let runTotal = 0;
   let runGroups: GroupView[] = [];
   const runGroupOfKey = new Map<string, string>();
+  const runItemOf = new Map<string, ItemView>();
+  const noteRun = (it: ItemView): void => {
+    runGroupOfKey.set(it.key, it.group);
+    runItemOf.set(it.key, it);
+  };
+  const noteReview = (it: ItemView): void => {
+    groupOfKey.set(it.key, it.group);
+  };
   const runSeq = makeSeq();
   // The item run shows (#/run?item=<key>): what ran on it, and its job.
   let ranKey = '';
@@ -491,6 +502,21 @@ export function makeApply(ctx: Ctx): Section {
 
   // Ticks open their plan in the middle (after a moment, so a run of ticks
   // asks once); with none, the overview.
+  // run: ticked items show in the middle with the buttons that fit them
+  // all; unticked, the item or job open, or the overview, again.
+  // runTickedOn: the middle shows what is ticked (until an item or a job
+  // is opened, or nothing is ticked).
+  let runTickedOn = false;
+  runSel.onChange(() => {
+    runPane.paintHeads();
+    runTickedOn = runSel.ids().length > 0;
+    if (mode !== 'run') return;
+    if (runTickedOn) drawRunTicked();
+    else if (openId !== null) drawOpen();
+    else if (ranKey) drawRan();
+    else drawOverview();
+  });
+
   reviewSel.onChange(() => {
     reviewPane.paintHeads();
     if (mode !== 'review') return;
@@ -746,7 +772,7 @@ export function makeApply(ctx: Ctx): Section {
         const shown =
           itemsTotal <= items.length
             ? items.map((it) => it.key)
-            : await viewKeys('to-apply', reviewQ, groupOfKey);
+            : await viewKeys('to-apply', reviewQ, noteReview);
         if (!itemsSeq.isLatest(mine)) return;
         const gone = untickHidden(reviewSel.ids(), new Set(shown));
         if (gone.length) reviewSel.deselect(gone);
@@ -984,11 +1010,11 @@ export function makeApply(ctx: Ctx): Section {
 
   // viewKeys is every key a view lists now (review's to-apply or run's,
   // with its filters and search; group: one group of it), every page,
-  // each one's group noted in groupOf.
+  // each item noted.
   async function viewKeys(
     view: 'to-apply' | 'run',
     q: PaneQuery,
-    groupOf: Map<string, string>,
+    note: (it: ItemView) => void,
     group = '',
   ): Promise<string[]> {
     const keys: string[] = [];
@@ -1003,7 +1029,7 @@ export function makeApply(ctx: Ctx): Section {
       const got = v.items ?? [];
       total = v.total;
       if (!got.length) break;
-      for (const it of got) groupOf.set(it.key, it.group);
+      for (const it of got) note(it);
       keys.push(...got.map((i) => i.key));
     }
     return keys;
@@ -1013,7 +1039,7 @@ export function makeApply(ctx: Ctx): Section {
   // list's filters and search apply).
   async function groupKeys(id: string): Promise<string[]> {
     const h0 = held();
-    const keys = await viewKeys('to-apply', reviewQ, groupOfKey, id);
+    const keys = await viewKeys('to-apply', reviewQ, noteReview, id);
     return keys.filter((k) => !h0.has(k));
   }
 
@@ -1039,12 +1065,12 @@ export function makeApply(ctx: Ctx): Section {
       runItems = offset ? [...runItems, ...got] : got;
       runTotal = v.total;
       runGroups = v.groups ?? [];
-      for (const it of got) runGroupOfKey.set(it.key, it.group);
+      for (const it of got) noteRun(it);
       if (offset === 0 && runSel.ids().length) {
         const shown =
           runTotal <= runItems.length
             ? runItems.map((it) => it.key)
-            : await viewKeys('run', runQ, runGroupOfKey);
+            : await viewKeys('run', runQ, noteRun);
         if (!runSeq.isLatest(mine)) return;
         const gone = untickHidden(runSel.ids(), new Set(shown));
         if (gone.length) runSel.deselect(gone);
@@ -1075,7 +1101,7 @@ export function makeApply(ctx: Ctx): Section {
     let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
     if (keys.length < g.total) {
       try {
-        keys = await viewKeys('run', runQ, runGroupOfKey, id);
+        keys = await viewKeys('run', runQ, noteRun, id);
       } catch {
         return;
       }
@@ -1127,10 +1153,124 @@ export function makeApply(ctx: Ctx): Section {
     }
   }
 
+  // drawRunTicked is the middle pane for run's ticked items: what they are
+  // and their jobs, then skip, undo and hand to agent where each fits every
+  // one of them (undo only when all can be undone), then a row each.
+  function drawRunTicked(): void {
+    if (!active || mode !== 'run') return;
+    const its = runSel
+      .ids()
+      .map((k) => runItemOf.get(k))
+      .filter((x): x is ItemView => !!x?.ran);
+    const marks = its.map((it) => it.ran).filter((m) => !!m);
+    const steps = marks.map(standsStep).filter((x) => !!x);
+    const can = runActions(steps, cards);
+    const hand =
+      can.hand &&
+      steps.every((x) => !!jobs.find((j) => j.id === x.job_id)?.session);
+    const gs = [...new Set(its.map((it) => it.group))];
+    const where =
+      gs.length === 1
+        ? (runGroups.find((g) => g.id === gs[0])?.label ?? gs[0])
+        : `${gs.length} groups`;
+    const btn = (label: string, run: () => void): HTMLElement =>
+      h(
+        'button',
+        { type: 'button', class: 'kit-btn', disabled: busy, onclick: run },
+        label,
+      );
+    const acts: HTMLElement[] = [];
+    if (can.skip) acts.push(btn('skip', () => void answerAll(steps, 'skip')));
+    if (can.undo) acts.push(btn('undo', () => void undoAll(steps)));
+    if (hand)
+      acts.push(
+        btn('hand to agent', () => void answerAll(steps, 'hand-to-agent')),
+      );
+    const shown = its.slice(0, 20);
+    paint(
+      h(
+        'article',
+        { class: 'cb-apply-doc cb-ticked', 'data-testid': 'run-ticked' },
+        ...midHead({ ...tickedRunWords(marks, where), acts }),
+        note ? h('p', { class: 'cb-apply-note', role: 'status' }, note) : null,
+        midRows(
+          shown.map((it) => {
+            const l = it.ran
+              ? ranLine(it.ran)
+              : { text: '', tone: 'muted' as const };
+            return { key: it.key, stands: l.text, tone: l.tone };
+          }),
+          its.length - shown.length,
+        ),
+      ),
+    );
+  }
+
+  // answerAll answers each ticked step's open card (skip, hand to agent),
+  // one post per step; the items it acted on are unticked.
+  async function answerAll(steps: JobStep[], action: string): Promise<void> {
+    if (busy) return;
+    busy = true;
+    note = '';
+    const done: string[] = [];
+    try {
+      for (const st of steps) {
+        const c = cards.find(
+          (x) =>
+            x.state === 'open' &&
+            x.step_id === st.id &&
+            (x.kind === 'failed' || (action === 'skip' && x.kind === 'paused')),
+        );
+        if (!c) continue;
+        await ctx.api.post<AnswerResult>('/jobs/answer', {
+          needs_you: c.id,
+          action,
+          text: '',
+        });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
+
+  // undoAll undoes each ticked step, one post per step.
+  async function undoAll(steps: JobStep[]): Promise<void> {
+    if (busy) return;
+    busy = true;
+    note = '';
+    const done: string[] = [];
+    try {
+      for (const st of steps) {
+        await ctx.api.post<UndoResult>('/jobs/undo', { step: st.id });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
+
   // drawRan draws the item run shows.
   function drawRan(): void {
     if (!active || mode !== 'run' || !ranKey || openId !== null || !ranDetail)
       return;
+    if (runTickedOn) return;
     paint(renderRan(ctx, ranDetail, ranJob, cards, jobHooks));
   }
 
@@ -1362,6 +1502,7 @@ export function makeApply(ctx: Ctx): Section {
       );
       return;
     }
+    if (runTickedOn) return drawRunTicked();
     if (openId !== null || ranKey) return;
     const o = order();
     const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
@@ -1702,6 +1843,7 @@ export function makeApply(ctx: Ctx): Section {
 
   function drawOpen(): void {
     if (!open || !active || mode !== 'run') return;
+    if (runTickedOn) return;
     const j = open.job;
     if (j.state === 'planned' || j.state === 'cancelled') {
       paint(
@@ -1917,6 +2059,8 @@ export function makeApply(ctx: Ctx): Section {
       }
       const item = new URLSearchParams(query ?? '').get('item') ?? '';
       const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, '')) : NaN;
+      // Opening an item or a job shows it, ticks or not.
+      if (item || sub) runTickedOn = false;
       if (sub && Number.isFinite(id)) ranKey = '';
       if ((!sub || !Number.isFinite(id)) && item) {
         closeJob();
