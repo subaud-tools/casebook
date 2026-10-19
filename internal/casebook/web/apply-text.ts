@@ -242,6 +242,8 @@ export type Tone = 'ok' | 'agent' | 'signal' | 'wait' | 'muted';
 export interface StepMark {
   glyph: string;
   text: string;
+  /** Why it paused, failed or was skipped: its own line under the key. */
+  why?: string;
   tone: Tone;
 }
 
@@ -251,7 +253,10 @@ export interface StepMark {
  */
 export function stepMark(s: JobStep, next: boolean): StepMark {
   const past = PAST[s.action] ?? 'done';
-  const why = (w: string) => (s.detail ? `${w} \u00b7 ${s.detail}` : w);
+  // The reason gets its own line: beside the key, a long one (a path)
+  // squeezed the key to one character wide (Court, 2026-10-18).
+  const why = (glyph: string, text: string, tone: Tone): StepMark =>
+    s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
   if (s.undone_at) return { glyph: '\u21ba', text: 'undone', tone: 'muted' };
   switch (s.state) {
     case 'verified':
@@ -269,13 +274,13 @@ export function stepMark(s: JobStep, next: boolean): StepMark {
         tone: s.lane === 'agent' ? 'agent' : 'signal',
       };
     case 'paused':
-      return { glyph: '\u2016', text: why('paused'), tone: 'agent' };
+      return why('\u2016', 'paused', 'agent');
     case 'needs_you':
       return { glyph: '!', text: 'needs you', tone: 'signal' };
     case 'failed':
-      return { glyph: '\u2717', text: why('failed'), tone: 'signal' };
+      return why('\u2717', 'failed', 'signal');
     case 'skipped':
-      return { glyph: '\u2013', text: why('skipped'), tone: 'muted' };
+      return why('\u2013', 'skipped', 'muted');
     default:
       return { glyph: '\u00b7', text: next ? 'next' : 'queued', tone: 'wait' };
   }

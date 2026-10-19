@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.16.3
+
+- A run's steps table puts why a step stopped on its own line, and a branch's repo above it: a long reason (a worktree path) had squeezed the key to one character wide.
+
 ## 0.16.2
 
 - A long-lived branch (the repo's default, or one named main, master, dev, develop or staging) is never landed and never deleted, even by a job made before this release. A dev → main release PR used to make dev look landed.

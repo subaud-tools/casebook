@@ -1768,6 +1768,21 @@ export interface JobHooks {
  * renderJob draws a running or finished job: its facts, the cards that need
  * Court (signal edge) or say the agent paused (amber), and the steps table.
  */
+/**
+ * stepKeyLines is a step's key in the steps table: for a branch, the repo
+ * (muted, the row's full width) over the branch, which shares its line with
+ * the state; neither wraps mid-word (Court, 2026-10-18). Any other key is the
+ * one line beside the state.
+ */
+function stepKeyLines(key: string): HTMLElement[] {
+  const at = key.indexOf('@');
+  if (at < 0) return [h('span', { class: 'cb-step-k' }, key)];
+  return [
+    h('span', { class: 'cb-step-repo' }, key.slice(0, at)),
+    h('span', { class: 'cb-step-k' }, key.slice(at + 1)),
+  ];
+}
+
 export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
   const j = v.job;
   const steps = j.steps ?? [];
@@ -1828,7 +1843,7 @@ export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
             'data-key': s.key,
           },
           h('span', { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-          h('span', { class: 'cb-step-k' }, keyWithoutKind(s.key)),
+          ...stepKeyLines(keyWithoutKind(s.key)),
           h(
             'span',
             { class: 'cb-step-w' },
@@ -1847,6 +1862,7 @@ export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
                 )
               : null,
           ),
+          m.why ? h('span', { class: 'cb-step-why' }, m.why) : null,
         );
       }),
       steps.length > shown.length
