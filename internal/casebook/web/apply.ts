@@ -315,6 +315,11 @@ export function makeApply(ctx: Ctx): Section {
   const groupOfKey = new Map<string, string>();
   const reviewSel: Selection = createSelection();
   const runSel: Selection = createSelection();
+  // Each tab's generation: it moves when its ticks or what it shows change.
+  // A whole-group fetch that finishes after it moved adds nothing.
+  const gen = { review: 0, run: 0 };
+  reviewSel.onChange(() => gen.review++);
+  runSel.onChange(() => gen.run++);
 
   // In a job approved, running or paused: key → that job. Such an item
   // leaves its waiting group (a plan holds nothing: it is review's own).
@@ -748,6 +753,7 @@ export function makeApply(ctx: Ctx): Section {
   // taken off: the plan covers only what is shown and ticked.
   async function loadItems(offset = 0, narrowed = false): Promise<void> {
     const mine = itemsSeq.next();
+    if (offset === 0) gen.review++;
     if (offset === 0) {
       reviewPending = true;
       if (mode === 'review' && reviewOpen) freezeMid();
@@ -943,11 +949,14 @@ export function makeApply(ctx: Ctx): Section {
     }
     let keys = waiting(g).map((it) => it.key);
     if (keys.length < total) {
+      const was = gen.review;
       try {
         keys = await groupKeys(id);
       } catch {
         return;
       }
+      // The list or the ticks changed while its pages came: old keys.
+      if (was !== gen.review) return;
     }
     reviewSel.all(keys);
     if (collapsed.has(id)) {
@@ -1061,6 +1070,7 @@ export function makeApply(ctx: Ctx): Section {
   // the list no longer shows is taken off.
   async function loadRun(offset = 0, narrowed = false): Promise<void> {
     const mine = runSeq.next();
+    if (offset === 0) gen.run++;
     try {
       const v = await ctx.api.get<ItemsView>('/items', {
         view: 'run',
@@ -1113,11 +1123,14 @@ export function makeApply(ctx: Ctx): Section {
     }
     let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
     if (keys.length < g.total) {
+      const was = gen.run;
       try {
         keys = await viewKeys('run', runQ, noteRun, id);
       } catch {
         return;
       }
+      // The list or the ticks changed while its pages came: old keys.
+      if (was !== gen.run) return;
     }
     runSel.all(keys);
     if (collapsed.has(id)) {

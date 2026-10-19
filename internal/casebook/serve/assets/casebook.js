@@ -4365,6 +4365,9 @@ function makeApply(ctx) {
   const groupOfKey = /* @__PURE__ */ new Map();
   const reviewSel = createSelection();
   const runSel = createSelection();
+  const gen = { review: 0, run: 0 };
+  reviewSel.onChange(() => gen.review++);
+  runSel.onChange(() => gen.run++);
   const held = () => startedKeys(jobs);
   const order = () => runOrder(jobs);
   const kindOfGroup = (g) => g.id.slice(g.id.indexOf("|") + 1);
@@ -4698,6 +4701,7 @@ function makeApply(ctx) {
   }
   async function loadItems(offset = 0, narrowed = false) {
     const mine = itemsSeq.next();
+    if (offset === 0) gen.review++;
     if (offset === 0) {
       reviewPending = true;
       if (mode === "review" && reviewOpen) freezeMid();
@@ -4857,11 +4861,13 @@ function makeApply(ctx) {
     }
     let keys = waiting(g).map((it) => it.key);
     if (keys.length < total) {
+      const was = gen.review;
       try {
         keys = await groupKeys2(id);
       } catch {
         return;
       }
+      if (was !== gen.review) return;
     }
     reviewSel.all(keys);
     if (collapsed.has(id)) {
@@ -4941,6 +4947,7 @@ function makeApply(ctx) {
   }
   async function loadRun(offset = 0, narrowed = false) {
     const mine = runSeq.next();
+    if (offset === 0) gen.run++;
     try {
       const v = await ctx.api.get("/items", {
         view: "run",
@@ -4986,11 +4993,13 @@ function makeApply(ctx) {
     }
     let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
     if (keys.length < g.total) {
+      const was = gen.run;
       try {
         keys = await viewKeys("run", runQ, noteRun, id);
       } catch {
         return;
       }
+      if (was !== gen.run) return;
     }
     runSel.all(keys);
     if (collapsed.has(id)) {
@@ -7226,6 +7235,7 @@ function makeDecide(ctx) {
   const reloadQueued = coalesced(reloadNow);
   function reload() {
     if (viewKey() !== shownView) {
+      selGen++;
       viewPending = true;
       freezeMid();
     }
@@ -7234,6 +7244,7 @@ function makeDecide(ctx) {
   let inView = /* @__PURE__ */ new Set();
   let shownView = "";
   let viewPending = false;
+  let selGen = 0;
   const viewKey = () => JSON.stringify(viewFilters());
   function freezeMid() {
     for (const b of readEl.querySelectorAll("button"))
@@ -7631,8 +7642,10 @@ function makeDecide(ctx) {
       selection.deselect(ticked);
       return;
     }
+    const gen = selGen;
     try {
       const items = await fetchGroup(g);
+      if (gen !== selGen || viewPending) return;
       for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
@@ -8265,6 +8278,7 @@ ${JSON.stringify(listAttached("none"))}`;
   }
   void reload();
   selection.onChange(() => {
+    selGen++;
     paintAll();
     feedAttached();
     if (selection.ids().length) showTicked();

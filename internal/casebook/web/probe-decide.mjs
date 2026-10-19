@@ -404,6 +404,52 @@ async function decisionsScenario(context, t, s) {
       bDone && a.d === null,
     );
     await pg.fill(SEARCH, '');
+
+    // A whole-group tick whose pages come back after the view changed
+    // ticks nothing: its keys are the old view's.
+    await openGroups(pg);
+    await until(
+      pg,
+      ([l, a]) => !!document.querySelector(`${l} .kit-row[data-key="${a}"]`),
+      [LIST, A],
+      8000,
+    );
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const GROUPED = (u) => {
+      const g = new URL(u).searchParams.get('group');
+      return !!g && g !== 'false';
+    };
+    await pg.route(GROUPED, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    const asked = pg.waitForRequest((r) => GROUPED(r.url()));
+    await pg.click(`${LIST} .cb-group[data-rule="${IP_OLD.id}"] .cb-group-box`);
+    await asked;
+    await pg.fill(SEARCH, 'rd-old-3');
+    await until(
+      pg,
+      ([l, a]) => !document.querySelector(`${l} .kit-row[data-key="${a}"]`),
+      [LIST, A],
+      8000,
+    );
+    const done = pg.waitForResponse((r) => GROUPED(r.url()));
+    release();
+    await done;
+    await pg.waitForTimeout(300); // kept: a window for the late pages to tick
+    check(
+      'a whole-group tick that finishes after the search changed ticks nothing',
+      await pg.evaluate(
+        (l) =>
+          [...document.querySelectorAll(`${l} .cb-group-ticked`)].every(
+            (e) => e.hidden,
+          ),
+        LIST,
+      ),
+    );
+    await pg.unroute(GROUPED);
+    await pg.fill(SEARCH, '');
   }
   await pg.close();
 }

@@ -864,6 +864,7 @@ export function makeDecide(ctx: Ctx): Section {
   // ticked document are drawn; a tick it hides is then dropped.
   function reload(): Promise<void> {
     if (viewKey() !== shownView) {
+      selGen++;
       viewPending = true;
       freezeMid();
     }
@@ -876,6 +877,9 @@ export function makeDecide(ctx: Ctx): Section {
   let inView = new Set<string>();
   let shownView = '';
   let viewPending = false;
+  // selGen counts changes to the view and to the ticks: a whole-group fetch
+  // that finishes after either changed adds nothing.
+  let selGen = 0;
   const viewKey = (): string => JSON.stringify(viewFilters());
 
   // freezeMid turns every button in the middle pane off.
@@ -1400,8 +1404,12 @@ export function makeDecide(ctx: Ctx): Section {
       selection.deselect(ticked);
       return;
     }
+    const gen = selGen;
     try {
       const items = await fetchGroup(g);
+      // The view or the ticks changed while its pages came: they are the
+      // old view's, and tick nothing.
+      if (gen !== selGen || viewPending) return;
       for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
@@ -2254,6 +2262,7 @@ export function makeDecide(ctx: Ctx): Section {
   // all brings back the open item, or the summary. The groups' heads count
   // the ticks.
   selection.onChange(() => {
+    selGen++;
     paintAll();
     feedAttached();
     if (selection.ids().length) showTicked();
