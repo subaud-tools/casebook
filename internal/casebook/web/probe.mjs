@@ -226,7 +226,7 @@ async function e2eScenario(browser) {
       disposition: 'close',
     });
     await pg.click('.kit-ctl[data-id="review"]');
-    const HEAD = '.cb-apply-part[data-part="close|pr"] .cb-group-plan';
+    const HEAD = '.cb-apply-part[data-part="close|pr"] .cb-group-box';
     await pg.waitForSelector(HEAD, { timeout: 8000 });
     await pg.click(HEAD);
     const RUN = '[data-testid="run-group"] .kit-btn.fill';

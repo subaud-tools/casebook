@@ -174,22 +174,36 @@ async function applyScenariosIn(context, t) {
   }
 }
 
-// A waiting group's head button, a group's address, and the open group's
+// A waiting group's checkbox (ticking it reviews the group), and the plan's
 // one button.
-const HEAD = (id) => `.cb-apply-part[data-part="${id}"] .cb-group-plan`;
-const groupHash = (id) => `#/review?group=${encodeURIComponent(id)}`;
+const HEAD = (id) => `.cb-apply-part[data-part="${id}"] .cb-group-box`;
 const RUN_BTN = '[data-testid="run-group"] .kit-btn';
 
-// openedGroup waits for group id to be open in review, its plan (job) shown.
+// openedGroup waits for group id's ticks to be reviewed, its plan (job)
+// shown.
 function openedGroup(t, pg, id, jobId) {
   return t.until(
     pg,
-    ([hash, g, j]) =>
-      location.hash === hash &&
+    ([g, j]) =>
+      location.hash.startsWith('#/review') &&
       document.querySelector('[data-testid="review-group"]')?.dataset.group ===
         g &&
       (j === null || !!document.querySelector('[data-testid="run-group"]')),
-    [groupHash(id), id, jobId ?? null],
+    [id, jobId ?? null],
+  );
+}
+
+// clearTicks unticks every group in review: the overview shows.
+async function clearTicks(t, pg) {
+  await pg.evaluate(() => {
+    for (const b of document.querySelectorAll(
+      '.cb-pane-review .cb-group-ticked:not([hidden]) .cb-group-untick',
+    ))
+      b.click();
+  });
+  await t.until(
+    pg,
+    () => !!document.querySelector('[data-testid="review-overview"]'),
   );
 }
 
@@ -253,12 +267,14 @@ async function applyScenariosOn(context, t, serveHandle) {
     note: 'superseded by #9',
   });
 
-  // openGroup opens group id from its head in review; its plan's reply.
+  // openGroup ticks group id in review, nothing else ticked; its plan's
+  // reply.
   const openGroup = async (pg, id) => {
     await pg.evaluate(() => {
       if (!location.hash.startsWith('#/review')) location.hash = '#/review';
     });
     await until(pg, (b) => !!document.querySelector(b), HEAD(id));
+    await clearTicks(t, pg);
     const resp = pg.waitForResponse(
       (r) =>
         r.url().includes('/api/apply/plan') && r.request().method() === 'POST',
@@ -345,9 +361,6 @@ async function applyScenariosOn(context, t, serveHandle) {
       (await jobsNow()).length === 0,
     );
     await pg.click(`.cb-apply-list .kit-row[data-key="${REPO_B}"] .kit-box`);
-    await pg.evaluate(() => {
-      location.hash = '#/review';
-    });
     await until(
       pg,
       () => !!document.querySelector('[data-testid="review-overview"]'),
@@ -362,15 +375,20 @@ async function applyScenariosOn(context, t, serveHandle) {
     const branchResp = pg.waitForResponse((r) =>
       r.url().includes('/api/apply/plan'),
     );
-    await pg.click(HEAD('delete|branch'), { clickCount: 2 });
+    await pg.click(HEAD('delete|branch'));
     const branchPlan = await (await branchResp).json();
     await openedGroup(t, pg, 'delete|branch', branchPlan.job.id);
+    // An item unticked and ticked again at once: the same items, no new ask.
+    await pg.click(
+      `.cb-apply-list .kit-row[data-key="${BR('feat/l1')}"] .kit-box`,
+      { clickCount: 2 },
+    );
     // Kept: the check is that the second press posts nothing; a window for
     // a second POST to go out.
     await pg.waitForTimeout(500);
     pg.off('request', onPlanPost);
     check(
-      `a double press of a group's name asks serve once, a preview that stores nothing (${planPosts.length} POST /api/apply/plan)`,
+      `ticking a group asks serve once for the same ticks, a preview that stores nothing (${planPosts.length} POST /api/apply/plan)`,
       planPosts.length === 1 && (await jobsNow()).length === 0,
     );
     const shown = await readGroup(pg);
@@ -379,15 +397,11 @@ async function applyScenariosOn(context, t, serveHandle) {
       shown.cmds,
       branchPlan.groups.flatMap((g) => g.steps.map((s) => s.command)),
     );
-    await pg.evaluate(() => {
-      location.hash = '#/review';
-    });
+    await clearTicks(t, pg);
     check(
-      'leaving it runs nothing: serve stores nothing',
-      (await until(
-        pg,
-        () => !!document.querySelector('[data-testid="review-overview"]'),
-      )) && (await jobsNow()).length === 0,
+      'unticking it runs nothing: serve stores nothing',
+      !!(await pg.$('[data-testid="review-overview"]')) &&
+        (await jobsNow()).length === 0,
     );
     const again = await openGroup(pg, 'delete|branch');
     check(
@@ -562,7 +576,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       'cancel runs nothing: the sheet goes, serve stores no plan for it, review stays',
       (await until(pg, () => !document.querySelector('.kit-sheet'))) &&
         !(await holds(REPO_C)) &&
-        (await pg.evaluate(() => location.hash)) === groupHash('delete|repo'),
+        (await pg.evaluate(() => location.hash)).startsWith('#/review'),
     );
     await pg.click(`${RUN_BTN}.fill`);
     await until(pg, () => !!document.querySelector('.kit-sheet'));
@@ -732,28 +746,52 @@ async function tickedRunScenario(context, t, s) {
     });
     await pg.waitForSelector('.cb-apply-part[data-part="close|pr"]');
     await pg.click('.cb-apply-part[data-part="close|pr"] .cb-group-caret');
-    await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(1)}"] .kit-box`);
+    const planKeys = (k) =>
+      until(
+        pg,
+        (want) =>
+          [
+            ...new Set(
+              [
+                ...document.querySelectorAll(
+                  '[data-testid="review-group"] .cb-plan-step',
+                ),
+              ].map((e) => e.dataset.key),
+            ),
+          ]
+            .sort()
+            .join(',') === want,
+        k,
+      );
+    for (const n of [1, 3])
+      await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(n)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // A saved filter that hides #3: the plan is what is shown and ticked.
+    await agent.api('POST', '/api/filters/save?create=1', {
+      id: 'tk-not-3',
+      name: 'Not dep 3',
+      match: [{ field: 'title', op: 'matches', value: 'dep [12]' }],
+    });
+    const chip = '.cb-pane-review .cb-filter[data-id="tk-not-3"]';
+    await pg.waitForSelector(chip, { timeout: 8000 });
+    await pg.click(chip);
+    check(
+      'review: a filter narrows the plan to what is shown and ticked',
+      (await planKeys(TPR(1))) &&
+        (await pg.evaluate(
+          (k) =>
+            !document.querySelector(
+              `.cb-pane-review .kit-row[data-key="${k}"]`,
+            ),
+          TPR(3),
+        )),
+    );
     await until(
       pg,
       () =>
         !!document.querySelector(
           '[data-testid="run-group"] .kit-btn:not([disabled])',
         ),
-    );
-    // The review is for the ticked PR alone.
-    await until(
-      pg,
-      (k) =>
-        [
-          ...new Set(
-            [
-              ...document.querySelectorAll(
-                '[data-testid="review-group"] .cb-plan-step',
-              ),
-            ].map((e) => e.dataset.key),
-          ),
-        ].join(',') === k,
-      TPR(1),
     );
     const approved = pg.waitForResponse(
       (r) =>
@@ -897,7 +935,7 @@ async function changedPlanScenario(context, t, s) {
           e.textContent.includes('second note'),
         ) &&
         (
-          document.querySelector('[data-testid="run-group"] .cb-apply-note')
+          document.querySelector('[data-testid="review-group"] .cb-apply-note')
             ?.textContent ?? ''
         ).includes('changed since you looked'),
     );
@@ -1000,8 +1038,9 @@ async function holdsScenario(context, t, s) {
       held,
     );
 
-    // Tick an item in each group: one review of both (opening close|pr
+    // Tick an item in each group: one review of both (ticking close|pr
     // unfolded it; archive|repo starts folded).
+    await clearTicks(t, pg);
     await pg.click('.cb-apply-part[data-part="archive|repo"] .cb-group-caret');
     for (const k of [T11_PR, T11_REPO]) {
       await until(
@@ -1019,8 +1058,8 @@ async function holdsScenario(context, t, s) {
       () => {
         const doc = document.querySelector('[data-testid="review-group"]');
         return (
-          doc?.querySelector('.kit-kick')?.textContent ===
-            'review \u00b7 2 groups ticked' &&
+          doc?.querySelector('.cb-mid-kick')?.textContent ===
+            'review \u00b7 2 ticked in 2 groups' &&
           !!doc.querySelector('.cb-tags-line .cb-tag-github-undo') &&
           !!doc.querySelector('.cb-held-row')
         );
@@ -1029,7 +1068,7 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check(
-      'ticking two groups makes one review: "review \u00b7 2 groups ticked", an "undo on GitHub" tag in its summary',
+      'ticking two groups makes one review: "review \u00b7 2 ticked in 2 groups", an "undo on GitHub" tag in its summary',
       combined,
     );
 

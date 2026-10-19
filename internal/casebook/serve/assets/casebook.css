@@ -2585,3 +2585,104 @@ button.cb-cond-menu-row[aria-disabled=true] {
 .cb-group-namebtn:focus-visible .cb-group-label {
   text-decoration: underline;
 }
+.kit-list.cb-panes {
+  width: auto;
+  background: transparent;
+  border-right: 0;
+  flex-direction: row;
+}
+.cb-panes > .kit-list[hidden] {
+  display: none;
+}
+.cb-mid-kick,
+.cb-mid-title,
+.cb-mid-ctx {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-mid-kick {
+  height: 16px;
+  margin: 0 0 8px;
+  font: 11.5px/16px var(--kit-mono);
+  color: var(--kit-muted);
+}
+.cb-mid-title {
+  height: 30px;
+  margin: 0 0 6px;
+  font: 700 22px/30px var(--kit-sans);
+  letter-spacing: -0.01em;
+}
+.cb-mid-ctx {
+  height: 20px;
+  margin: 0 0 12px;
+  font: 13px/20px var(--kit-sans);
+  color: var(--kit-muted);
+}
+.cb-mid-acts {
+  height: 26px;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cb-mid-acts .kit-btns {
+  margin: 0;
+  flex-wrap: nowrap;
+}
+.cb-mid-acts .kit-btn {
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 24px;
+  white-space: nowrap;
+  flex: none;
+}
+.cb-run-acts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cb-run-acts > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-mid-rows {
+  border: 1px solid var(--kit-line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0 0 12px;
+  background: var(--kit-card);
+}
+.cb-mid-row {
+  height: 44px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-top: 1px solid var(--kit-line);
+}
+.cb-mid-row:first-child {
+  border-top: 0;
+}
+.cb-mid-k,
+.cb-mid-st {
+  height: 16px;
+  font: 12px/16px var(--kit-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-mid-st {
+  font-size: 11.5px;
+}
+.cb-mid-row.cb-mid-more {
+  line-height: 32px;
+  font: 12px/32px var(--kit-mono);
+  color: var(--kit-muted);
+}

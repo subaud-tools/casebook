@@ -45,7 +45,7 @@
 
 import {
   ApiError,
-  list,
+  createSelection,
   h,
   facts,
   buttons,
@@ -53,12 +53,14 @@ import {
   sheet,
   type Button,
   type KeyBinding,
-  type ListHandle,
   type Primary,
+  type Selection,
 } from '/_kit/kit.js';
 import type {
   AnswerResult,
   DecisionVocabView,
+  FilterRow,
+  FiltersView,
   GroupView,
   HeldBack,
   ItemView,
@@ -97,8 +99,9 @@ import {
   openCardsByJob,
   progress,
   publicLine,
-  reviewKicker,
-  reviewKeys as chooseReviewKeys,
+  reviewKick,
+  reviewLine,
+  untickHidden,
   waitBlocks,
   heldText,
   otherHalf,
@@ -120,6 +123,19 @@ import {
 import { pathEscape } from './router-helpers.ts';
 import { getVocab } from './decide.ts';
 import { coalesced } from './coalesce.ts';
+import {
+  makePane,
+  setHashQuery,
+  type Pane,
+  type PaneGroup,
+} from './list-pane.ts';
+import {
+  paneParams,
+  paneQuery,
+  withPane,
+  type PaneQuery,
+} from './list-pane-text.ts';
+import { midHead } from './mid.ts';
 
 // Decided items are fetched 200 at a time (serve's cap, like decide).
 const PAGE = 200;
@@ -129,11 +145,6 @@ const STEPS_PAGE = 200;
 // run's parts (a waiting group's id is serve's, "<disposition>|<kind>").
 const RUNNING = 'running';
 const DONE = 'done';
-
-type Row =
-  | { t: 'job'; job: Job }
-  | { t: 'item'; item: ItemView }
-  | { t: 'more'; left: number };
 
 type Mode = 'review' | 'run';
 
@@ -240,17 +251,15 @@ export function makeApply(ctx: Ctx): Section {
   };
   let active = false;
 
-  // review: the group the address asks for (#/review?group=<id>) until it is
-  // opened, the group open, the items it was opened for and serve's plan.
+  // review: the group the address asks to tick (#/review?group=<id>) until
+  // the groups load, whether a plan for the ticks is shown, the items it is
+  // for and serve's plan.
   let wantGroup = '';
-  let reviewGroup = '';
+  let reviewOpen = false;
   let followTimer: ReturnType<typeof setTimeout> | null = null;
   const sameKeys = (a: string[], b: string[]): boolean =>
     a.length === b.length && a.every((k, i) => k === b[i]);
   let reviewKeys: string[] = [];
-  // How many groups the open review's ticks are from: several make one
-  // review.
-  let reviewTicked = 0;
   let reviewView: PlanView | null = null;
   // drawnView is the plan drawReview last put on the page: only it runs.
   let drawnView: PlanView | null = null;
@@ -258,8 +267,6 @@ export function makeApply(ctx: Ctx): Section {
   // item already running): shown in the pane, no "sync first".
   let reviewNote = '';
   let refusal = '';
-  // A plan is being asked for: a second press of the group asks nothing.
-  let opening = false;
 
   // run: the job open.
   let openId: number | null = null;
@@ -274,9 +281,9 @@ export function makeApply(ctx: Ctx): Section {
   let intervalMs = 0;
   let syncing = false;
   let syncError = '';
-  // The group a refused plan was for, opened again once a sync Court asked
-  // for here (sync first, in this tab) is done.
-  let afterSync: string | null = null;
+  // A refused plan is asked for again once a sync Court asked for here
+  // (sync first, in this tab) is done.
+  let afterSync = false;
   // An open "edit text" field's text, by card id: a redraw keeps it.
   const editors = new Map<number, string>();
   const itemsSeq = makeSeq();
@@ -299,16 +306,19 @@ export function makeApply(ctx: Ctx): Section {
   const agentOf = (job: Job): string =>
     harnessOf(job.session) || ctx.agentName() || 'agent';
 
-  // ---- the list ----
+  // ---- the lists: review's items and run's jobs, each on its pane ----
 
-  const obsText = h('span', { 'data-testid': 'observations' });
-  const obsEl = h(
-    'div',
-    { class: 'cb-apply-obs' },
-    h('i', { class: 'cb-apply-obs-dot', 'aria-hidden': 'true' }),
-    obsText,
-  );
-  const foot = h('div', { class: 'cb-apply-foot' }, obsEl);
+  // review's search and filters: the address keeps them
+  // (#/review?filters=…&q=…), and serve narrows to them (GET /api/items
+  // view=to-apply). The saved filters are decide's.
+  let reviewQ: PaneQuery = { filters: [], q: '' };
+  let runQ: PaneQuery = { filters: [], q: '' };
+  let filterRows: FilterRow[] = [];
+  // What the page knows of each waiting item's group: loaded rows, and a
+  // group fetched whole (a tick on a page not loaded is counted from here).
+  const groupOfKey = new Map<string, string>();
+  const reviewSel: Selection = createSelection();
+  const runSel: Selection = createSelection();
 
   // In a job approved, running or paused: key → that job. Such an item
   // leaves its waiting group (a plan holds nothing: it is review's own).
@@ -316,18 +326,17 @@ export function makeApply(ctx: Ctx): Section {
   const order = () => runOrder(jobs);
 
   // groupName is a waiting group's kind, plural ("repos"); choiceOf its
-  // decision as decide words it ("Delete it").
-  const groupName = (g: GroupView): string => {
-    const kind = g.id.slice(g.id.indexOf('|') + 1);
-    return kindVocab(kind)?.nouns ?? '';
-  };
-  const choiceOf = (g: GroupView): string => {
-    const kind = g.id.slice(g.id.indexOf('|') + 1);
-    return (
-      kindVocab(kind)?.choices?.find((c) => c.disposition === g.disposition)
-        ?.label ?? ''
+  // decision as decide words it ("delete it"); doneOf what it did ("deleted it").
+  const kindOfGroup = (g: GroupView): string =>
+    g.id.slice(g.id.indexOf('|') + 1);
+  const groupName = (g: GroupView): string =>
+    kindVocab(kindOfGroup(g))?.nouns ?? '';
+  const choiceVocabOf = (g: GroupView) =>
+    kindVocab(kindOfGroup(g))?.choices?.find(
+      (c) => c.disposition === g.disposition,
     );
-  };
+  const choiceOf = (g: GroupView): string => choiceVocabOf(g)?.label ?? '';
+  const doneOf = (g: GroupView): string => choiceVocabOf(g)?.done ?? '';
   // titleOf names a plan with its counts, in serve's nouns: "Delete 7 repos".
   const titleOf = (j: Job): string =>
     planTitle(j, (kind) => {
@@ -339,8 +348,7 @@ export function makeApply(ctx: Ctx): Section {
   // labelFor names n items of waiting group g in serve's words ("Delete 3
   // branches"); before the vocabulary loads, serve's label for the group.
   function labelFor(g: GroupView, n: number): string {
-    const kind = g.id.slice(g.id.indexOf('|') + 1);
-    const kv = kindVocab(kind);
+    const kv = kindVocab(kindOfGroup(g));
     if (!kv || !g.many) return g.label;
     return applyLabel(g.many, kv.noun, kv.nouns, n);
   }
@@ -357,321 +365,190 @@ export function makeApply(ctx: Ctx): Section {
     if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
     return Math.max(0, g.total - n);
   }
-  const tickedIn = (g: GroupView) => {
-    const sel = new Set(handle.selectedIds());
-    return waiting(g)
-      .map((it) => it.key)
-      .filter((k) => sel.has(k));
-  };
+  const tickedIn = (id: string): string[] =>
+    reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
+  // tickedKeys is every ticked item, group by group in the list's order,
+  // in key order in each (ticked again, an item is the same plan).
+  const tickedKeys = (): string[] =>
+    groups.flatMap((g) => tickedIn(g.id).sort());
 
-  const handle: ListHandle<Row> = list<Row>({
-    label: '',
-    openOnMove: false,
-    row(r: Row) {
-      if (r.t === 'more') {
-        return {
-          id: 'more',
-          title: `\u2026 ${pluralize(r.left, 'more decided item')}`,
-          meta: 'show more',
-        };
-      }
-      if (r.t === 'item') {
-        const it = r.item;
+  // The jobs run's pane shows now, in its order.
+  let shownRun: Job[] = [];
+
+  const reviewPane: Pane<ItemView> = makePane<ItemView>(
+    ctx,
+    'review',
+    reviewSel,
+    {
+      row(it: ItemView) {
+        const g = groups.find((x) => x.id === it.group);
+        const st = reviewLine(it, g ? doneOf(g) : '');
         return {
           id: it.key,
-          key: `${it.kind} \u00b7 ${keyWithoutKind(it.key)}`,
-          title: it.title ?? keyWithoutKind(it.key),
-          selectable: true,
+          key: it.key,
+          title: it.title || undefined,
+          stands: st.text,
+          tone: st.tone,
         };
-      }
-      const j = r.job;
+      },
+      groupOf: (it: ItemView) => it.group,
+      onOpen() {
+        // review has no item page: a row's click ticks it.
+        if (!painting) reviewPane.handle.toggle();
+      },
+      onQuery(q: PaneQuery) {
+        reviewQ = q;
+        setHashQuery(withPane('', reviewQ));
+        void loadItems(0, true);
+      },
+      onToggle(id: string) {
+        if (collapsed.has(id)) collapsed.delete(id);
+        else collapsed.add(id);
+        paintList();
+      },
+      onTickGroup(id: string) {
+        void tickGroup(id);
+      },
+      tickedIn,
+      onMore() {
+        void loadItems(items.length);
+      },
+      onFilterOpen(row: FilterRow) {
+        ctx.route.go('decide', '', `filters=${row.filter.id}`);
+      },
+      onFilterNew() {
+        ctx.route.go('decide', '', 'new=filter');
+      },
+    },
+  );
+
+  const runPane: Pane<Job> = makePane<Job>(ctx, 'run', runSel, {
+    row(j: Job) {
       const p = progress(j);
-      const lanes = jobLanes(j)
-        .map((l) => laneLabel(l, agentOf(j)))
-        .join(' + ');
+      const needs = needsLine(cardsFor(j.id), p.paused);
       return {
         id: `job:${j.id}`,
-        key: lanes || `job #${j.id}`,
+        key: `job:${j.id}`,
         title: titleOf(j),
-        meta:
+        stands: [
+          needs,
           p.started || isFinished(j) ? `${p.finished}/${p.total}` : 'queued',
-        sub: needsLine(cardsFor(j.id), p.paused) || undefined,
+        ]
+          .filter(Boolean)
+          .join(' \u00b7 '),
+        tone: needs ? 'signal' : 'muted',
+        selectable: false,
       };
     },
-    onOpen(r: Row, i: number) {
-      if (painting) return;
-      if (r.t === 'job') ctx.route.go('run', String(r.job.id));
-      else if (r.t === 'item') handle.toggle(i);
-      else void loadItems(items.length);
+    groupOf: (j: Job) => (isFinished(j) ? DONE : RUNNING),
+    onOpen(j: Job) {
+      if (!painting) ctx.route.go('run', String(j.id));
     },
-    onSelect() {
-      paintHeads();
-      // The open review follows the ticks in its group; with none open,
-      // ticking items opens their group's review.
-      if (mode !== 'review') return;
-      let g = reviewGroup
-        ? groups.find((x) => x.id === reviewGroup)
-        : undefined;
-      if (!g) {
-        g = groups.find((x) => tickedIn(x).length > 0);
-        if (!g) return;
-      }
-      if (followTimer) clearTimeout(followTimer);
-      followTimer = setTimeout(() => {
-        followTimer = null;
-        // Only while review is still shown, and the group still ticked or
-        // open: a run unticks its items and leaves for run, which must stay.
-        if (!g || mode !== 'review') return;
-        if (reviewGroup === g.id) void openGroup(g, true);
-        else if (!reviewGroup && tickedIn(g).length) openFromHead(g);
-      }, 250);
+    onQuery(q: PaneQuery) {
+      runQ = q;
     },
-    foot,
+    onToggle(id: string) {
+      if (collapsed.has(id)) collapsed.delete(id);
+      else collapsed.add(id);
+      paintList();
+    },
+    onTickGroup() {},
+    tickedIn: () => [],
+    onMore() {},
+    onFilterOpen(row: FilterRow) {
+      ctx.route.go('decide', '', `filters=${row.filter.id}`);
+    },
+    onFilterNew() {
+      ctx.route.go('decide', '', 'new=filter');
+    },
   });
-  handle.el.classList.add('cb-apply-list');
+  reviewPane.el.classList.add('cb-apply-list');
+  runPane.el.classList.add('cb-apply-list');
+  const listEl = h(
+    'div',
+    { class: 'kit-list cb-panes' },
+    reviewPane.el,
+    runPane.el,
+  );
+  function showPane(): void {
+    reviewPane.el.hidden = mode !== 'review';
+    runPane.el.hidden = mode !== 'run';
+  }
+  showPane();
+
+  // Ticks open their plan in the middle (after a moment, so a run of ticks
+  // asks once); with none, the overview.
+  reviewSel.onChange(() => {
+    reviewPane.paintHeads();
+    if (mode !== 'review') return;
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = setTimeout(() => {
+      followTimer = null;
+      if (mode === 'review') void openTicked();
+    }, 250);
+  });
 
   // What needs Court (a paused step is counted as paused, not twice).
   const cardsFor = (jobId: number) =>
     openCardsByJob(cards.filter((c) => c.kind !== 'paused')).get(jobId) ?? 0;
 
-  // ---- the parts and their heads ----
+  // ---- the groups ----
   //
-  // review: the waiting groups by what will happen (serve's order). run:
-  // Running (jobs approved, running or paused, each with its progress bar),
-  // then Done, collapsed. A part with nothing in it shows no head.
-
-  interface Part {
-    id: string;
-    label: string;
-    n: number;
-    rows: Row[];
-    group?: GroupView;
-  }
-
-  function parts(): Part[] {
-    const ps: Part[] = [];
-    if (mode === 'run') {
-      const o = order();
-      const job = (job: Job): Row => ({ t: 'job', job });
-      if (o.running.length)
-        ps.push({
-          id: RUNNING,
-          label: 'Running',
-          n: o.running.length,
-          rows: o.running.map(job),
-        });
-      if (o.done.length)
-        ps.push({
-          id: DONE,
-          label: 'Done',
-          n: o.done.length,
-          rows: o.done.map(job),
-        });
-      return ps;
-    }
-    for (const g of groups) {
-      const n = waitingCount(g);
-      if (!n) continue;
-      ps.push({
-        id: g.id,
-        label: labelFor(g, n),
-        n,
-        group: g,
-        rows: waiting(g).map((item): Row => ({ t: 'item', item })),
-      });
-    }
-    if (itemsTotal > items.length) {
-      const last = ps.length ? ps[ps.length - 1] : null;
-      if (last?.group)
-        last.rows.push({ t: 'more', left: itemsTotal - items.length });
-    }
-    return ps;
-  }
-
-  // The rows shown now (a collapsed part's aside), in the list's order.
-  let shown: Row[] = [];
-  // The heads drawn now, painted again when the selection changes.
-  let heads: Array<{ el: HTMLElement; paint(): void }> = [];
+  // review: the waiting groups by what will happen (serve's order), each
+  // headed by its kind and its decision ("branches · delete it"). run
+  // (until it lists items): running, then done.
 
   function paintList(): void {
     ctx.bar.setCount('run', order().running.length);
-    const ps = parts();
-    shown = ps.flatMap((p) => (collapsed.has(p.id) ? [] : p.rows));
-    handle.setItems(shown);
-    const els = handle.el.querySelectorAll<HTMLElement>('.kit-rows > .kit-row');
-    els.forEach((rowEl, i) => {
-      const r = shown[i];
-      if (!r) return;
-      if (r.t === 'item') rowEl.dataset.key = r.item.key;
-      else if (r.t === 'more') rowEl.classList.add('cb-apply-more');
-      else decorateJobRow(rowEl, r.job);
-    });
-    placeHeads(ps, els);
-    const openAt =
-      mode === 'run'
-        ? shown.findIndex((r) => r.t === 'job' && r.job.id === openId)
-        : -1;
-    if (openAt >= 0) {
-      painting = true;
-      try {
-        handle.open(openAt);
-      } finally {
-        painting = false;
-      }
+    const gs: PaneGroup[] = groups
+      .map((g) => ({ g, n: waitingCount(g) }))
+      .filter((x) => x.n > 0)
+      .map(({ g, n }) => ({
+        id: g.id,
+        label: groupName(g) || g.label,
+        tag: choiceOf(g),
+        n,
+        box: true,
+      }));
+    painting = true;
+    try {
+      reviewPane.setRows(
+        items.filter((it) => !held().has(it.key)),
+        gs,
+        new Set(gs.filter((g) => !collapsed.has(g.id)).map((g) => g.id)),
+      );
+      reviewPane.setMore(Math.min(PAGE, itemsTotal - items.length));
+      const o = order();
+      const rgs: PaneGroup[] = [];
+      if (o.running.length)
+        rgs.push({
+          id: RUNNING,
+          label: 'running',
+          n: o.running.length,
+          box: false,
+        });
+      if (o.done.length)
+        rgs.push({ id: DONE, label: 'done', n: o.done.length, box: false });
+      shownRun = runPane.setRows(
+        [...o.running, ...o.done],
+        rgs,
+        new Set(rgs.filter((g) => !collapsed.has(g.id)).map((g) => g.id)),
+      );
+      const els = runPane.el.querySelectorAll<HTMLElement>(
+        '.kit-rows > .kit-row',
+      );
+      shownRun.forEach((j, i) => {
+        if (els[i]) decorateJobRow(els[i], j);
+      });
+      const openAt =
+        mode === 'run' ? shownRun.findIndex((j) => j.id === openId) : -1;
+      if (openAt >= 0) runPane.handle.open(openAt);
+    } finally {
+      painting = false;
     }
-    if (mode === 'review') markOpenGroup();
     paintObs();
     // With nothing open, the overview's counts follow the list.
     drawOverview();
-  }
-
-  // placeHeads puts each part's head before its first row or, collapsed,
-  // where its rows would be.
-  function placeHeads(ps: Part[], els: NodeListOf<HTMLElement>): void {
-    const body = handle.el.querySelector<HTMLElement>('.kit-rows');
-    heads = [];
-    if (!body) return;
-    let at = 0;
-    let last: Element | null = null;
-    for (const p of ps) {
-      const head = partHead(p);
-      heads.push(head);
-      const n = collapsed.has(p.id) ? 0 : p.rows.length;
-      if (n) {
-        els[at]?.before(head.el);
-        last = els[at + n - 1] ?? head.el;
-      } else {
-        if (last) last.after(head.el);
-        else body.prepend(head.el);
-        last = head.el;
-      }
-      at += n;
-    }
-  }
-
-  // partHead is a part's head, as decide draws a group's: the caret (it
-  // collapses and expands the part), a checkbox for a waiting group (it
-  // ticks the group's items), the label and the count; a waiting group's
-  // header is its button ("Delete 3 branches\u2026", or for the ticked
-  // items), which opens the group in the middle pane.
-  function partHead(p: Part): { el: HTMLElement; paint(): void } {
-    const isOpen = !collapsed.has(p.id);
-    const toggleOpen = (): void => {
-      if (collapsed.has(p.id)) collapsed.delete(p.id);
-      else collapsed.add(p.id);
-      paintList();
-    };
-    const g = p.group;
-    const box = g
-      ? h('span', {
-          class: 'cb-group-box',
-          role: 'checkbox',
-          'aria-checked': 'false',
-          'aria-label': p.label,
-          onclick() {
-            const keys = waiting(g).map((it) => it.key);
-            if (tickedIn(g).length === keys.length) handle.deselect(keys);
-            else handle.selectAll(keys);
-          },
-        })
-      : h('span', { class: 'cb-group-nobox' });
-    const top = h(
-      'div',
-      { class: 'cb-group-top' },
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'cb-group-caret',
-          'aria-expanded': String(isOpen),
-          'aria-label': p.label,
-          onclick: toggleOpen,
-        },
-        isOpen ? '\u25bc' : '\u25b6',
-      ),
-      box,
-      g
-        ? h('div', { class: 'cb-group-acts cb-apply-head-acts' })
-        : h(
-            'span',
-            { class: 'cb-group-name', onclick: toggleOpen },
-            h(
-              'span',
-              { class: 'cb-group-line' },
-              h('span', { class: 'cb-group-label' }, p.label),
-            ),
-          ),
-      h('span', { class: 'cb-group-n' }, String(p.n)),
-    );
-    const acts = g
-      ? top.querySelector<HTMLElement>('.cb-apply-head-acts')
-      : null;
-    const el = h(
-      'div',
-      {
-        class: 'cb-group cb-apply-part' + (isOpen ? '' : ' collapsed'),
-        role: 'presentation',
-        dataset: { part: p.id },
-      },
-      top,
-    );
-    const paint = (): void => {
-      if (!g || !acts) return;
-      const ticked = tickedIn(g);
-      const all = waiting(g).length;
-      box.setAttribute(
-        'aria-checked',
-        !ticked.length ? 'false' : ticked.length === all ? 'true' : 'mixed',
-      );
-      // The group's name (what is in it, and its decision in serve's
-      // words), which opens its review: the one button that runs it is
-      // there, named for the action.
-      const bs: HTMLElement[] = [
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'cb-group-plan cb-group-namebtn',
-            title: 'review these',
-            onclick() {
-              openFromHead(g);
-            },
-          },
-          h('span', { class: 'cb-group-label' }, groupName(g)),
-          h('span', { class: 'cb-group-choice' }, choiceOf(g)),
-        ),
-      ];
-      if (ticked.length && vocab?.untick)
-        bs.push(
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'cb-group-untick',
-              onclick() {
-                handle.deselect(ticked);
-              },
-            },
-            vocab.untick,
-          ),
-        );
-      acts.replaceChildren(...bs);
-    };
-    paint();
-    return { el, paint };
-  }
-
-  function paintHeads(): void {
-    for (const hd of heads) hd.paint();
-  }
-
-  // markOpenGroup marks the open group's head in the list.
-  function markOpenGroup(): void {
-    for (const el of handle.el.querySelectorAll<HTMLElement>('.cb-apply-part'))
-      el.classList.toggle(
-        'cb-focus',
-        !!reviewGroup && el.dataset.part === reviewGroup,
-      );
   }
 
   // A job row: its lanes in their colours, the progress bar under the
@@ -721,9 +598,10 @@ export function makeApply(ctx: Ctx): Section {
     const o = builtAt
       ? observations(builtAt, intervalMs, Date.now())
       : { text: '', stale: false };
-    obsText.textContent = syncing ? 'syncing observations\u2026' : o.text;
-    obsEl.dataset.state = syncing ? 'syncing' : o.stale ? 'stale' : 'fresh';
-    obsEl.hidden = !builtAt && !syncing;
+    const text = syncing ? 'syncing observations\u2026' : builtAt ? o.text : '';
+    const state = syncing ? 'syncing' : o.stale ? 'stale' : 'fresh';
+    reviewPane.setObs(text, state);
+    runPane.setObs(text, state);
   }
   // The age moves on its own: the foot says so without an event.
   const obsTimer = setInterval(paintObs, 1000);
@@ -841,31 +719,49 @@ export function makeApply(ctx: Ctx): Section {
     askNamedSessions();
   }
 
-  async function loadItems(offset = 0): Promise<void> {
+  // loadItems loads review's waiting items, narrowed by its filters and
+  // search (serve's), a page at a time. On a first page a tick the list no
+  // longer shows (applied, decided again, or filtered or searched away) is
+  // taken off: the plan covers only what is shown and ticked.
+  async function loadItems(offset = 0, narrowed = false): Promise<void> {
     const mine = itemsSeq.next();
     try {
       const v = await ctx.api.get<ItemsView>('/items', {
         view: 'to-apply',
+        ...paneParams(reviewQ),
         limit: String(PAGE),
         offset: String(offset),
       });
       if (!itemsSeq.isLatest(mine)) return;
+      reviewPane.setFilterError(null);
       const got = v.items ?? [];
       items = offset ? [...items, ...got] : got;
       itemsTotal = v.total;
       itemsLoaded = true;
-      // A decided item that left the list (applied, or decided again) leaves
-      // the selection too.
       groups = v.groups ?? [];
-      const keep = new Set(items.map((i) => i.key));
-      const gone = handle.selectedIds().filter((k) => !keep.has(k));
-      if (gone.length && offset === 0 && itemsTotal <= items.length) {
-        handle.deselect(gone);
+      for (const it of got) groupOfKey.set(it.key, it.group);
+      if (offset === 0 && reviewSel.ids().length) {
+        const shown =
+          itemsTotal <= items.length
+            ? items.map((it) => it.key)
+            : await viewKeys();
+        if (!itemsSeq.isLatest(mine)) return;
+        const gone = untickHidden(reviewSel.ids(), new Set(shown));
+        if (gone.length) reviewSel.deselect(gone);
       }
       paintList();
-      openWanted();
-    } catch {
-      // non-fatal
+      applyWanted();
+    } catch (err) {
+      if (!itemsSeq.isLatest(mine)) return;
+      // A filter serve refuses (deleted elsewhere, not valid) says why and
+      // lists nothing: never the list unfiltered.
+      if (err instanceof ApiError && err.status === 400 && narrowed) {
+        reviewPane.setFilterError(err.message);
+        items = [];
+        itemsTotal = 0;
+        groups = [];
+        paintList();
+      }
     }
   }
 
@@ -997,82 +893,66 @@ export function makeApply(ctx: Ctx): Section {
     }
   }
 
-  // ---- review: opening a group ----
+  // ---- review: what is ticked ----
 
-  // openFromHead opens group g from its head: again, for what is ticked
-  // now, when it is the group open.
-  function openFromHead(g: GroupView): void {
-    if (reviewGroup === g.id && ctx.route.current().section === 'review') {
-      if (!opening) void openGroup(g);
-    } else ctx.route.go('review', '', `group=${encodeURIComponent(g.id)}`);
+  // tickGroup ticks every waiting item of group id (every page: fetched
+  // when the list hasn't them all), or, all ticked, unticks them. Ticking a
+  // collapsed group expands it: its rows show what is ticked.
+  async function tickGroup(id: string, only = false): Promise<void> {
+    const g = groups.find((x) => x.id === id);
+    if (!g) return;
+    const ticked = tickedIn(id);
+    const total = waitingCount(g);
+    if (!only && total > 0 && ticked.length >= total) {
+      reviewSel.deselect(ticked);
+      return;
+    }
+    let keys = waiting(g).map((it) => it.key);
+    if (keys.length < total) {
+      try {
+        keys = await groupKeys(id);
+      } catch {
+        return;
+      }
+    }
+    reviewSel.all(keys);
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+    }
   }
 
-  // openWanted opens the group the address asks for, once the waiting
-  // groups have loaded.
-  function openWanted(): void {
+  // applyWanted ticks the group the address asked for (#/review?group=<id>,
+  // decide's "waiting in review"), once the waiting groups have loaded; the
+  // address keeps only the list's filters and search.
+  function applyWanted(): void {
     if (!wantGroup || !active || mode !== 'review' || !itemsLoaded) return;
     const id = wantGroup;
     wantGroup = '';
-    const g = groups.find((x) => x.id === id);
-    if (g && waitingCount(g)) {
-      void openGroup(g);
-      return;
-    }
-    reviewGroup = id;
-    reviewView = null;
-    refusal = '';
-    reviewNote = 'Nothing in this group is waiting.';
-    drawReview();
-    feed();
+    reviewSel.clear();
+    void tickGroup(id, true);
   }
 
-  // openGroup builds serve's plan for group g's ticked items, or every item
-  // of it that waits (every page: fetched when the list hasn't them all),
-  // and shows it. serve reuses the plan it built for exactly these items.
-  // follow (a tick changed while g is open) keeps what is shown until the
-  // new plan is in, so the review follows the ticks without a flash.
-  async function openGroup(g: GroupView, follow = false): Promise<void> {
-    reviewGroup = g.id;
-    if (!follow) reviewView = null;
+  // openTicked builds serve's plan for exactly the ticked items and shows
+  // it; serve reuses the plan it built for exactly these items. With
+  // nothing ticked the overview shows. The plan shown stays until the new
+  // one is in, so the review follows the ticks without a flash.
+  async function openTicked(force = false): Promise<void> {
+    const keys = tickedKeys();
+    if (!keys.length) {
+      closeReview();
+      drawOverview();
+      feed();
+      return;
+    }
+    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) return;
+    const mine = planSeq.next();
+    reviewOpen = true;
+    reviewKeys = keys;
     reviewNote = '';
     refusal = '';
     note = '';
-    if (!follow) {
-      if (collapsed.has(g.id)) collapsed.delete(g.id);
-      paintList();
-      focusHead(g.id);
-    }
-    const mine = planSeq.next();
-    // Ticks in any group make one review of every ticked item; with none
-    // anywhere, review shows the open group's waiting items.
-    const choice = chooseReviewKeys(
-      groups.map((x) => ({
-        ticked: tickedIn(x),
-        waiting: x.id === g.id ? waiting(g).map((it) => it.key) : [],
-      })),
-      groups.findIndex((x) => x.id === g.id),
-    );
-    let keys = choice.keys;
-    const nTicked = choice.groups;
-    if (!groups.some((x) => tickedIn(x).length > 0)) {
-      if (itemsTotal > items.length) {
-        try {
-          keys = await groupKeys(g.id);
-        } catch (err) {
-          if (!planSeq.isLatest(mine)) return;
-          reviewNote = message(err);
-          drawReview();
-          return;
-        }
-      }
-    }
-    if (!planSeq.isLatest(mine)) return;
-    if (follow && sameKeys(keys, reviewKeys)) return;
-    reviewKeys = keys;
-    reviewTicked = nTicked;
-    if (!follow) drawReview();
-    if (!keys.length) return;
-    opening = true;
+    if (!reviewView) drawReview();
     try {
       // Review only shows: the plan is stored when Court runs it, so two
       // tabs reviewing one group change nothing.
@@ -1080,12 +960,13 @@ export function makeApply(ctx: Ctx): Section {
         keys,
         preview: true,
       });
-      if (!planSeq.isLatest(mine) || reviewGroup !== g.id) return;
+      if (!planSeq.isLatest(mine)) return;
       reviewView = v;
-      afterSync = null;
+      afterSync = false;
       syncError = '';
     } catch (err) {
-      if (!planSeq.isLatest(mine) || reviewGroup !== g.id) return;
+      if (!planSeq.isLatest(mine)) return;
+      reviewView = null;
       const msg = message(err);
       if (
         err instanceof ApiError &&
@@ -1094,21 +975,41 @@ export function makeApply(ctx: Ctx): Section {
       )
         refusal = msg;
       else reviewNote = msg;
-    } finally {
-      if (planSeq.isLatest(mine)) opening = false;
     }
     if (!planSeq.isLatest(mine)) return;
     drawReview();
     feed();
   }
 
-  // groupKeys is every key of to-apply group id a job doesn't hold.
+  // viewKeys is every key review lists now (its filters and search), every
+  // page.
+  async function viewKeys(): Promise<string[]> {
+    const keys: string[] = [];
+    for (let total = Infinity; keys.length < total;) {
+      const v = await ctx.api.get<ItemsView>('/items', {
+        view: 'to-apply',
+        ...paneParams(reviewQ),
+        limit: '500',
+        offset: String(keys.length),
+      });
+      const got = v.items ?? [];
+      total = v.total;
+      if (!got.length) break;
+      for (const it of got) groupOfKey.set(it.key, it.group);
+      keys.push(...got.map((i) => i.key));
+    }
+    return keys;
+  }
+
+  // groupKeys is every key of to-apply group id a job doesn't hold (the
+  // list's filters and search apply).
   async function groupKeys(id: string): Promise<string[]> {
     const h0 = held();
     const keys: string[] = [];
     for (let total = Infinity; keys.length < total;) {
       const v = await ctx.api.get<ItemsView>('/items', {
         view: 'to-apply',
+        ...paneParams(reviewQ),
         group: id,
         limit: '500',
         offset: String(keys.length),
@@ -1116,43 +1017,34 @@ export function makeApply(ctx: Ctx): Section {
       const got = v.items ?? [];
       total = v.total;
       if (!got.length) break;
+      for (const it of got) groupOfKey.set(it.key, it.group);
       keys.push(...got.map((i) => i.key));
     }
     return keys.filter((k) => !h0.has(k));
-  }
-
-  function focusHead(id: string): void {
-    const head = handle.el.querySelector<HTMLElement>(
-      `.cb-apply-part[data-part="${CSS.escape(id)}"]`,
-    );
-    head?.scrollIntoView({ block: 'nearest' });
   }
 
   function closeReview(): void {
     planSeq.next(); // a plan on its way no longer draws
     if (followTimer) clearTimeout(followTimer);
     followTimer = null;
-    reviewGroup = '';
+    reviewOpen = false;
     reviewView = null;
     reviewKeys = [];
-    reviewTicked = 0;
     reviewNote = '';
-    opening = false;
-    markOpenGroup();
   }
 
   // syncFirst asks serve to sync (one sync, however often it is asked); the
-  // live wire says when it is done, and the group is opened again.
+  // live wire says when it is done, and the plan is asked for again.
   async function syncFirst(): Promise<void> {
     syncError = '';
     // Armed here, in the tab where Court asked, before serve is asked (its
     // done can be heard before its reply): another tab's sync opens nothing.
-    afterSync = reviewGroup;
+    afterSync = true;
     try {
       const v = await ctx.api.post<SyncView>('/sync', {});
       syncing = v.running;
     } catch (err) {
-      afterSync = null;
+      afterSync = false;
       syncError = message(err);
     }
     paintObs();
@@ -1168,12 +1060,10 @@ export function makeApply(ctx: Ctx): Section {
       syncing = false;
       syncError = e.state === 'failed' ? (e.error ?? 'failed') : '';
       mark((d) => (d.summary = true));
-      if (e.state === 'done' && afterSync !== null) {
-        const id = afterSync;
-        afterSync = null;
+      if (e.state === 'done' && afterSync) {
+        afterSync = false;
         refusal = '';
-        const g = groups.find((x) => x.id === id);
-        if (g && reviewGroup === id) void openGroup(g);
+        if (reviewOpen) void openTicked(true);
       } else if (e.state === 'done' && refusal) {
         // Another tab's sync made the observations fresh: the refusal no
         // longer holds, and nothing is planned here unasked.
@@ -1271,7 +1161,7 @@ export function makeApply(ctx: Ctx): Section {
         session,
       });
       patchJob(v);
-      handle.deselect(reviewKeys);
+      reviewSel.deselect(reviewKeys);
       closeReview();
       // The job just started opens in run.
       jobSeq.next();
@@ -1339,7 +1229,7 @@ export function makeApply(ctx: Ctx): Section {
   function drawOverview(): void {
     if (!active) return;
     if (mode === 'review') {
-      if (reviewGroup) return;
+      if (reviewOpen) return;
       const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
       paint(
         h(
@@ -1355,7 +1245,7 @@ export function makeApply(ctx: Ctx): Section {
           h(
             'p',
             null,
-            "Click a group's name, or tick items in it, to review it here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them.",
+            'Tick items, or a whole group, to review them here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them.',
           ),
         ),
       );
@@ -1389,31 +1279,40 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  // drawReview is the open group: what it does and who runs it, its one
-  // button, then each part's where, undo and exact commands.
+  // drawReview is the plan for what is ticked: its small line, title and
+  // what runs now (fixed lines), its one button and who runs it; then each
+  // part's where, undo and exact commands.
   function drawReview(): void {
     drawnView = null;
-    if (!active || mode !== 'review' || !reviewGroup) return;
-    const g = groups.find((x) => x.id === reviewGroup);
+    if (!active || mode !== 'review' || !reviewOpen) return;
+    const ids = new Set(reviewKeys.map((k) => groupOfKey.get(k) ?? ''));
+    const gs = groups.filter((g) => ids.has(g.id));
     const v = reviewView;
     const j = v?.job;
+    const runs = !!v && !!j?.steps?.length && !refusal && !reviewNote;
+    if (runs) drawnView = v;
+    const [first] = v ? runsNow(v.plan).split('\n') : [''];
     const doc = h(
       'article',
       {
         class: 'cb-apply-doc cb-plan',
         'data-testid': 'review-group',
-        'data-group': reviewGroup,
+        'data-group': gs.map((g) => g.id).join(','),
       },
-      h('p', { class: 'kit-kick' }, reviewKicker(reviewTicked)),
-      h(
-        'h1',
-        { class: 'kit-h1' },
-        j && j.steps?.length
-          ? titleOf(j)
-          : g
-            ? labelFor(g, reviewKeys.length || waitingCount(g))
-            : reviewGroup,
-      ),
+      ...midHead({
+        kick: reviewKick(
+          reviewKeys.length,
+          gs.map((g) => groupName(g) || g.label),
+        ),
+        title:
+          j && j.steps?.length
+            ? titleOf(j)
+            : gs.length === 1
+              ? labelFor(gs[0], reviewKeys.length)
+              : pluralize(reviewKeys.length, 'item'),
+        ctx: refusal || reviewNote ? '' : (first ?? ''),
+        acts: runs && v ? [runActs(v)] : [],
+      }),
     );
     if (refusal) {
       doc.append(refusalCard());
@@ -1447,8 +1346,7 @@ export function makeApply(ctx: Ctx): Section {
       );
       return paint(doc);
     }
-    if (steps.length) drawnView = v;
-    doc.append(runBlock(v));
+    doc.append(planLines(v));
     const agent = runnerAgent() ?? 'an agent';
     const parts: StepGroup<Step>[] = (v.groups ?? []).map((x) => ({
       action: x.action,
@@ -1648,50 +1546,44 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  // runBlock: what runs now and where, what waits and is held, its tags,
-  // who runs it, and the one button named for the action.
-  function runBlock(v: PlanView): HTMLElement {
-    const j = v.job;
-    const steps = j.steps ?? [];
+  // runActs is the plan's one button, named for the action, then who runs
+  // it.
+  function runActs(v: PlanView): HTMLElement {
     const rc = runCheck();
-    const el = h('div', { class: 'cb-approve', 'data-testid': 'run-group' });
-    const [first, rest] = runsNow(v.plan).split('\n');
-    el.append(
-      h(
-        'p',
-        { class: 'cb-approve-what' },
-        first,
-        rest ? h('br') : null,
-        rest ?? null,
-      ),
-    );
-    const tags = stepTags(steps);
-    if (tags.length)
-      el.append(h('p', { class: 'cb-tags-line' }, ...tagEls(tags, 0)));
-    if (!steps.length) return el;
-    const row = h('div', { class: 'cb-approve-row' });
-    if (rc?.text)
-      row.append(
-        h(
-          'span',
-          {
-            class: rc.can || busy ? 'cb-approve-lab' : 'cb-approve-none',
-            'data-testid': rc.can || busy ? 'runs-through' : 'no-agent',
-          },
-          rc.text,
-        ),
-      );
-    row.append(
+    return h(
+      'div',
+      { class: 'cb-run-acts', 'data-testid': 'run-group' },
       buttons([
         {
-          label: titleOf(j),
+          label: titleOf(v.job),
           fill: true,
           disabled: !rc?.can,
           run: () => runGroup(),
         },
       ]),
+      rc?.text
+        ? h(
+            'span',
+            {
+              class: rc.can || busy ? 'cb-approve-lab' : 'cb-approve-none',
+              'data-testid': rc.can || busy ? 'runs-through' : 'no-agent',
+              title: rc.text,
+            },
+            rc.text,
+          )
+        : null,
     );
-    el.append(row);
+  }
+
+  // planLines: what waits and is held, the plan's tags, and a note.
+  function planLines(v: PlanView): HTMLElement {
+    const steps = v.job.steps ?? [];
+    const el = h('div', { class: 'cb-approve' });
+    const [, rest] = runsNow(v.plan).split('\n');
+    if (rest) el.append(h('p', { class: 'cb-approve-what' }, rest));
+    const tags = stepTags(steps);
+    if (tags.length)
+      el.append(h('p', { class: 'cb-tags-line' }, ...tagEls(tags, 0)));
     if (note)
       el.append(h('p', { class: 'cb-apply-note', role: 'status' }, note));
     return el;
@@ -1820,6 +1712,19 @@ export function makeApply(ctx: Ctx): Section {
     if (active) ctx.setPrimary(primary());
   });
 
+  // loadFilters reads the saved filters (decide's), the chips on both panes.
+  async function loadFilters(): Promise<void> {
+    try {
+      const v = await ctx.api.get<FiltersView>('/filters');
+      filterRows = v.filters ?? [];
+      reviewPane.setFilters(filterRows, reviewQ.filters);
+      runPane.setFilters(filterRows, runQ.filters);
+    } catch {
+      // non-fatal: the chips stay as they were
+    }
+  }
+
+  void loadFilters();
   void loadJobs();
   void loadItems();
   void loadSessions();
@@ -1847,31 +1752,43 @@ export function makeApply(ctx: Ctx): Section {
 
   return {
     id: 'apply',
-    list: handle.el,
+    list: listEl,
     read: readEl,
-    listKeys: () => ({ nav: handle, selects: mode === 'review' }),
+    listKeys: () =>
+      mode === 'review'
+        ? { nav: reviewPane.handle, selects: true }
+        : { nav: runPane.handle, selects: false },
     keys: () => (mode === 'review' ? reviewBindings : runBindings),
     show(sub: string, query: string) {
       active = true;
       const was = mode;
       mode = ctx.route.current().section === 'run' ? 'run' : 'review';
       if (was !== mode) note = '';
+      showPane();
       if (mode === 'review') {
         closeJob();
-        // #/review?group=<id> opens that group in the middle pane.
-        const group = new URLSearchParams(query ?? '').get('group') ?? '';
-        if (!group) {
-          closeReview();
-          paintList();
-        } else if (group !== reviewGroup) {
-          closeReview();
-          wantGroup = group;
-          paintList();
-          openWanted();
-        } else {
-          paintList();
-          drawReview();
+        // The address names the list's filters and search.
+        const pq = paneQuery(query ?? '');
+        if (
+          pq.q !== reviewQ.q ||
+          pq.filters.join(',') !== reviewQ.filters.join(',')
+        ) {
+          reviewQ = pq;
+          reviewPane.setFilters(filterRows, pq.filters);
+          reviewPane.setSearch(pq.q);
+          void loadItems(0, true);
         }
+        // #/review?group=<id> ticks that group's waiting items: their plan
+        // opens in the middle pane.
+        const group = new URLSearchParams(query ?? '').get('group') ?? '';
+        if (group) {
+          wantGroup = group;
+          setHashQuery(withPane('', reviewQ));
+          applyWanted();
+        }
+        paintList();
+        if (reviewOpen) drawReview();
+        else if (reviewSel.ids().length) void openTicked();
         feed();
         return;
       }
@@ -1916,6 +1833,10 @@ export function makeApply(ctx: Ctx): Section {
         // Events this page never heard were pruned: reload all it shows.
         mark((d) => {
           d.all = d.items = d.sessions = d.summary = true;
+        });
+      } else if (type === 'filters') {
+        void loadFilters().then(() => {
+          if (reviewQ.filters.length) mark((d) => (d.items = true));
         });
       } else if (type === 'sync') {
         onSync((data ?? {}) as SyncEvent);

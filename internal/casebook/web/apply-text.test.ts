@@ -31,13 +31,14 @@ import {
   tagText,
   publicLine,
   runsNow,
-  reviewKicker,
-  reviewKeys,
+  reviewKick,
+  reviewLine,
+  untickHidden,
   waitBlocks,
   heldText,
   otherHalf,
 } from './apply-text.ts';
-import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
+import type { ItemView, Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
 let ids = 1;
 function step(
@@ -552,35 +553,84 @@ describe('review tags and lines', () => {
       'Runs now: 1,240 deleted on GitHub.',
     );
   });
-  test('reviewKicker', () => {
-    assert.equal(reviewKicker(1), 'review');
-    assert.equal(reviewKicker(3), 'review \u00b7 3 groups ticked');
+  test('reviewKick', () => {
+    assert.equal(
+      reviewKick(10, ['branches']),
+      'review \u00b7 10 ticked in branches',
+    );
+    assert.equal(
+      reviewKick(3, ['branches', 'PRs']),
+      'review \u00b7 3 ticked in 2 groups',
+    );
   });
 });
 
-describe('reviewKeys', () => {
-  const g = (ticked: string[], waiting: string[]) => ({ ticked, waiting });
-  test('ticks only in a group that is not open: those ticks only', () => {
-    assert.deepEqual(reviewKeys([g([], ['a', 'b']), g(['c'], ['c', 'd'])], 0), {
-      keys: ['c'],
-      groups: 1,
-    });
-  });
-  test('ticks in two groups: their union', () => {
+describe('review rows', () => {
+  const branchWith = (over: Partial<ItemView>): ItemView =>
+    ({
+      key: 'branch:o/r@feat/x',
+      kind: 'branch',
+      decision: { disposition: 'delete' },
+      ...over,
+    }) as unknown as ItemView;
+  const prClose = (): ItemView =>
+    ({
+      key: 'pr:o/r#3',
+      kind: 'pr',
+      decision: { disposition: 'close' },
+    }) as unknown as ItemView;
+  test('reviewLine says what holds it first', () =>
     assert.deepEqual(
-      reviewKeys(
-        [g(['a'], ['a', 'b']), g([], ['e']), g(['c', 'd'], ['c', 'd'])],
-        1,
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'no-access',
+              text: "you can't change branches on GitHub",
+              stops: ['delete'],
+            },
+          ],
+        }),
+        'Deleted it',
       ),
-      { keys: ['a', 'c', 'd'], groups: 2 },
+      { text: "held: you can't change branches on GitHub", tone: 'agent' },
+    ));
+  test('a hold that stops another decision is not this one', () =>
+    assert.equal(
+      reviewLine(
+        branchWith({
+          holds: [{ kind: 'x', text: 'no merging', stops: ['merge'] }],
+          copies: [{ machine: '' }],
+        }),
+        'Deleted it',
+      ).text,
+      'deleted on GitHub',
+    ));
+  test('reviewLine names where a branch is deleted', () => {
+    assert.equal(
+      reviewLine(
+        branchWith({ copies: [{ machine: 'work' }, { machine: '' }] }),
+        'Deleted it',
+      ).text,
+      'deleted on GitHub and here',
+    );
+    assert.equal(
+      reviewLine(
+        branchWith({
+          copies: [{ machine: 'work' }, { machine: '', absent: true }],
+        }),
+        'Deleted it',
+      ).text,
+      'deleted here',
     );
   });
-  test("no ticks anywhere: the open group's waiting items", () => {
-    assert.deepEqual(reviewKeys([g([], ['a']), g([], ['c', 'd'])], 1), {
-      keys: ['c', 'd'],
-      groups: 1,
-    });
-  });
+  test('reviewLine falls back to the done word, lower case', () =>
+    assert.deepEqual(reviewLine(prClose(), 'Closed it'), {
+      text: 'closed it',
+      tone: 'muted',
+    }));
+  test('TestReviewUntickHidden: a filter unticks what it hides', () =>
+    assert.deepEqual(untickHidden(['a', 'b'], new Set(['a'])), ['b']));
 });
 
 describe('waits and held wording', () => {

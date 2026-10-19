@@ -2,7 +2,15 @@
 // functions over serve's jobs (no kit or browser imports, so node --test can
 // load it).
 
-import type { Job, JobStep, NeedsYou, Plan, Step, Waiting } from './wire.d.ts';
+import type {
+  ItemView,
+  Job,
+  JobStep,
+  NeedsYou,
+  Plan,
+  Step,
+  Waiting,
+} from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 import type { Tone } from './list-pane-text.ts';
 
@@ -535,25 +543,43 @@ export function runsNow(plan: Plan): string {
 }
 
 /**
- * reviewKeys is what review shows, given each group's ticked and waiting
- * keys and the open group's index: every ticked key of every group that has
- * ticks (the open group need have none), or, with no tick anywhere, the open
- * group's waiting keys. groups is how many groups the ticks are from (at
- * least 1).
+ * reviewKick is review's small line: how many are ticked, and in which
+ * group, or how many groups.
  */
-export function reviewKeys(
-  groups: { ticked: string[]; waiting: string[] }[],
-  open: number,
-): { keys: string[]; groups: number } {
-  const ticked = groups.filter((g) => g.ticked.length > 0);
-  if (!ticked.length)
-    return { keys: [...(groups[open]?.waiting ?? [])], groups: 1 };
-  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
+export function reviewKick(n: number, groups: string[]): string {
+  const where = groups.length === 1 ? groups[0] : `${groups.length} groups`;
+  return `review \u00b7 ${n} ticked in ${where}`;
 }
 
-/** reviewKicker is review's kicker: how many groups its ticks are from. */
-export function reviewKicker(groups: number): string {
-  return groups > 1 ? `review \u00b7 ${groups} groups ticked` : 'review';
+/**
+ * reviewLine is a review row's second line, where the item stands: what
+ * holds it from its decision (agent); for a branch, where it is deleted
+ * (its copies still there: GitHub's has no machine); else its decision
+ * done, in serve's words, lower case.
+ */
+export function reviewLine(
+  it: ItemView,
+  done: string,
+): { text: string; tone: Tone } {
+  const d = it.decision?.disposition ?? '';
+  const hold = (it.holds ?? []).find((x) => (x.stops ?? []).includes(d));
+  if (hold) return { text: `held: ${hold.text}`, tone: 'agent' };
+  if (it.kind === 'branch') {
+    const there = (it.copies ?? []).filter((c) => !c.absent);
+    const gh = there.some((c) => !c.machine);
+    const here = there.some((c) => !!c.machine);
+    if (gh || here)
+      return {
+        text: `deleted ${[gh ? 'on GitHub' : '', here ? 'here' : ''].filter(Boolean).join(' and ')}`,
+        tone: 'muted',
+      };
+  }
+  return { text: done.toLowerCase(), tone: 'muted' };
+}
+
+/** untickHidden is the ticked keys a filter or a search no longer shows. */
+export function untickHidden(ticked: string[], shown: Set<string>): string[] {
+  return ticked.filter((k) => !shown.has(k));
 }
 
 /**

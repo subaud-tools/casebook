@@ -2268,6 +2268,12 @@ export function makeDecide(ctx: Ctx): Section {
       }
       showReadEmpty();
       void reload();
+      // "+ filter" on review or run lands here (#/decide?new=filter): the
+      // editor opens on the list.
+      if (params.get('new') === 'filter') {
+        setHashQuery(listQuery());
+        openFilterEditor(null);
+      }
     }
   }
 
