@@ -227,3 +227,29 @@ func TestCopiesGitHubFromTheSnapshotsRemoteTip(t *testing.T) {
 		t.Error("GitHubCopy of an absent copy")
 	}
 }
+
+// TestHoldNoAccessStopsOnlyTheGitHubHalf: without write access GitHub
+// refuses the branch delete; the local copy can still go. An empty
+// permission (not looked up yet) holds nothing.
+func TestHoldNoAccessStopsOnlyTheGitHubHalf(t *testing.T) {
+	for perm, held := range map[string]bool{"READ": true, "TRIAGE": true, "WRITE": false, "MAINTAIN": false, "ADMIN": false, "": false} {
+		in := holdsInput(func(in *Input, _ *observe.Clone) {
+			in.GitHub.Refs[featX] = observe.Ref{Exists: true, Tip: "e46d896", RepoID: "R_1", Permission: perm}
+		})
+		it := holdsOf(t, in, featX)
+		if !held {
+			if len(it.Holds) != 0 {
+				t.Errorf("%q: holds %+v", perm, it.Holds)
+			}
+			continue
+		}
+		want := []Hold{{Kind: HoldNoAccess, Text: "you can't change branches in o/r on GitHub (your access: " + map[string]string{"READ": "read", "TRIAGE": "triage"}[perm] + ")",
+			Fix: "Its local copy can still go; for GitHub, ask for write access or decide this again.", Stops: deleteOnly, Remote: true}}
+		if !reflect.DeepEqual(it.Holds, want) {
+			t.Errorf("%q: holds %+v\nwant %+v", perm, it.Holds, want)
+		}
+		if it.Stopped(item.Delete) {
+			t.Errorf("%q: a no-access hold stops the whole delete", perm)
+		}
+	}
+}

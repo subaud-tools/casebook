@@ -67,8 +67,9 @@ type Ref struct {
 	Archived      bool      `json:"archived,omitempty"` // repo
 	LatestRelease time.Time `json:"latest_release,omitzero"`
 	UpdatedAt     time.Time `json:"updated_at,omitzero"`
-	Tip           string    `json:"tip,omitempty"`     // branch: the ref's commit on GitHub
-	RepoID        string    `json:"repo_id,omitempty"` // branch: the repository's GraphQL node id
+	Tip           string    `json:"tip,omitempty"`        // branch: the ref's commit on GitHub
+	RepoID        string    `json:"repo_id,omitempty"`    // branch: the repository's GraphQL node id
+	Permission    string    `json:"permission,omitempty"` // branch: the viewer's access to the repository (ADMIN, MAINTAIN, WRITE, TRIAGE, READ)
 }
 
 // MergedPR is one merged pull request as reported by gh pr list.

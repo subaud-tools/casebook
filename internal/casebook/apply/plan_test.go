@@ -680,6 +680,22 @@ func TestOpenPRHoldStopsOnlyTheGitHubDelete(t *testing.T) {
 	}
 }
 
+func TestNoAccessHoldKeepsTheGitHubStepOut(t *testing.T) {
+	it := onGitHub(branchItem("o/r", "feat/x", "work", "/r"), "abc")
+	it.Holds = []engine.Hold{{Kind: engine.HoldNoAccess, Text: "you can't change branches in o/r on GitHub (your access: read)", Stops: []item.Disposition{item.Delete}, Remote: true}}
+	snap := snapWith("work", []observe.Clone{{Path: "/r", Repo: "o/r", Branches: []observe.Branch{{Name: "feat/x", Tip: "abc"}}}})
+	plan, err := Build([]engine.Item{it}, snap, epoch, epoch, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actions(plan), " "); got != "branch-delete-local" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(plan.HeldBack) != 1 || plan.HeldBack[0].Holds[0].Kind != engine.HoldNoAccess {
+		t.Errorf("held back %+v", plan.HeldBack)
+	}
+}
+
 func TestOtherMacCopyWaits(t *testing.T) {
 	wk := item.WorktreeKey("pro-2", "/p/.worktrees/w")
 	wt := engine.Item{Key: wk, ID: wk.String(), Kind: item.KindWorktree, Status: item.StatusToApply, Decision: decided(item.Delete, ""), Locations: []string{"pro-2:/p"},

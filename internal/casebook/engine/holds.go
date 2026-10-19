@@ -20,6 +20,7 @@ const (
 	HoldMergeBlocked = "merge-blocked"
 	HoldOtherMac     = "other-mac"
 	HoldOpenPR       = "open-pr"
+	HoldNoAccess     = "no-access"
 	HoldNothingHere  = "nothing-here" // made by apply.Build only
 )
 
@@ -128,6 +129,10 @@ func (b *builder) holds(it *Item) ([]Hold, []string) {
 			hs = append(hs, Hold{Kind: HoldOpenPR, Text: fmt.Sprintf("open PR #%d uses this branch: deleting it on GitHub closes that PR", n),
 				Fix: fmt.Sprintf("Merge or close PR #%d first, or decide this again.", n), By: pr.String(),
 				Stops: []item.Disposition{item.Delete}, Remote: true})
+		}
+		if r, ok := b.in.GitHub.Refs[it.ID]; ok && r.Permission != "" && !slices.Contains([]string{"ADMIN", "MAINTAIN", "WRITE"}, r.Permission) {
+			hs = append(hs, Hold{Kind: HoldNoAccess, Text: fmt.Sprintf("you can't change branches in %s on GitHub (your access: %s)", it.Repo, strings.ToLower(r.Permission)),
+				Fix: "Its local copy can still go; for GitHub, ask for write access or decide this again.", Stops: []item.Disposition{item.Delete}, Remote: true})
 		}
 	case item.KindPR, item.KindIssue:
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && r.Archived {

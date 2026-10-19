@@ -310,6 +310,34 @@ func TestRefreshRecordsMergeState(t *testing.T) {
 	}
 }
 
+// A branch lookup records what Court may do in its repository: a delete on
+// GitHub needs write access.
+func TestLookupRecordsTheViewerPermission(t *testing.T) {
+	gh := &fakeGh{handle: func(a []string) (string, error) {
+		j := strings.Join(a, " ")
+		switch {
+		case j == "api user --jq .login":
+			return "schuettc", nil
+		case isQuery(a, "repositoryOwner"):
+			return fmt.Sprintf(ownerPage, false, ""), nil
+		case isQuery(a, "search("):
+			return `{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, nil
+		case isQuery(a, "k0:"):
+			if q := field(a, "query"); !strings.Contains(q, "{ id viewerPermission ref(") {
+				t.Errorf("lookup query lacks viewerPermission:\n%s", q)
+			}
+			return `{"data":{"k0":{"id":"R_kgDO1","viewerPermission":"READ","ref":{"name":"feat/x","target":{"oid":"abc123"}}}}}`, nil
+		}
+		return "", fmt.Errorf("unexpected gh %s", j)
+	}}
+	k := item.BranchKey("o/r", "feat/x")
+	g, _ := Refresh(ctx, gh, NewGitHub(), RefreshOptions{Owners: []string{"schuettc"}, Keys: []item.Key{k}, Now: time.Now()})
+	want := Ref{Exists: true, Tip: "abc123", RepoID: "R_kgDO1", Permission: "READ"}
+	if got := g.Refs["branch:o/r@feat/x"]; got != want {
+		t.Errorf("ref = %+v, want %+v", got, want)
+	}
+}
+
 func TestLookupRecordsTheBranchCommit(t *testing.T) {
 	for _, tc := range []struct {
 		answer string
@@ -328,7 +356,7 @@ func TestLookupRecordsTheBranchCommit(t *testing.T) {
 			case isQuery(a, "search("):
 				return `{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`, nil
 			case isQuery(a, "k0:"):
-				if q := field(a, "query"); !strings.Contains(q, "target { oid }") || !strings.Contains(q, "{ id ref(") {
+				if q := field(a, "query"); !strings.Contains(q, "target { oid }") || !strings.Contains(q, "{ id viewerPermission ref(") {
 					t.Errorf("lookup query lacks id/target oid:\n%s", q)
 				}
 				return tc.answer, nil
