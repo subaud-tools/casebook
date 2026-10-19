@@ -4736,7 +4736,13 @@ function makeApply(ctx) {
         items = [];
         itemsTotal = 0;
         groups = [];
+        reviewSel.clear();
+        closeReview();
         paintList();
+        if (active && mode === "review") {
+          drawOverview();
+          feed();
+        }
       }
     }
   }
@@ -4965,6 +4971,7 @@ function makeApply(ctx) {
         runItems = [];
         runTotal = 0;
         runGroups = [];
+        runSel.clear();
         paintList();
       }
     }

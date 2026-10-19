@@ -78,7 +78,15 @@ async function eventually(fn, timeout = 5000) {
   }
 }
 
-const helpers = { check, checkList, until, eventually };
+// expectError says one console error is meant (a scenario provoking serve's
+// refusal: the browser logs the 4xx it gets): the next console error that
+// has text is not counted. One call, one error.
+const expectedErrors = [];
+function expectError(text) {
+  expectedErrors.push(text);
+}
+
+const helpers = { check, checkList, until, eventually, expectError };
 
 let e2eServe = null;
 function cleanup() {
@@ -305,7 +313,7 @@ async function e2eScenario(browser) {
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 68;
+const MIN_CHECKS = 69;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -412,7 +420,9 @@ async function run() {
     }
     c.on('console', (msg) => {
       if (msg.type() !== 'error') return;
-      if (msg.text().includes('the walkthrough overlay showed'))
+      const meant = expectedErrors.findIndex((x) => msg.text().includes(x));
+      if (meant >= 0) expectedErrors.splice(meant, 1);
+      else if (msg.text().includes('the walkthrough overlay showed'))
         walkLeaks.push(group);
       else pageErrors.push(`${group}: ${msg.text()}`);
     });

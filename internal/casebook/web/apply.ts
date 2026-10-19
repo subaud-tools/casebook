@@ -791,7 +791,14 @@ export function makeApply(ctx: Ctx): Section {
         items = [];
         itemsTotal = 0;
         groups = [];
+        // Nothing is shown, so nothing stays ticked or planned.
+        reviewSel.clear();
+        closeReview();
         paintList();
+        if (active && mode === 'review') {
+          drawOverview();
+          feed();
+        }
       }
     }
   }
@@ -1087,6 +1094,8 @@ export function makeApply(ctx: Ctx): Section {
         runItems = [];
         runTotal = 0;
         runGroups = [];
+        // Nothing is shown, so nothing stays ticked.
+        runSel.clear();
         paintList();
       }
     }

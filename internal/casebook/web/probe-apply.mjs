@@ -792,6 +792,28 @@ async function tickedRunScenario(context, t, s) {
     await planKeys(TPR(1));
     await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(3)}"] .kit-box`);
     await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // A filter serve refuses lists nothing: the ticks and the plan go too.
+    t.expectError('status of 400');
+    await pg.evaluate(() => (location.hash = '#/review?filters=tk-no-such'));
+    check(
+      'review: a filter serve refuses clears the ticks and the plan, and nothing can run',
+      await until(
+        pg,
+        () =>
+          !document.querySelector('[data-testid="run-group"]') &&
+          !!document.querySelector('[data-testid="review-overview"]') &&
+          [
+            ...document.querySelectorAll('.cb-pane-review .cb-group-ticked'),
+          ].every((e) => e.hidden),
+      ),
+    );
+    await pg.evaluate(() => (location.hash = '#/review'));
+    await pg.waitForSelector(
+      `.cb-apply-list .kit-row[data-key="${TPR(3)}"] .kit-box`,
+    );
+    for (const n of [1, 3])
+      await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(n)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
     // A saved filter that hides #3: the plan is what is shown and ticked.
     await agent.api('POST', '/api/filters/save?create=1', {
       id: 'tk-not-3',
