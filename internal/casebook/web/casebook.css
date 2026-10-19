@@ -3258,3 +3258,59 @@ button.cb-cond-menu-row[aria-disabled='true'] {
 .cb-ticked > .cb-choices-wrap .cb-notnow {
   margin: 0 0 12px;
 }
+
+/* ---- one line per line in review's plan and a run item ------------------- */
+/* review's plan: a step is its key over its command (a post's comment a
+ * third line), each one line, cut with "…" and whole on hover; so is a held
+ * or waiting item. A run item's steps are one line, why it stopped under. */
+.cb-plan .kit-tr.cb-plan-step {
+  height: 44px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  overflow: hidden;
+}
+.cb-plan .kit-tr.cb-plan-step:has(> .cb-publine) {
+  height: 60px;
+}
+.cb-plan .cb-plan-step > .cb-step-k,
+.cb-plan .cb-plan-step > code.cb-cmd,
+.cb-plan .cb-plan-step > .cb-cmd,
+.cb-plan .cb-plan-step > .cb-publine,
+.cb-plan .cb-plan-step > .cb-held-why {
+  display: block;
+  height: 16px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+}
+.cb-ran .cb-steps .cb-step.kit-tr {
+  height: 44px;
+  box-sizing: border-box;
+  padding: 5px 14px;
+  grid-template-rows: 16px 16px;
+  row-gap: 2px;
+  align-items: center;
+  align-content: start;
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+}
+.cb-ran .cb-step > .cb-step-k,
+.cb-ran .cb-step > .cb-step-why,
+.cb-ran .cb-step-t {
+  min-width: 0;
+  height: 16px;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+}
+.cb-ran .cb-step-w {
+  white-space: nowrap;
+}

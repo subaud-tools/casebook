@@ -310,10 +310,11 @@ function stepRow(
   s: JobStep,
   next: boolean,
   hooks: Pick<JobHooks, 'undo'>,
-  o: { what?: string; here?: boolean; job?: boolean } = {},
+  o: { what?: string; here?: boolean; job?: boolean; line?: boolean } = {},
 ): HTMLElement {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} \u00b7 ${m.text}` : m.text;
+  const key = keyWithoutKind(s.key);
   return h(
     'div',
     {
@@ -323,7 +324,10 @@ function stepRow(
       'data-key': s.key,
     },
     h('span', { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-    ...stepKeyLines(keyWithoutKind(s.key)),
+    // One line for the key (whole on hover), or a branch's repo over it.
+    ...(o.line
+      ? [h('span', { class: 'cb-step-k', title: key }, key)]
+      : stepKeyLines(key)),
     h(
       'span',
       { class: 'cb-step-w' },
@@ -350,7 +354,7 @@ function stepRow(
           )
         : null,
     ),
-    m.why ? h('span', { class: 'cb-step-why' }, m.why) : null,
+    m.why ? h('span', { class: 'cb-step-why', title: m.why }, m.why) : null,
   );
 }
 
@@ -381,7 +385,11 @@ export function renderRan(
       'div',
       { class: 'kit-table cb-steps', 'data-testid': 'what-ran' },
       ...steps.map((s) =>
-        stepRow(s, false, hooks, { what: actionVerb(s.action), job: true }),
+        stepRow(s, false, hooks, {
+          what: actionVerb(s.action),
+          job: true,
+          line: true,
+        }),
       ),
     ),
   );
@@ -432,7 +440,7 @@ export function renderRan(
       'div',
       { class: 'kit-table cb-steps', 'data-testid': 'its-job' },
       ...around.steps.map((s) =>
-        stepRow(s, next.has(s.id), hooks, { here: s.key === key }),
+        stepRow(s, next.has(s.id), hooks, { here: s.key === key, line: true }),
       ),
       around.hidden
         ? h(

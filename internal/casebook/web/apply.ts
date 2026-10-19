@@ -1647,10 +1647,14 @@ export function makeApply(ctx: Ctx): Section {
             h(
               'div',
               { class: 'kit-tr cb-plan-step', 'data-key': s.key },
-              h('span', { class: 'cb-step-k' }, keyWithoutKind(s.key)),
+              h(
+                'span',
+                { class: 'cb-step-k', title: s.key },
+                keyWithoutKind(s.key),
+              ),
               h(
                 'code',
-                { class: 'cb-cmd', 'data-cmd': s.command },
+                { class: 'cb-cmd', 'data-cmd': s.command, title: s.command },
                 s.command,
                 github && s.expected_tip
                   ? h(
@@ -1661,7 +1665,11 @@ export function makeApply(ctx: Ctx): Section {
                   : null,
               ),
               s.posts && s.comment
-                ? h('span', { class: 'cb-publine' }, publicLine(s))
+                ? h(
+                    'span',
+                    { class: 'cb-publine', title: publicLine(s) },
+                    publicLine(s),
+                  )
                 : null,
             ),
           ),
@@ -1761,10 +1769,17 @@ export function makeApply(ctx: Ctx): Section {
           return h(
             'div',
             { class: 'kit-tr cb-plan-step cb-held-row', 'data-held': x.key },
-            h('span', { class: 'cb-step-k' }, keyWithoutKind(x.key)),
             h(
               'span',
-              { class: 'cb-held-why' },
+              { class: 'cb-step-k', title: x.key },
+              keyWithoutKind(x.key),
+            ),
+            h(
+              'span',
+              {
+                class: 'cb-held-why',
+                title: holds.map((hd) => hd.text).join(' \u00b7 '),
+              },
               holds.map((hd) => hd.text).join(' \u00b7 '),
               ...links.flatMap((a) => [' \u00b7 ', a]),
               otherHalf(x.key, steps),

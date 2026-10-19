@@ -4137,6 +4137,7 @@ function needsCard(c, step, j, agent, hooks) {
 function stepRow(s, next, hooks, o = {}) {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} · ${m.text}` : m.text;
+  const key = keyWithoutKind(s.key);
   return h9(
     "div",
     {
@@ -4146,7 +4147,7 @@ function stepRow(s, next, hooks, o = {}) {
       "data-key": s.key
     },
     h9("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-    ...stepKeyLines(keyWithoutKind(s.key)),
+    ...o.line ? [h9("span", { class: "cb-step-k", title: key }, key)] : stepKeyLines(key),
     h9(
       "span",
       { class: "cb-step-w" },
@@ -4169,7 +4170,7 @@ function stepRow(s, next, hooks, o = {}) {
         "undo"
       ) : null
     ),
-    m.why ? h9("span", { class: "cb-step-why" }, m.why) : null
+    m.why ? h9("span", { class: "cb-step-why", title: m.why }, m.why) : null
   );
 }
 function renderRan(ctx, detail, job, cards, hooks) {
@@ -4186,7 +4187,11 @@ function renderRan(ctx, detail, job, cards, hooks) {
       "div",
       { class: "kit-table cb-steps", "data-testid": "what-ran" },
       ...steps.map(
-        (s) => stepRow(s, false, hooks, { what: actionVerb(s.action), job: true })
+        (s) => stepRow(s, false, hooks, {
+          what: actionVerb(s.action),
+          job: true,
+          line: true
+        })
       )
     )
   );
@@ -4237,7 +4242,7 @@ function renderRan(ctx, detail, job, cards, hooks) {
       "div",
       { class: "kit-table cb-steps", "data-testid": "its-job" },
       ...around.steps.map(
-        (s) => stepRow(s, next.has(s.id), hooks, { here: s.key === key })
+        (s) => stepRow(s, next.has(s.id), hooks, { here: s.key === key, line: true })
       ),
       around.hidden ? h9(
         "div",
@@ -5424,10 +5429,14 @@ function makeApply(ctx) {
             (s) => h10(
               "div",
               { class: "kit-tr cb-plan-step", "data-key": s.key },
-              h10("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
+              h10(
+                "span",
+                { class: "cb-step-k", title: s.key },
+                keyWithoutKind(s.key)
+              ),
               h10(
                 "code",
-                { class: "cb-cmd", "data-cmd": s.command },
+                { class: "cb-cmd", "data-cmd": s.command, title: s.command },
                 s.command,
                 github && s.expected_tip ? h10(
                   "span",
@@ -5435,7 +5444,11 @@ function makeApply(ctx) {
                   ` (if still at ${s.expected_tip.slice(0, 7)})`
                 ) : null
               ),
-              s.posts && s.comment ? h10("span", { class: "cb-publine" }, publicLine(s)) : null
+              s.posts && s.comment ? h10(
+                "span",
+                { class: "cb-publine", title: publicLine(s) },
+                publicLine(s)
+              ) : null
             )
           )
         )
@@ -5520,10 +5533,17 @@ function makeApply(ctx) {
           return h10(
             "div",
             { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
-            h10("span", { class: "cb-step-k" }, keyWithoutKind(x.key)),
             h10(
               "span",
-              { class: "cb-held-why" },
+              { class: "cb-step-k", title: x.key },
+              keyWithoutKind(x.key)
+            ),
+            h10(
+              "span",
+              {
+                class: "cb-held-why",
+                title: holds.map((hd) => hd.text).join(" · ")
+              },
               holds.map((hd) => hd.text).join(" · "),
               ...links.flatMap((a) => [" · ", a]),
               otherHalf(x.key, steps)
