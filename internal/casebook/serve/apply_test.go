@@ -2,6 +2,9 @@ package serve
 
 import (
 	"context"
+	"github.com/subaud-tools/casebook/internal/casebook/config"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -332,4 +335,12 @@ func (g *okGh) snapshot() []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return append([]string(nil), g.calls...)
+}
+
+// TestTestsNeverWriteCourtsState: the package's state folder is a temp dir.
+func TestTestsNeverWriteCourtsState(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	if p := config.CachePath(); strings.HasPrefix(p, filepath.Join(home, ".local", "state")) {
+		t.Fatalf("CachePath %s is Court's", p)
+	}
 }
