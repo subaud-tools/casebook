@@ -94,7 +94,10 @@ func runGroupFor(m RunMark, status item.Status, toApply bool) (group string, in 
 	if status == item.StatusDone {
 		return RunDone, true
 	}
-	if m.Finished && toApply {
+	// To apply again with nothing verified (it failed or was skipped): it
+	// waits in review. Something verified (or undone) on it, its other half
+	// waiting, is still listed (Court, 2026-10-20).
+	if m.Finished && toApply && !slices.ContainsFunc(m.Steps, func(st apply.JobStep) bool { return st.State == apply.StepVerified }) {
 		return "", false
 	}
 	return m.Group, true

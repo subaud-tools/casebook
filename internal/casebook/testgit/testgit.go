@@ -34,6 +34,17 @@ func Env(t testing.TB) {
 	}
 }
 
+// init clears the variables a git hook hands its commands (a pre-push gate
+// in a worktree exports GIT_DIR): with them set, a test's git ran against
+// the branch being pushed and committed "update README" onto it (Court,
+// 2026-10-20). Every test package that makes repos imports this one.
+func init() {
+	for _, k := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX", "GIT_QUARANTINE_PATH"} {
+		_ = os.Unsetenv(k)
+	}
+}
+
 // Git runs git in dir and fails the test on error.
 func Git(t testing.TB, dir string, args ...string) string {
 	t.Helper()

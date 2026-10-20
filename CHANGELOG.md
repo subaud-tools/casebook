@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.18.1
+
+- Run lists an item in done once anything on it has verified, even while its other half waits (a branch deleted on GitHub whose local copy is on the other Mac), and its row says what waits.
+- After a GitHub branch delete is verified or undone, casebook re-reads that branch on GitHub at once, so the item says where its copies are now rather than at the last full sync.
+
 ## 0.18.0
 
 - Decide, review and run share one list: saved filters, search, groups and two-line rows, every line at a fixed height, the same on each tab.

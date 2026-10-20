@@ -1785,13 +1785,14 @@ function standsStep(m) {
   const steps = m.steps ?? [];
   return steps.find((s) => NEEDS.has(s.state)) ?? steps.find((s) => UNFINISHED.has(s.state)) ?? steps[steps.length - 1];
 }
-function ranLine(m) {
+function ranLine(m, holds = []) {
   const s = standsStep(m);
   if (!s) return { text: `job #${m.job}`, tone: "muted" };
   const mark = stepMark(s, false);
   const stopped = NEEDS.has(s.state) || s.state === "skipped";
   const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
-  return { text: `${what} · job #${m.job}`, tone: mark.tone };
+  const waits = holds.filter((x) => x.kind === "other-mac").map((x) => ` · local copy waits for ${x.machine}`).join("");
+  return { text: `${what} · job #${m.job}${waits}`, tone: mark.tone };
 }
 function aroundSteps(steps, key, span) {
   const i = Math.max(
@@ -4223,7 +4224,7 @@ function makeApply(ctx) {
   );
   const runPane = makePane(ctx, "run", runSel, {
     row(it) {
-      const st = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
+      const st = it.ran ? ranLine(it.ran, it.holds ?? []) : { text: "", tone: "muted" };
       return {
         id: it.key,
         key: it.key,
@@ -4841,7 +4842,7 @@ function makeApply(ctx) {
         note ? h9("p", { class: "cb-apply-note", role: "status" }, note) : null,
         midRows(
           shown.map((it) => {
-            const l = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
+            const l = it.ran ? ranLine(it.ran, it.holds ?? []) : { text: "", tone: "muted" };
             return { key: it.key, stands: l.text, tone: l.tone };
           }),
           its.length - shown.length

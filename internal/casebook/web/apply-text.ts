@@ -11,6 +11,7 @@ import type {
   Plan,
   Step,
   Waiting,
+  Hold,
 } from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
 import type { Tone } from './list-pane-text.ts';
@@ -714,13 +715,21 @@ export function standsStep(m: RunMark): JobStep {
  * step that stopped names what it was ("GitHub delete failed · job #33");
  * one that ran says how it ended ("deleted · verified · job #28").
  */
-export function ranLine(m: RunMark): { text: string; tone: Tone } {
+export function ranLine(
+  m: RunMark,
+  holds: Hold[] = [],
+): { text: string; tone: Tone } {
   const s = standsStep(m);
   if (!s) return { text: `job #${m.job}`, tone: 'muted' };
   const mark = stepMark(s, false);
   const stopped = NEEDS.has(s.state) || s.state === 'skipped';
   const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
-  return { text: `${what} \u00b7 job #${m.job}`, tone: mark.tone };
+  // What still waits for another Mac, after what ran (Court, 2026-10-20).
+  const waits = holds
+    .filter((x) => x.kind === 'other-mac')
+    .map((x) => ` \u00b7 local copy waits for ${x.machine}`)
+    .join('');
+  return { text: `${what} \u00b7 job #${m.job}${waits}`, tone: mark.tone };
 }
 
 /**

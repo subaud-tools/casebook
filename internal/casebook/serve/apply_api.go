@@ -758,7 +758,34 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.publish(ctx, "step", map[string]any{"id": step.ID, "job_id": step.JobID, "undone": true, "sent": sent})
+	if step.Action == "branch-delete-remote" {
+		s.recheck([]string{step.Key})
+	}
 	reply(w, UndoResult{StepID: step.ID, Sent: sent}, nil)
+}
+
+// recheck re-reads keys on GitHub in the background and rebuilds, so the
+// items say where their copies are now, not at the last full sync (Court,
+// 2026-10-20).
+func (s *Server) recheck(keys []string) {
+	var ks []item.Key
+	for _, k := range keys {
+		if pk, err := item.ParseKey(k); err == nil {
+			ks = append(ks, pk)
+		}
+	}
+	if len(ks) == 0 {
+		return
+	}
+	go func() {
+		ctx := s.laneCtx()
+		if err := s.App.RecheckRefs(ctx, ks); err != nil {
+			fmt.Fprintf(os.Stderr, "casebook serve: recheck %d key(s) on GitHub: %v\n", len(ks), err)
+		}
+		if err := s.rebuild(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "casebook serve: rebuild after recheck: %v\n", err)
+		}
+	}()
 }
 
 // runRestoreCommand runs a casebook-lane restore command, as RestoreFor makes

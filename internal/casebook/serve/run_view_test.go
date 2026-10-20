@@ -82,3 +82,24 @@ func TestRunMarksADoneItemDoneDespiteAnOldFailedStep(t *testing.T) {
 		t.Errorf("an item in an open job: %s (in run %v), want needs you", g, in)
 	}
 }
+
+// TestRunListsAHalfDoneItem: ghmr-bench's ten branches (Court, 2026-10-20)
+// had their GitHub copies deleted and verified while their local copies
+// waited for the other Mac, so they were to apply again; run must still list
+// them, in done (and in undone once undone), not only the job page.
+func TestRunListsAHalfDoneItem(t *testing.T) {
+	verified := RunMark{Job: 35, Group: RunDone, Finished: true, Steps: []apply.JobStep{{JobID: 35, Key: "A", State: apply.StepVerified}}}
+	if g, in := runGroupFor(verified, item.StatusToApply, true); !in || g != RunDone {
+		t.Errorf("half done: %s (in run %v), want done", g, in)
+	}
+	undone := verified
+	undone.Group = RunUndone
+	undone.Steps = []apply.JobStep{{JobID: 35, Key: "A", State: apply.StepVerified, UndoneAt: time.Unix(1, 0)}}
+	if g, in := runGroupFor(undone, item.StatusToApply, true); !in || g != RunUndone {
+		t.Errorf("undone: %s (in run %v), want undone", g, in)
+	}
+	skipped := RunMark{Job: 2, Group: RunDone, Finished: true, Steps: []apply.JobStep{{JobID: 2, Key: "A", State: apply.StepSkipped}}}
+	if _, in := runGroupFor(skipped, item.StatusToApply, true); in {
+		t.Errorf("nothing ran (skipped), job finished: in run; want it waiting in review")
+	}
+}

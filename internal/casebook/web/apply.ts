@@ -449,7 +449,7 @@ export function makeApply(ctx: Ctx): Section {
   const runPane: Pane<ItemView> = makePane<ItemView>(ctx, 'run', runSel, {
     row(it: ItemView) {
       const st = it.ran
-        ? ranLine(it.ran)
+        ? ranLine(it.ran, it.holds ?? [])
         : { text: '', tone: 'muted' as const };
       return {
         id: it.key,
@@ -1242,7 +1242,7 @@ export function makeApply(ctx: Ctx): Section {
         midRows(
           shown.map((it) => {
             const l = it.ran
-              ? ranLine(it.ran)
+              ? ranLine(it.ran, it.holds ?? [])
               : { text: '', tone: 'muted' as const };
             return { key: it.key, stands: l.text, tone: l.tone };
           }),
