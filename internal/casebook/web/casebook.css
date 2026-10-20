@@ -592,13 +592,17 @@
   text-overflow: ellipsis;
 }
 
-/* The foot: how old the observations are, then "show N more". */
+/* The foot: how old the observations are at its start, "show N more" in
+ * its own place at its end, 16px apart at least, the same on every tab. */
 .cb-pane-foot {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
   min-width: 0;
+}
+.cb-pane-foot > .cb-foot-more {
+  margin-left: auto;
 }
 
 .cb-pane .kit-foot:has(.cb-apply-obs[hidden]):has(.cb-foot-more[hidden]) {

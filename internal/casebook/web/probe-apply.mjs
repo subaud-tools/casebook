@@ -1411,6 +1411,38 @@ async function frameScenario(context, t, s) {
       `frame: headings are lower case (${lower.join(', ')})`,
       lower.every((x) => x === 'none'),
     );
+
+    // The foot: "show N more" has its own place, at the foot's right end,
+    // apart from the observations' line, the same on every tab.
+    const foot = {};
+    for (const tab of tabs) {
+      await go(tab);
+      foot[tab] = await pg.evaluate((tb) => {
+        const f = document.querySelector(`.cb-pane-${tb} .cb-pane-foot`);
+        const more = f.querySelector('.cb-foot-more');
+        const obs = f.querySelector('.cb-apply-obs');
+        more.hidden = false;
+        more.textContent = 'show 200 more';
+        obs.hidden = false;
+        const r = (e) => e.getBoundingClientRect();
+        const out = {
+          right: Math.round(r(f).right - r(more).right),
+          gap: Math.round(r(more).left - r(obs).right),
+          top: Math.round(r(more).top),
+        };
+        more.hidden = true;
+        return out;
+      }, tab);
+    }
+    check(
+      `frame: "show N more" sits at the foot's right end, apart from the observations, at one place on every tab (${tabs.map((x) => JSON.stringify(foot[x])).join(' ')})`,
+      tabs.every(
+        (x) =>
+          foot[x].right === 0 &&
+          foot[x].gap >= 16 &&
+          foot[x].top === foot.decide.top,
+      ),
+    );
   } finally {
     await pg.close();
   }
