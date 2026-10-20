@@ -1069,6 +1069,20 @@ function keyWithoutKind(key) {
   const i = key.indexOf(":");
   return i > 0 ? key.slice(i + 1) : key;
 }
+function keyLabel(key) {
+  if (!key.startsWith("worktree:")) return keyWithoutKind(key);
+  const rest = key.slice("worktree:".length);
+  const path = rest.slice(rest.indexOf(":") + 1).replace(/\/+$/, "");
+  for (const dir of ["/.claude/worktrees/", "/.worktrees/"]) {
+    const at2 = path.indexOf(dir);
+    if (at2 > 0) {
+      const above = path.slice(0, at2);
+      const name = above.slice(above.lastIndexOf("/") + 1);
+      return `${name} · ${path.slice(at2 + 1)}`;
+    }
+  }
+  return path.split("/").filter(Boolean).slice(-2).join(" · ");
+}
 function pluralize(n, singular, plural) {
   return `${n} ${n === 1 ? singular : plural ?? singular + "s"}`;
 }
@@ -1755,22 +1769,6 @@ function stepLine(s) {
 function untickHidden(ticked, shown) {
   return ticked.filter((k) => !shown.has(k));
 }
-function keyLabel(key, clone) {
-  const i = key.indexOf(":");
-  if (key.slice(0, i) !== "worktree") return i > 0 ? key.slice(i + 1) : key;
-  const rest = key.slice(i + 1);
-  const path = rest.slice(rest.indexOf(":") + 1).replace(/\/+$/, "");
-  let root = clone?.replace(/\/+$/, "");
-  if (!root) {
-    const at2 = path.indexOf("/.worktrees/");
-    if (at2 > 0) root = path.slice(0, at2);
-  }
-  if (root && path.startsWith(`${root}/`)) {
-    const name = root.slice(root.lastIndexOf("/") + 1);
-    return `${name} · ${path.slice(root.length + 1)}`;
-  }
-  return path.split("/").filter(Boolean).slice(-2).join("/");
-}
 function stepKey(key) {
   const k = keyLabel(key);
   if (!key.startsWith("branch:")) return { key: k };
@@ -2186,7 +2184,7 @@ function midRows(rows, more) {
       (r) => h3(
         "div",
         { class: "cb-mid-row", "data-key": r.key },
-        h3("div", { class: "cb-mid-k", title: r.key }, keyWithoutKind(r.key)),
+        h3("div", { class: "cb-mid-k", title: r.key }, keyLabel(r.key)),
         h3(
           "div",
           { class: `cb-mid-st cb-tone-${r.tone ?? "muted"}`, title: r.stands },
@@ -3325,6 +3323,8 @@ function withPane(query, q) {
   return parts.join("&");
 }
 function paneLines(r) {
+  if (r.key.startsWith("worktree:"))
+    return { one: keyLabel(r.key), two: r.stands, hover: r.key };
   const i = r.key.indexOf(":");
   const key = i < 0 ? r.key : `${r.key.slice(0, i)} · ${r.key.slice(i + 1)}`;
   return { one: r.title || key, two: r.stands, hover: r.key };
@@ -3943,7 +3943,7 @@ function stepRow(s, next, hooks, o = {}) {
 }
 function ranHead(detail) {
   const it = detail.item;
-  const key = keyWithoutKind(it.key);
+  const key = keyLabel(it.key);
   const status = detail.done_how ? `${it.status}: ${detail.done_how}` : it.status ?? "";
   return midHead({
     kick: [it.kind, key, it.relation].filter(Boolean).join(" · "),
@@ -4185,10 +4185,6 @@ function makeApply(ctx) {
     if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
     return Math.max(0, g.total - n);
   }
-  const itemLabel = (key) => {
-    const loc = items.find((it) => it.key === key)?.locations?.[0];
-    return keyLabel(key, loc ? loc.slice(loc.indexOf(":") + 1) : void 0);
-  };
   const tickedIn = (id) => reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
   const tickedKeys = () => groups.flatMap((g) => tickedIn(g.id).sort());
   let runItems = [];
@@ -4220,9 +4216,9 @@ function makeApply(ctx) {
         return {
           id: it.key,
           key: it.key,
-          // A worktree names its clone and its path in it, not only its
-          // branch: the full key is the hover.
-          title: it.kind === "worktree" ? itemLabel(it.key) : it.title || void 0,
+          // A worktree is named by its label (paneLines): the full key is
+          // the hover.
+          title: it.title || void 0,
           stands: st.text,
           tone: st.tone
         };
@@ -5036,7 +5032,7 @@ function makeApply(ctx) {
         h9(
           "ul",
           { class: "cb-confirm-list" },
-          ...keys.map((k) => h9("li", { title: k }, itemLabel(k)))
+          ...keys.map((k) => h9("li", { title: k }, keyLabel(k)))
         )
       ),
       actions: [
@@ -5301,7 +5297,7 @@ function makeApply(ctx) {
             h9(
               "div",
               { class: "kit-tr cb-plan-step", "data-key": s.key },
-              h9("span", { class: "cb-step-k", title: s.key }, itemLabel(s.key)),
+              h9("span", { class: "cb-step-k", title: s.key }, keyLabel(s.key)),
               h9(
                 "code",
                 { class: "cb-cmd", "data-cmd": s.command, title: s.command },
@@ -5353,7 +5349,7 @@ function makeApply(ctx) {
                 h9(
                   "span",
                   { class: "cb-step-k", title: w.key },
-                  itemLabel(w.key)
+                  keyLabel(w.key)
                 ),
                 h9(
                   "span",
@@ -5395,7 +5391,7 @@ function makeApply(ctx) {
                     href: `#/decide/${pathEscape(hd.by)}`,
                     title: hd.by
                   },
-                  itemLabel(hd.by)
+                  keyLabel(hd.by)
                 )
               );
             else if (hd.kind === "long-lived")
@@ -5410,7 +5406,7 @@ function makeApply(ctx) {
           return h9(
             "div",
             { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
-            h9("span", { class: "cb-step-k", title: x.key }, itemLabel(x.key)),
+            h9("span", { class: "cb-step-k", title: x.key }, keyLabel(x.key)),
             h9(
               "span",
               {
@@ -5910,8 +5906,12 @@ function renderHolds(detail) {
         hd.text,
         hd.by ? h10(
           "a",
-          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
-          keyWithoutKind(hd.by)
+          {
+            class: "cb-link",
+            href: `#/decide/${pathEscape(hd.by)}`,
+            title: hd.by
+          },
+          keyLabel(hd.by)
         ) : null
       ),
       hd.fix ? h10("p", { class: "cb-hold-sub" }, hd.fix) : null
@@ -5943,8 +5943,8 @@ function cameBack(vocab2, it) {
 }
 function itemHead(detail, ctx) {
   const it = detail.item;
-  const displayKey = keyWithoutKind(it.key);
-  const keyEl = it.url ? h10("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
+  const displayKey = keyLabel(it.key);
+  const keyEl = it.url ? h10("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : h10("span", { title: it.key }, displayKey);
   const kicker = h10("p", { class: "cb-kicker kit-kick" });
   const parts = [it.kind, keyEl, it.relation].filter(
     (part) => !!part
@@ -5953,7 +5953,7 @@ function itemHead(detail, ctx) {
     if (i > 0) kicker.append(" · ");
     kicker.append(part);
   });
-  const title = it.title ?? keyWithoutKind(it.key);
+  const title = it.title ?? keyLabel(it.key);
   const titleEl = h10("h1", { class: "cb-title kit-h1", title }, title);
   const factPairs = [];
   if (it.status)

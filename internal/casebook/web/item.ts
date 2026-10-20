@@ -20,7 +20,7 @@ import type { ItemDetailView, Evidence, Event, LogEntry } from './wire.d.ts';
 import type { Ctx } from './app.ts';
 import { getVocab } from './decide.ts';
 import { renderChoices, asNotNow } from './choices.ts';
-import { keyWithoutKind, recommendsWho, stripOwnKey } from './decide-math.ts';
+import { keyLabel, recommendsWho, stripOwnKey } from './decide-math.ts';
 import type { DecisionVocabView } from './wire.d.ts';
 import { lookingLine } from './sessions.ts';
 import { tagText } from './apply-text.ts';
@@ -276,8 +276,12 @@ function renderHolds(detail: ItemDetailView): HTMLElement | null {
         hd.by
           ? h(
               'a',
-              { class: 'cb-link', href: `#/decide/${pathEscape(hd.by)}` },
-              keyWithoutKind(hd.by),
+              {
+                class: 'cb-link',
+                href: `#/decide/${pathEscape(hd.by)}`,
+                title: hd.by,
+              },
+              keyLabel(hd.by),
             )
           : null,
       ),
@@ -331,10 +335,11 @@ export function itemHead(detail: ItemDetailView, ctx?: Ctx): HTMLElement[] {
   // Show the kind prefix once, then the key without its kind prefix. The key
   // links to the item's GitHub page (serve's url: a PR, an issue, a repo) in
   // a new tab; a branch or a worktree has none, and its key is plain text.
-  const displayKey = keyWithoutKind(it.key);
+  // A worktree is named by its label (keyLabel), the full key on hover.
+  const displayKey = keyLabel(it.key);
   const keyEl: Node | string = it.url
     ? h('a', { href: it.url, target: '_blank', rel: 'noopener' }, displayKey)
-    : displayKey;
+    : h('span', { title: it.key }, displayKey);
   const kicker = h('p', { class: 'cb-kicker kit-kick' });
   const parts = [it.kind, keyEl, it.relation].filter(
     (part): part is Node | string => !!part,
@@ -350,7 +355,7 @@ export function itemHead(detail: ItemDetailView, ctx?: Ctx): HTMLElement[] {
   // rather than repeating the kind already shown in the kicker.
   // Two lines are kept for it, and a longer one is cut there (whole in its
   // tooltip).
-  const title = it.title ?? keyWithoutKind(it.key);
+  const title = it.title ?? keyLabel(it.key);
   const titleEl = h('h1', { class: 'cb-title kit-h1', title }, title);
 
   // ---- facts: one line, "came back · ‹reason›" first when it came back -----

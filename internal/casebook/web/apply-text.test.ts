@@ -35,7 +35,6 @@ import {
   reviewLine,
   untickHidden,
   reviewFollow,
-  keyLabel,
   stepKey,
   stepLine,
   waitBlocks,
@@ -998,28 +997,6 @@ describe('reviewFollow', () => {
     assert.equal(reviewFollow(['a'], [], false), 'replan'));
   test('the same ticks redraw the plan shown', () =>
     assert.equal(reviewFollow(['a', 'b'], ['a', 'b'], true), 'redraw'));
-});
-
-describe('keyLabel', () => {
-  const WT =
-    'worktree:work:/Users/c/GitHub/ext/oss-ml-optimizer/.worktrees/cpu-budget';
-  test('a worktree in its clone is the clone name and the path inside it', () =>
-    assert.equal(
-      keyLabel(WT, '/Users/c/GitHub/ext/oss-ml-optimizer'),
-      'oss-ml-optimizer \u00b7 .worktrees/cpu-budget',
-    ));
-  test('with its clone not known, a .worktrees path names the clone above it', () =>
-    assert.equal(
-      keyLabel(WT),
-      'oss-ml-optimizer \u00b7 .worktrees/cpu-budget',
-    ));
-  test("a worktree outside its clone is its path's last two segments", () =>
-    assert.equal(
-      keyLabel('worktree:work:/tmp/scratch/hail-fix', '/Users/c/GitHub/hail'),
-      'scratch/hail-fix',
-    ));
-  test('any other key is the key without its kind', () =>
-    assert.equal(keyLabel('branch:o/r@feat/x'), 'o/r@feat/x'));
 });
 
 describe('stepKey', () => {

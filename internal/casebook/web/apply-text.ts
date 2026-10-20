@@ -13,7 +13,7 @@ import type {
   Waiting,
   Hold,
 } from './wire.d.ts';
-import { pluralize } from './decide-math.ts';
+import { keyLabel, pluralize } from './decide-math.ts';
 import type { Tone } from './list-pane-text.ts';
 
 /**
@@ -646,31 +646,6 @@ export function stepLine(s: {
 /** untickHidden is the ticked keys a filter or a search no longer shows. */
 export function untickHidden(ticked: string[], shown: Set<string>): string[] {
   return ticked.filter((k) => !shown.has(k));
-}
-
-/**
- * keyLabel is a key as review's list and plan name it. A worktree
- * ("worktree:<machine>:<path>") is "<clone name> · <path inside the
- * clone>": its clone is the one given (a location's path) or, when none
- * is, the folder above a ".worktrees" folder in its path. A worktree
- * outside its clone is its path's last two segments. Any other key is the
- * key without its kind. The full key goes in the hover.
- */
-export function keyLabel(key: string, clone?: string): string {
-  const i = key.indexOf(':');
-  if (key.slice(0, i) !== 'worktree') return i > 0 ? key.slice(i + 1) : key;
-  const rest = key.slice(i + 1);
-  const path = rest.slice(rest.indexOf(':') + 1).replace(/\/+$/, '');
-  let root = clone?.replace(/\/+$/, '');
-  if (!root) {
-    const at = path.indexOf('/.worktrees/');
-    if (at > 0) root = path.slice(0, at);
-  }
-  if (root && path.startsWith(`${root}/`)) {
-    const name = root.slice(root.lastIndexOf('/') + 1);
-    return `${name} \u00b7 ${path.slice(root.length + 1)}`;
-  }
-  return path.split('/').filter(Boolean).slice(-2).join('/');
 }
 
 /**

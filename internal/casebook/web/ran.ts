@@ -16,7 +16,7 @@ import type {
   NeedsYou,
 } from './wire.d.ts';
 import type { Ctx } from './app.ts';
-import { keyWithoutKind, pluralize } from './decide-math.ts';
+import { keyLabel, pluralize } from './decide-math.ts';
 import { DANGER_DISPS } from './decide.ts';
 import {
   actionVerb,
@@ -31,7 +31,6 @@ import {
   stepMark,
   stepLine,
   stepKey,
-  keyLabel,
 } from './apply-text.ts';
 import { midHead } from './mid.ts';
 
@@ -381,7 +380,7 @@ function stepRow(
 // needs-you cards and the steps.
 function ranHead(detail: ItemDetailView): HTMLElement[] {
   const it = detail.item;
-  const key = keyWithoutKind(it.key);
+  const key = keyLabel(it.key);
   const status = detail.done_how
     ? `${it.status}: ${detail.done_how}`
     : (it.status ?? '');

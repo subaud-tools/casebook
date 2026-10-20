@@ -22,6 +22,7 @@ import {
   decideSummary,
   splitTicked,
   tickedWords,
+  keyLabel,
 } from './decide-math.ts';
 import type {
   DecisionVocabView,
@@ -673,4 +674,36 @@ describe('ticked items', () => {
         ctx: 'not recommended yet',
       },
     ));
+});
+
+describe('keyLabel', () => {
+  const wt = (path: string) => `worktree:work:${path}`;
+  test('a worktree in a .worktrees folder names the folder above it, wherever its clone is', () =>
+    assert.equal(
+      keyLabel(
+        wt(
+          '/Users/c/GitHub/extensions-workspace/oss-ml-optimizer/.worktrees/fast-defaults',
+        ),
+      ),
+      'oss-ml-optimizer \u00b7 .worktrees/fast-defaults',
+    ));
+  test('a .worktrees folder at the top of a workspace names the workspace', () =>
+    assert.equal(
+      keyLabel(
+        wt('/Users/c/GitHub/extensions-workspace/.worktrees/oss-tc-052'),
+      ),
+      'extensions-workspace \u00b7 .worktrees/oss-tc-052',
+    ));
+  test('a .claude/worktrees folder names the folder above .claude', () =>
+    assert.equal(
+      keyLabel(wt('/Users/c/GitHub/hail/.claude/worktrees/agent-x')),
+      'hail \u00b7 .claude/worktrees/agent-x',
+    ));
+  test("any other worktree is its path's last two segments", () =>
+    assert.equal(
+      keyLabel(wt('/tmp/scratch/hail-fix/')),
+      'scratch \u00b7 hail-fix',
+    ));
+  test('any other key is the key without its kind', () =>
+    assert.equal(keyLabel('branch:o/r@feat/x'), 'o/r@feat/x'));
 });

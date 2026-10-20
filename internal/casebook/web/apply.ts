@@ -82,7 +82,7 @@ import type {
   Waiting,
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
-import { pluralize } from './decide-math.ts';
+import { keyLabel, pluralize } from './decide-math.ts';
 import {
   actionTitle,
   groupSteps,
@@ -97,7 +97,6 @@ import {
   reviewLine,
   untickHidden,
   reviewFollow,
-  keyLabel,
   ranLine,
   runBulk,
   tickedRunWords,
@@ -374,12 +373,6 @@ export function makeApply(ctx: Ctx): Section {
     if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
     return Math.max(0, g.total - n);
   }
-  // itemLabel is a key as review names it (keyLabel), a worktree by the clone
-  // its loaded row was seen in.
-  const itemLabel = (key: string): string => {
-    const loc = items.find((it) => it.key === key)?.locations?.[0];
-    return keyLabel(key, loc ? loc.slice(loc.indexOf(':') + 1) : undefined);
-  };
   const tickedIn = (id: string): string[] =>
     reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
   // tickedKeys is every ticked item, group by group in the list's order,
@@ -422,10 +415,9 @@ export function makeApply(ctx: Ctx): Section {
         return {
           id: it.key,
           key: it.key,
-          // A worktree names its clone and its path in it, not only its
-          // branch: the full key is the hover.
-          title:
-            it.kind === 'worktree' ? itemLabel(it.key) : it.title || undefined,
+          // A worktree is named by its label (paneLines): the full key is
+          // the hover.
+          title: it.title || undefined,
           stands: st.text,
           tone: st.tone,
         };
@@ -1453,7 +1445,7 @@ export function makeApply(ctx: Ctx): Section {
         h(
           'ul',
           { class: 'cb-confirm-list' },
-          ...keys.map((k) => h('li', { title: k }, itemLabel(k))),
+          ...keys.map((k) => h('li', { title: k }, keyLabel(k))),
         ),
       ),
       actions: [
@@ -1770,7 +1762,7 @@ export function makeApply(ctx: Ctx): Section {
             h(
               'div',
               { class: 'kit-tr cb-plan-step', 'data-key': s.key },
-              h('span', { class: 'cb-step-k', title: s.key }, itemLabel(s.key)),
+              h('span', { class: 'cb-step-k', title: s.key }, keyLabel(s.key)),
               h(
                 'code',
                 { class: 'cb-cmd', 'data-cmd': s.command, title: s.command },
@@ -1831,7 +1823,7 @@ export function makeApply(ctx: Ctx): Section {
                 h(
                   'span',
                   { class: 'cb-step-k', title: w.key },
-                  itemLabel(w.key),
+                  keyLabel(w.key),
                 ),
                 h(
                   'span',
@@ -1880,7 +1872,7 @@ export function makeApply(ctx: Ctx): Section {
                     href: `#/decide/${pathEscape(hd.by)}`,
                     title: hd.by,
                   },
-                  itemLabel(hd.by),
+                  keyLabel(hd.by),
                 ),
               );
             else if (hd.kind === 'long-lived')
@@ -1895,7 +1887,7 @@ export function makeApply(ctx: Ctx): Section {
           return h(
             'div',
             { class: 'kit-tr cb-plan-step cb-held-row', 'data-held': x.key },
-            h('span', { class: 'cb-step-k', title: x.key }, itemLabel(x.key)),
+            h('span', { class: 'cb-step-k', title: x.key }, keyLabel(x.key)),
             h(
               'span',
               {

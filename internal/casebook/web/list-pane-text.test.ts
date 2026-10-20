@@ -64,3 +64,19 @@ test('paneRowShowsTheTitleWhenThereIsOne', () => {
     },
   );
 });
+
+test('paneRowNamesAWorktreeByItsLabel', () =>
+  assert.deepEqual(
+    paneLines({
+      id: 'worktree:work:/Users/c/GitHub/ext/oss-ml-optimizer/.worktrees/fast-defaults',
+      key: 'worktree:work:/Users/c/GitHub/ext/oss-ml-optimizer/.worktrees/fast-defaults',
+      title: 'fast-defaults',
+      stands: 'remove it',
+    }),
+    {
+      one: 'oss-ml-optimizer \u00b7 .worktrees/fast-defaults',
+      two: 'remove it',
+      hover:
+        'worktree:work:/Users/c/GitHub/ext/oss-ml-optimizer/.worktrees/fast-defaults',
+    },
+  ));
