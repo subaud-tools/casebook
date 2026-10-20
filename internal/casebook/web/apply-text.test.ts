@@ -704,6 +704,37 @@ describe('review rows', () => {
       },
     );
   });
+  // Court, 2026-10-20: "removed it" read as if the worktree were gone.
+  test('reviewLine says a worktree here is removed here, one elsewhere waits', () => {
+    const wt = (over: Partial<ItemView> = {}): ItemView =>
+      ({
+        key: 'worktree:work:/Users/c/GitHub/hail/.worktrees/fix',
+        kind: 'worktree',
+        decision: { disposition: 'delete' },
+        ...over,
+      }) as unknown as ItemView;
+    assert.deepEqual(reviewLine(wt(), 'Removed it'), {
+      text: 'removed here',
+      tone: 'muted',
+    });
+    assert.deepEqual(
+      reviewLine(
+        wt({
+          holds: [
+            {
+              kind: 'other-mac',
+              text: 'its local copy is only on pro-2',
+              stops: ['delete'],
+              local: true,
+              machine: 'pro-2',
+            },
+          ],
+        }),
+        'Removed it',
+      ),
+      { text: 'waits for pro-2', tone: 'muted' },
+    );
+  });
   test('reviewLine falls back to the done word, lower case', () =>
     assert.deepEqual(reviewLine(prClose(), 'Closed it'), {
       text: 'closed it',

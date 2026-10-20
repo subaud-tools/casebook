@@ -569,8 +569,10 @@ export function reviewKick(n: number, groups: string[]): string {
 /**
  * reviewLine is a review row's second line, where the item stands: what
  * holds it from its decision (agent); for a branch, where it is deleted
- * (its copies still there: GitHub's has no machine); else its decision
- * done, in serve's words, lower case.
+ * (its copies still there: GitHub's has no machine); for a worktree on
+ * this Mac, "removed here" (what will happen, not serve's done word, which
+ * reads as already gone); else its decision done, in serve's words, lower
+ * case.
  */
 export function reviewLine(
   it: ItemView,
@@ -615,6 +617,7 @@ export function reviewLine(
     return part.kind === 'other-mac'
       ? { text: `waits for ${part.machine}`, tone: 'muted' }
       : { text: `held: ${part.text}`, tone: 'agent' };
+  if (it.kind === 'worktree') return { text: 'removed here', tone: 'muted' };
   return { text: done.toLowerCase(), tone: 'muted' };
 }
 

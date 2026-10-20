@@ -1752,6 +1752,7 @@ function reviewLine(it, done) {
   const part = stopping[0];
   if (part)
     return part.kind === "other-mac" ? { text: `waits for ${part.machine}`, tone: "muted" } : { text: `held: ${part.text}`, tone: "agent" };
+  if (it.kind === "worktree") return { text: "removed here", tone: "muted" };
   return { text: done.toLowerCase(), tone: "muted" };
 }
 function stepLine(s) {
