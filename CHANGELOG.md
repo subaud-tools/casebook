@@ -6,6 +6,12 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.18.3
+
+- A job's steps table names a worktree step by its label (`oss-ml-optimizer · .worktrees/fast-defaults`), not its full path wrapped over four lines. The full key is in the hover.
+- A worktree's label no longer depends on where its clone is: in a `.worktrees` or `.claude/worktrees` folder it is the folder above that and the path from it on (`extensions-workspace · .worktrees/oss-tc-052`), otherwise its path's last two segments. Decide, review, run, the job page and the item page all use it.
+- Review says a worktree on this Mac is `removed here`, like a branch's `deleted here`, not `removed it`, which read as already gone. One on another Mac still waits for it.
+
 ## 0.18.2
 
 - Running a group in review with a held or waiting item ticked works: serve counted only the items with a step and refused the run as "not for the items ticked now".
