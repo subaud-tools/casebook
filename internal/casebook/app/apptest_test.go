@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,9 @@ import (
 
 var ctx = context.Background()
 
-// fakeGh serves a tiny GitHub: user schuettc, no orgs, one repo schuettc/hail
-// with one open incoming PR, nothing authored elsewhere, lookups unknown.
+// fakeGh serves a tiny GitHub through REST: user schuettc, no orgs, one repo
+// schuettc/hail with one open incoming PR, nothing authored elsewhere, and
+// nothing else: any other repo, PR, issue or branch is GitHub's 404.
 type fakeGh struct{ fail bool }
 
 func (f *fakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
@@ -24,6 +26,7 @@ func (f *fakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 		return nil, &observe.GhError{Code: 1, Stderr: "gh: offline"}
 	}
 	j := strings.Join(args, " ")
+	p, q := restCall(args)
 	switch {
 	case j == "api user --jq .login":
 		return []byte("schuettc\n"), nil
@@ -31,18 +34,37 @@ func (f *fakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 		return []byte(""), nil
 	case strings.HasPrefix(j, "auth status"):
 		return []byte("ok"), nil
-	case strings.Contains(j, "repositoryOwner("):
-		return []byte(`{"data":{"repositoryOwner":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[
-		 {"nameWithOwner":"schuettc/hail","pushedAt":"2026-09-20T00:00:00Z","defaultBranchRef":{"name":"main"},
-		  "pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":3,"title":"fix","state":"OPEN","createdAt":"2026-09-01T00:00:00Z",
-		   "updatedAt":"2026-09-01T00:00:00Z","author":{"login":"bob"},"comments":{"nodes":[]}}]},
-		  "issues":{"pageInfo":{"hasNextPage":false},"nodes":[]}}]}}}}`), nil
-	case strings.Contains(j, "search("):
-		return []byte(`{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`), nil
-	case strings.Contains(j, "k0:"):
-		return []byte(`{"data":{}}`), nil
+	case p == "user/repos":
+		return []byte(`[{"full_name":"schuettc/hail","pushed_at":"2026-09-20T00:00:00Z","default_branch":"main","open_issues_count":1}]`), nil
+	case p == "search/issues" && q.Get("q") == "is:open is:pr user:schuettc":
+		return []byte(`{"total_count":1,"items":[{"number":3,"title":"fix","state":"open","created_at":"2026-09-01T00:00:00Z",
+		 "updated_at":"2026-09-01T00:00:00Z","user":{"login":"bob","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail","pull_request":{}}]}`), nil
+	case p == "search/issues":
+		return []byte(`{"total_count":0,"items":[]}`), nil
+	case p == "repos/schuettc/hail/pulls" && q.Get("state") == "open":
+		return []byte(`[{"number":3,"head":{"ref":"","repo":null}}]`), nil
+	case p == "repos/schuettc/hail/pulls" && q.Get("state") == "closed":
+		return []byte(`[]`), nil
+	case strings.HasPrefix(p, "repos/"):
+		return nil, &observe.GhError{Code: 1, Stderr: "gh: Not Found (HTTP 404)"}
 	}
 	return nil, fmt.Errorf("fakeGh: unexpected %s", j)
+}
+
+// restCall is a gh api call's path and query.
+func restCall(args []string) (string, url.Values) {
+	for i := 1; i < len(args) && args[0] == "api"; i++ {
+		switch a := args[i]; {
+		case a == "-H" || a == "--jq":
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			p, raw, _ := strings.Cut(a, "?")
+			q, _ := url.ParseQuery(raw)
+			return p, q
+		}
+	}
+	return "", nil
 }
 
 type rig struct {

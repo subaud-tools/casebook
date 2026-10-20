@@ -192,10 +192,11 @@ func TestLandedUnknownWhenMergedListUnavailable(t *testing.T) {
 func TestFetchMergedPRsOnlyForReposWithUnlandedCandidates(t *testing.T) {
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 
-	prJSON := `[{"number":7,"headRefName":"feat","headRefOid":"abc123"}]`
+	// GitHub's closed PRs: #7 merged, #8 closed without merging.
+	prJSON := `[{"number":7,"merged_at":"2026-09-20T00:00:00Z","head":{"ref":"feat","sha":"abc123"}},{"number":8,"merged_at":null,"head":{"ref":"nope","sha":"def"}}]`
 	runner := &recordRunner{reply: func(args []string) ([]byte, error) {
 		j := strings.Join(args, " ")
-		if strings.Contains(j, "acme/repo-b") {
+		if strings.Contains(j, "repos/acme/repo-b/pulls?state=closed") {
 			return []byte(prJSON), nil
 		}
 		return nil, fmt.Errorf("unexpected repo: %s", j)
@@ -214,7 +215,7 @@ func TestFetchMergedPRsOnlyForReposWithUnlandedCandidates(t *testing.T) {
 		t.Errorf("repo-a missing or Fetched changed: %+v", result)
 	}
 	// repo-b should be fetched
-	if b, ok := result["acme/repo-b"]; !ok || !b.Fetched || len(b.PRs) != 1 || b.PRs[0].Number != 7 {
+	if b, ok := result["acme/repo-b"]; !ok || !b.Fetched || len(b.PRs) != 1 || b.PRs[0] != (MergedPR{Number: 7, HeadRefName: "feat", HeadRefOid: "abc123"}) {
 		t.Errorf("repo-b not fetched correctly: %+v", result)
 	}
 	// Runner should only have been called for repo-b

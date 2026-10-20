@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -285,8 +286,8 @@ func checkWorktreeClean(ctx context.Context, step JobStep, env Env) (Checked, er
 	return Checked{OK: true, Tip: strings.TrimSpace(head), Branch: strings.TrimSpace(branch)}, nil
 }
 
-// checkPRNoActivity implements pr-no-new-activity: a fresh gh pr view whose
-// updatedAt is not after the decision's decided_at.
+// checkPRNoActivity implements pr-no-new-activity: a fresh read of the PR
+// whose updated_at is not after the decision's decided_at.
 func checkPRNoActivity(ctx context.Context, step JobStep, env Env) (Checked, error) {
 	k, err := item.ParseKey(step.Key)
 	if err != nil {
@@ -295,15 +296,15 @@ func checkPRNoActivity(ctx context.Context, step JobStep, env Env) (Checked, err
 	if env.Gh == nil {
 		return Checked{Reason: "no gh available"}, nil
 	}
-	b, err := env.Gh.Gh(ctx, "pr", "view", fmt.Sprint(k.Number), "-R", k.Repo(), "--json", "updatedAt")
+	b, err := env.Gh.Gh(ctx, "api", fmt.Sprintf("repos/%s/%s/pulls/%d", k.Owner, k.Name, k.Number))
 	if err != nil {
-		return Checked{Reason: "gh pr view failed: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		return Checked{Reason: "cannot read the PR on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
 	var v struct {
-		UpdatedAt time.Time `json:"updatedAt"`
+		UpdatedAt time.Time `json:"updated_at"`
 	}
 	if err := json.Unmarshal(b, &v); err != nil {
-		return Checked{Reason: "gh pr view parse: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		return Checked{Reason: "reading the PR: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
 	var decidedAt time.Time
 	if env.Decisions != nil {
@@ -317,8 +318,8 @@ func checkPRNoActivity(ctx context.Context, step JobStep, env Env) (Checked, err
 	return Checked{OK: true}, nil
 }
 
-// checkRepoNoHumanPRs implements repo-no-open-human-prs: a fresh gh pr list of
-// open PRs with no non-bot author.
+// checkRepoNoHumanPRs implements repo-no-open-human-prs: a fresh list of the
+// repo's open PRs with no non-bot author.
 func checkRepoNoHumanPRs(ctx context.Context, step JobStep, env Env) (Checked, error) {
 	k, err := item.ParseKey(step.Key)
 	if err != nil {
@@ -327,23 +328,28 @@ func checkRepoNoHumanPRs(ctx context.Context, step JobStep, env Env) (Checked, e
 	if env.Gh == nil {
 		return Checked{Reason: "no gh available"}, nil
 	}
-	b, err := env.Gh.Gh(ctx, "pr", "list", "-R", k.Repo(), "--state", "open", "--json", "author")
+	b, err := env.Gh.Gh(ctx, "api", "--paginate", "repos/"+k.Owner+"/"+k.Name+"/pulls?state=open&per_page=100", "--jq", ".[]")
 	if err != nil {
-		return Checked{Reason: "gh pr list failed: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		return Checked{Reason: "cannot list the open PRs on GitHub: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
 	}
-	// `gh pr list --json author` returns author objects carrying `login` and
-	// `is_bot` (no `__typename`); is_bot is the one authoritative bot signal.
-	var prs []struct {
-		Author struct {
-			Login string `json:"login"`
-			IsBot bool   `json:"is_bot"`
-		} `json:"author"`
+	// One PR per line; its user's type is "Bot" for a bot, GitHub's one
+	// authoritative bot signal.
+	type openPR struct {
+		User struct {
+			Type string `json:"type"`
+		} `json:"user"`
 	}
-	if err := json.Unmarshal(b, &prs); err != nil {
-		return Checked{Reason: "gh pr list parse: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+	var prs []openPR
+	dec := json.NewDecoder(bytes.NewReader(b))
+	for dec.More() {
+		var pr openPR
+		if err := dec.Decode(&pr); err != nil {
+			return Checked{Reason: "reading the open PRs: " + err.Error()}, nil //nolint:nilerr // precondition unmet → Checked.Reason, not a program error
+		}
+		prs = append(prs, pr)
 	}
 	for _, pr := range prs {
-		if !pr.Author.IsBot {
+		if pr.User.Type != "Bot" {
 			return Checked{Reason: "repo has an open human PR"}, nil
 		}
 	}

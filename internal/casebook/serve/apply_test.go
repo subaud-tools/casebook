@@ -323,7 +323,7 @@ func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
 	// copy is back without waiting for the next full sync (Court, 2026-10-20).
 	eventually(t, "a re-read of feat/x on GitHub", func() bool {
 		for _, c := range gh.snapshot() {
-			if strings.Contains(c, "ref(qualifiedName") && strings.Contains(c, "feat/x") {
+			if c == "api repos/schuettc/hail/git/ref/heads/feat/x" {
 				return true
 			}
 		}

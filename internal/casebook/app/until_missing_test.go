@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,52 +17,36 @@ const (
 	named  = "pr:schuettc/hail#999"
 )
 
-// lookupGh is fakeGh with the individual lookups answered by lookup, which
-// gets the PR number each alias asks about and returns that alias's data
-// (raw JSON) and, for a not-found answer, its error type. whole, when set,
-// answers the whole lookup query instead (a transient failure).
+// lookupGh is fakeGh with the single-PR reads answered by lookup, which gets
+// the PR number and returns its data (raw JSON) or, for an error, GitHub's
+// status text ("HTTP 404", "HTTP 403"). whole, when set, answers every
+// single-PR read instead (a transient failure).
 type lookupGh struct {
 	fakeGh
-	lookup func(n int) (data, errType string)
+	lookup func(n int) (data, errText string)
 	whole  func() ([]byte, error)
 }
 
 func (f *lookupGh) Gh(c context.Context, args ...string) ([]byte, error) {
-	j := strings.Join(args, " ")
-	if !strings.Contains(j, "k0:") {
+	p, _ := restCall(args)
+	num, ok := strings.CutPrefix(p, "repos/schuettc/hail/pulls/")
+	if !ok {
 		return f.fakeGh.Gh(c, args...)
 	}
 	if f.whole != nil {
 		return f.whole()
 	}
-	var data, errs []string
-	for i := 0; ; i++ {
-		v := ""
-		for x, a := range args {
-			if a == "-F" && x+1 < len(args) && strings.HasPrefix(args[x+1], fmt.Sprintf("m%d=", i)) {
-				v = strings.TrimPrefix(args[x+1], fmt.Sprintf("m%d=", i))
-			}
-		}
-		if v == "" {
-			break
-		}
-		n, _ := strconv.Atoi(v)
-		d, et := f.lookup(n)
-		data = append(data, fmt.Sprintf("%q:%s", "k"+strconv.Itoa(i), d))
-		if et != "" {
-			errs = append(errs, fmt.Sprintf(`{"type":%q,"path":["k%d","pullRequest"],"message":"no"}`, et, i))
-		}
+	n, _ := strconv.Atoi(num)
+	d, et := f.lookup(n)
+	if et != "" {
+		return nil, &observe.GhError{Code: 1, Stderr: "gh: no (" + et + ")"}
 	}
-	out := `{"data":{` + strings.Join(data, ",") + `}`
-	if len(errs) > 0 {
-		return []byte(out + `,"errors":[` + strings.Join(errs, ",") + `]}`), &observe.GhError{Code: 1}
-	}
-	return []byte(out + `}`), nil
+	return []byte(d), nil
 }
 
 // openPR answers every lookup with an open PR.
 func openPR(int) (string, string) {
-	return `{"pullRequest":{"state":"OPEN","updatedAt":"2026-09-01T00:00:00Z"}}`, ""
+	return `{"state":"open","updated_at":"2026-09-01T00:00:00Z"}`, ""
 }
 
 // waitOnNamed decides the waiter Not now until named merges.
@@ -103,7 +86,7 @@ func TestUntilKeyNotFoundReturnsToAttention(t *testing.T) {
 	waitOnNamed(t, r)
 	it := syncThenFind(t, r, &lookupGh{lookup: func(n int) (string, string) {
 		if n == 999 {
-			return "null", "NOT_FOUND"
+			return "", "HTTP 404"
 		}
 		return openPR(n)
 	}})
@@ -134,7 +117,7 @@ func TestUntilKeyTransientFailureStaysWaiting(t *testing.T) {
 		"rate limit": {whole: func() ([]byte, error) { return nil, &observe.GhError{Code: 1, Stderr: "gh: API rate limit exceeded"} }},
 		"other error": {lookup: func(n int) (string, string) {
 			if n == 999 {
-				return "null", "FORBIDDEN"
+				return "", "HTTP 403"
 			}
 			return openPR(n)
 		}},
@@ -160,7 +143,7 @@ func TestUntilKeyFoundBehavesAsBefore(t *testing.T) {
 	}
 	it := syncThenFind(t, r, &lookupGh{lookup: func(n int) (string, string) {
 		if n == 999 {
-			return `{"pullRequest":{"state":"MERGED","updatedAt":"2026-09-20T00:00:00Z"}}`, ""
+			return `{"state":"closed","merged_at":"2026-09-20T00:00:00Z","updated_at":"2026-09-20T00:00:00Z"}`, ""
 		}
 		return openPR(n)
 	}})

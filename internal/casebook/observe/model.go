@@ -33,7 +33,7 @@ type PRObs struct {
 	Number            int       `json:"number"`
 	Title             string    `json:"title,omitempty"`
 	Author            string    `json:"author,omitempty"`
-	AuthorIsBot       bool      `json:"author_is_bot,omitempty"` // true when GitHub __typename == "Bot"
+	AuthorIsBot       bool      `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
 	State             string    `json:"state,omitempty"`         // OPEN, CLOSED, MERGED
 	Draft             bool      `json:"draft,omitempty"`
 	CreatedAt         time.Time `json:"created_at,omitzero"`
@@ -42,8 +42,8 @@ type PRObs struct {
 	LastCommentAt     time.Time `json:"last_comment_at,omitzero"`
 	URL               string    `json:"url,omitempty"`
 	Labels            []string  `json:"labels,omitempty"`
-	Body              string    `json:"body,omitempty"`        // first 600 chars of GitHub bodyText
-	MergeState        string    `json:"merge_state,omitempty"` // GitHub's mergeStateStatus verbatim (BEHIND, BLOCKED, CLEAN, DIRTY, ...)
+	Body              string    `json:"body,omitempty"`        // first 600 chars of GitHub's body_text
+	MergeState        string    `json:"merge_state,omitempty"` // GitHub's mergeable_state upper-cased (BEHIND, BLOCKED, CLEAN, DIRTY, ...); set only for a PR decided merge
 	HeadRef           string    `json:"head_ref,omitempty"`    // the PR's branch
 	HeadRepo          string    `json:"head_repo,omitempty"`   // the repo that branch is in, lower case owner/name ("" when GitHub has none)
 }
@@ -72,7 +72,7 @@ type Ref struct {
 	Permission    string    `json:"permission,omitempty"` // branch: the viewer's access to the repository (ADMIN, MAINTAIN, WRITE, TRIAGE, READ)
 }
 
-// MergedPR is one merged pull request as reported by gh pr list.
+// MergedPR is one merged pull request: its number and head branch and commit.
 type MergedPR struct {
 	Number      int    `json:"number"`
 	HeadRefName string `json:"headRefName"`

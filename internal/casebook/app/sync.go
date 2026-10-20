@@ -88,7 +88,8 @@ func (a *App) Sync(ctx context.Context, o SyncOptions) (SyncReport, error) {
 	if !o.NoGitHub {
 		decisions, _ := a.Repo.Decisions()
 		var gr observe.RefreshReport
-		g, gr = observe.Refresh(ctx, a.Gh, g, observe.RefreshOptions{Owners: a.Cfg.Owners, Keys: engine.LookupKeys(decisions), Now: a.Now()})
+		g, gr = observe.Refresh(ctx, a.Gh, g, observe.RefreshOptions{Owners: a.Cfg.Owners, Keys: engine.LookupKeys(decisions),
+			Merge: engine.MergeKeys(decisions), Releases: engine.ReleaseKeys(decisions), Now: a.Now()})
 		rep.GitHubErrors, rep.RateLimited = gr.Errors, gr.RateLimited
 	}
 	// Landed, in three steps: the git ancestry check for every non-default

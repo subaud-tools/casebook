@@ -6,6 +6,7 @@ package apptest
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,16 +18,53 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
-// FakeGh serves a tiny GitHub: user schuettc, no orgs, one repo schuettc/hail
-// with open incoming PR (#3 by bob) and open issues (#4 by alice, #5 by carol,
-// #6 by frank, #7 by grace, and #8–#19 for TestSinceListsOverruledWithReasons).
-// The extra issues give the probe's T5 scenarios enough dedicated items so no
-// two scenarios share an item.
+// FakeGh serves a tiny GitHub through REST: user schuettc, no orgs, one repo
+// schuettc/hail with open incoming PR (#3 by bob) and open issues (#4 by
+// alice, #5 by carol, #6 by frank, #7 by grace, and #8–#19 for
+// TestSinceListsOverruledWithReasons). The extra issues give the probe's T5
+// scenarios enough dedicated items so no two scenarios share an item. GitHub
+// has none of the scanned clone's branches.
 type FakeGh struct{}
 
-// Gh answers the queries casebook makes.
+const fakeHail = `{"full_name":"schuettc/hail","node_id":"R_hail","pushed_at":"2026-09-20T00:00:00Z","default_branch":"main","open_issues_count":17,
+ "permissions":{"admin":true,"maintain":true,"push":true,"triage":true,"pull":true}}`
+
+const fakePR3 = `{"number":3,"title":"fix nudge","state":"open","created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-01T00:00:00Z",
+ "user":{"login":"bob","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail","pull_request":{"merged_at":null}}`
+
+const fakeIssues = `[
+	 {"number":4,"title":"crash on start","state":"open","created_at":"2026-08-02T00:00:00Z","updated_at":"2026-08-02T00:00:00Z","user":{"login":"alice","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":5,"title":"docs missing","state":"open","created_at":"2026-08-03T00:00:00Z","updated_at":"2026-08-03T00:00:00Z","user":{"login":"carol","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":6,"title":"perf regression","state":"open","created_at":"2026-08-05T00:00:00Z","updated_at":"2026-08-05T00:00:00Z","user":{"login":"frank","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":7,"title":"memory leak","state":"open","created_at":"2026-08-06T00:00:00Z","updated_at":"2026-08-06T00:00:00Z","user":{"login":"grace","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":8,"title":"auth timeout","state":"open","created_at":"2026-08-07T00:00:00Z","updated_at":"2026-08-07T00:00:00Z","user":{"login":"henry","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":9,"title":"log rotation","state":"open","created_at":"2026-08-08T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","user":{"login":"iris","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":10,"title":"rate limit","state":"open","created_at":"2026-08-09T00:00:00Z","updated_at":"2026-08-09T00:00:00Z","user":{"login":"jake","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":11,"title":"dark mode","state":"open","created_at":"2026-08-10T00:00:00Z","updated_at":"2026-08-10T00:00:00Z","user":{"login":"kara","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":12,"title":"mobile layout","state":"open","created_at":"2026-08-11T00:00:00Z","updated_at":"2026-08-11T00:00:00Z","user":{"login":"leo","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":13,"title":"api versioning","state":"open","created_at":"2026-08-12T00:00:00Z","updated_at":"2026-08-12T00:00:00Z","user":{"login":"mia","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":14,"title":"search index","state":"open","created_at":"2026-08-13T00:00:00Z","updated_at":"2026-08-13T00:00:00Z","user":{"login":"noah","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":15,"title":"webhook retry","state":"open","created_at":"2026-08-14T00:00:00Z","updated_at":"2026-08-14T00:00:00Z","user":{"login":"olga","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":16,"title":"cache invalidation","state":"open","created_at":"2026-08-15T00:00:00Z","updated_at":"2026-08-15T00:00:00Z","user":{"login":"pete","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":17,"title":"migration tool","state":"open","created_at":"2026-08-16T00:00:00Z","updated_at":"2026-08-16T00:00:00Z","user":{"login":"quinn","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":18,"title":"retry backoff","state":"open","created_at":"2026-08-17T00:00:00Z","updated_at":"2026-08-17T00:00:00Z","user":{"login":"rosa","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"},
+	 {"number":19,"title":"export api","state":"open","created_at":"2026-08-18T00:00:00Z","updated_at":"2026-08-18T00:00:00Z","user":{"login":"sam","type":"User"},"repository_url":"https://api.github.com/repos/schuettc/hail"}
+]`
+
+// Gh answers the reads casebook makes.
 func (FakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 	j := strings.Join(args, " ")
+	path := ""
+	for i := 1; i < len(args) && args[0] == "api"; i++ {
+		if args[i] == "-H" || args[i] == "--jq" {
+			i++
+		} else if !strings.HasPrefix(args[i], "-") {
+			path = args[i]
+			break
+		}
+	}
+	p, rawQ, _ := strings.Cut(path, "?")
+	q, _ := url.ParseQuery(rawQ)
 	switch {
 	case j == "api user --jq .login":
 		return []byte("schuettc\n"), nil
@@ -34,69 +72,35 @@ func (FakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 		return []byte(""), nil
 	case strings.HasPrefix(j, "auth status"):
 		return []byte("ok"), nil
-	case strings.Contains(j, "repositoryOwner("):
-		return []byte(`{"data":{"repositoryOwner":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[
-		 {"nameWithOwner":"schuettc/hail","pushedAt":"2026-09-20T00:00:00Z","defaultBranchRef":{"name":"main"},
-		  "pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":3,"title":"fix nudge","state":"OPEN","createdAt":"2026-08-01T00:00:00Z",
-		   "updatedAt":"2026-08-01T00:00:00Z","author":{"login":"bob","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}}]},
-		  "issues":{"pageInfo":{"hasNextPage":false},"nodes":[
-		   {"number":4,"title":"crash on start","state":"OPEN","createdAt":"2026-08-02T00:00:00Z",
-		    "updatedAt":"2026-08-02T00:00:00Z","author":{"login":"alice","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-		   {"number":5,"title":"docs missing","state":"OPEN","createdAt":"2026-08-03T00:00:00Z",
-		    "updatedAt":"2026-08-03T00:00:00Z","author":{"login":"carol","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-		   {"number":6,"title":"perf regression","state":"OPEN","createdAt":"2026-08-05T00:00:00Z",
-		    "updatedAt":"2026-08-05T00:00:00Z","author":{"login":"frank","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-		   {"number":7,"title":"memory leak","state":"OPEN","createdAt":"2026-08-06T00:00:00Z",
-		    "updatedAt":"2026-08-06T00:00:00Z","author":{"login":"grace","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":8,"title":"auth timeout","state":"OPEN","createdAt":"2026-08-07T00:00:00Z",
-	    "updatedAt":"2026-08-07T00:00:00Z","author":{"login":"henry","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":9,"title":"log rotation","state":"OPEN","createdAt":"2026-08-08T00:00:00Z",
-	    "updatedAt":"2026-08-08T00:00:00Z","author":{"login":"iris","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":10,"title":"rate limit","state":"OPEN","createdAt":"2026-08-09T00:00:00Z",
-	    "updatedAt":"2026-08-09T00:00:00Z","author":{"login":"jake","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":11,"title":"dark mode","state":"OPEN","createdAt":"2026-08-10T00:00:00Z",
-	    "updatedAt":"2026-08-10T00:00:00Z","author":{"login":"kara","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":12,"title":"mobile layout","state":"OPEN","createdAt":"2026-08-11T00:00:00Z",
-	    "updatedAt":"2026-08-11T00:00:00Z","author":{"login":"leo","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":13,"title":"api versioning","state":"OPEN","createdAt":"2026-08-12T00:00:00Z",
-	    "updatedAt":"2026-08-12T00:00:00Z","author":{"login":"mia","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":14,"title":"search index","state":"OPEN","createdAt":"2026-08-13T00:00:00Z",
-	    "updatedAt":"2026-08-13T00:00:00Z","author":{"login":"noah","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":15,"title":"webhook retry","state":"OPEN","createdAt":"2026-08-14T00:00:00Z",
-	    "updatedAt":"2026-08-14T00:00:00Z","author":{"login":"olga","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":16,"title":"cache invalidation","state":"OPEN","createdAt":"2026-08-15T00:00:00Z",
-	    "updatedAt":"2026-08-15T00:00:00Z","author":{"login":"pete","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":17,"title":"migration tool","state":"OPEN","createdAt":"2026-08-16T00:00:00Z",
-	    "updatedAt":"2026-08-16T00:00:00Z","author":{"login":"quinn","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":18,"title":"retry backoff","state":"OPEN","createdAt":"2026-08-17T00:00:00Z",
-	    "updatedAt":"2026-08-17T00:00:00Z","author":{"login":"rosa","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}},
-	   {"number":19,"title":"export api","state":"OPEN","createdAt":"2026-08-18T00:00:00Z",
-	    "updatedAt":"2026-08-18T00:00:00Z","author":{"login":"sam","__typename":"User"},"bodyText":"","labels":{"nodes":[]},"comments":{"nodes":[]}}]}}]}}}}`), nil
-	case strings.Contains(j, "search("):
-		return []byte(`{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`), nil
-	case strings.Contains(j, "k0:"):
-		return []byte(`{"data":{}}`), nil
-	case strings.Contains(j, "pr list") && strings.Contains(j, "--state merged"):
+	case p == "user/repos":
+		return []byte("[" + fakeHail + "]"), nil
+	case p == "search/issues" && q.Get("q") == "is:open is:pr user:schuettc":
+		return []byte(`{"total_count":1,"items":[` + fakePR3 + `]}`), nil
+	case p == "search/issues" && q.Get("q") == "is:open is:issue user:schuettc":
+		return []byte(`{"total_count":16,"items":` + fakeIssues + `}`), nil
+	case p == "search/issues":
+		return []byte(`{"total_count":0,"items":[]}`), nil
+	case p == "repos/schuettc/hail/pulls" && q.Get("state") == "closed":
 		// Merged PR list: no merged PRs in the test fixture.
 		return []byte(`[]`), nil
-	case strings.Contains(j, "pr list") && strings.Contains(j, "--state open") && strings.Contains(j, "author"):
-		// `gh pr list --json author` returns author objects with `login` and
-		// `is_bot` (no `__typename`). hail's only open PR (#3) is by bob, a human.
-		return []byte(`[{"author":{"login":"bob","is_bot":false}}]`), nil
-	case strings.Contains(j, "pr view") && strings.Contains(j, "updatedAt"):
-		return []byte(`{"updatedAt":"2026-08-01T00:00:00Z"}`), nil
-	case strings.Contains(j, "pr view") && strings.Contains(j, "--json state"):
-		// Agent-lane step verification: report PR as CLOSED.
-		return []byte(`{"state":"CLOSED"}`), nil
-	case strings.Contains(j, "issue view") && strings.Contains(j, "--json state"):
-		// Agent-lane step verification: report issue as CLOSED.
-		return []byte(`{"state":"CLOSED"}`), nil
-	case strings.Contains(j, "repo view") && strings.Contains(j, "--json isArchived"):
-		// Agent-lane step verification: repo is archived.
-		return []byte(`{"isArchived":true}`), nil
-	case strings.HasPrefix(j, "repo view "):
-		// Agent-lane step verification: repo exists.
-		return []byte(`{}`), nil
+	case p == "repos/schuettc/hail/pulls" && q.Get("state") == "open" && strings.Contains(j, "--jq"):
+		// The repo-no-open-human-prs precondition: one PR per line. hail's
+		// only open PR (#3) is by bob, a human.
+		return []byte(`{"user":{"login":"bob","type":"User"}}`), nil
+	case p == "repos/schuettc/hail/pulls" && q.Get("state") == "open":
+		return []byte(`[{"number":3,"head":{"ref":"","repo":null}}]`), nil
+	case strings.HasPrefix(p, "repos/schuettc/hail/pulls/"):
+		// Agent-lane step verification reports the PR closed; the
+		// pr-no-new-activity precondition reads its updated_at.
+		return []byte(`{"state":"closed","merged_at":null,"updated_at":"2026-08-01T00:00:00Z"}`), nil
+	case strings.HasPrefix(p, "repos/schuettc/hail/issues/"):
+		// Agent-lane step verification: report the issue closed.
+		return []byte(`{"state":"closed"}`), nil
+	case strings.HasPrefix(p, "repos/") && strings.Contains(p, "/git/"):
+		return nil, &observe.GhError{Code: 1, Stderr: "gh: Not Found (HTTP 404)"}
+	case strings.HasPrefix(p, "repos/") && strings.Count(p, "/") == 2:
+		// Agent-lane step verification: the repo exists, archived.
+		return []byte(`{"archived":true}`), nil
 	}
 	return nil, fmt.Errorf("apptest.FakeGh: unexpected %s", j)
 }

@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,7 +219,10 @@ func TestPRNoActivityPrecondition(t *testing.T) {
 
 	viewGh := func(updated string) scriptGh {
 		return scriptGh{fn: func(args []string) ([]byte, error) {
-			return []byte(`{"updatedAt":"` + updated + `"}`), nil
+			if len(args) != 2 || args[0] != "api" || args[1] != "repos/schuettc/hail/pulls/3" {
+				return nil, fmt.Errorf("want a REST read of the PR, got %v", args)
+			}
+			return []byte(`{"updated_at":"` + updated + `"}`), nil
 		}}
 	}
 
@@ -254,8 +258,11 @@ func TestRepoNoHumanPRsPrecondition(t *testing.T) {
 	step := JobStep{Key: "repo:schuettc/hail", Action: "repo-archive", Precondition: "repo-no-open-human-prs"}
 
 	t.Run("bot-authored open PR is ok", func(t *testing.T) {
-		botGh := scriptGh{fn: func([]string) ([]byte, error) {
-			return []byte(`[{"author":{"login":"dependabot","is_bot":true}}]`), nil
+		botGh := scriptGh{fn: func(args []string) ([]byte, error) {
+			if len(args) < 3 || args[0] != "api" || args[2] != "repos/schuettc/hail/pulls?state=open&per_page=100" {
+				return nil, fmt.Errorf("want a REST list of the open PRs, got %v", args)
+			}
+			return []byte(`{"user":{"login":"dependabot[bot]","type":"Bot"}}` + "\n" + `{"user":{"login":"renovate[bot]","type":"Bot"}}`), nil
 		}}
 		chk, err := Check(ctx, step, Env{Gh: botGh})
 		if err != nil || !chk.OK {
@@ -264,7 +271,7 @@ func TestRepoNoHumanPRsPrecondition(t *testing.T) {
 	})
 	t.Run("human-authored open PR is not ok", func(t *testing.T) {
 		humanGh := scriptGh{fn: func([]string) ([]byte, error) {
-			return []byte(`[{"author":{"login":"alice","is_bot":false}}]`), nil
+			return []byte(`{"user":{"login":"dependabot[bot]","type":"Bot"}}` + "\n" + `{"user":{"login":"alice","type":"User"}}`), nil
 		}}
 		chk, _ := Check(ctx, step, Env{Gh: humanGh})
 		if chk.OK {
@@ -278,7 +285,7 @@ func TestRepoNoHumanPRsPrecondition(t *testing.T) {
 			t.Fatal("want not ok on gh error")
 		}
 	})
-	t.Run("apptest.FakeGh returns is_bot/login and hail has a human PR", func(t *testing.T) {
+	t.Run("apptest.FakeGh lists hail with a human PR", func(t *testing.T) {
 		chk, err := Check(ctx, step, Env{Gh: apptest.FakeGh{}})
 		if err != nil {
 			t.Fatalf("Check: %v", err)

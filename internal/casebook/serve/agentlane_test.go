@@ -577,12 +577,12 @@ type laggingGh struct {
 func (g *laggingGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(args) > 1 && args[0] == "pr" && args[1] == "view" {
+	if len(args) == 2 && args[0] == "api" && strings.Contains(args[1], "/pulls/") {
 		g.views++
 		if g.views <= g.open {
-			return []byte(`{"state":"OPEN"}`), nil
+			return []byte(`{"state":"open"}`), nil
 		}
-		return []byte(`{"state":"CLOSED"}`), nil
+		return []byte(`{"state":"closed"}`), nil
 	}
 	return []byte("{}"), nil
 }

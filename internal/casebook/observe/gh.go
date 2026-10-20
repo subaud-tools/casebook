@@ -11,7 +11,7 @@ import (
 )
 
 // Runner runs gh. Implementations return stdout even when err != nil
-// (gh api graphql exits 1 on partial results).
+// (a failed call may still have printed something).
 type Runner interface {
 	Gh(ctx context.Context, args ...string) ([]byte, error)
 }

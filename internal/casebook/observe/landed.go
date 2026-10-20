@@ -2,7 +2,6 @@ package observe
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,21 +30,38 @@ func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[stri
 	for k, v := range prev {
 		out[k] = v
 	}
+	c := rest{ctx, r}
 	for _, repo := range repos {
 		key := strings.ToLower(repo)
-		b, err := r.Gh(ctx, "pr", "list", "-R", repo, "--state", "merged", "--limit", "1000", "--json", "number,headRefName,headRefOid")
+		prs, err := fetchMerged(c, repo)
 		if err != nil {
-			out[key] = MergedPRList{Fetched: false}
-			continue
-		}
-		var prs []MergedPR
-		if err := json.Unmarshal(b, &prs); err != nil {
 			out[key] = MergedPRList{Fetched: false}
 			continue
 		}
 		out[key] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
 	}
 	return out
+}
+
+// fetchMerged lists a repo's merged PRs, newest first: its closed PRs that
+// were merged, up to 1000 of them (what gh pr list --limit 1000 gave).
+func fetchMerged(c rest, repo string) ([]MergedPR, error) {
+	var prs []MergedPR
+	for page := 1; page <= maxMergedPages && len(prs) < 1000; page++ {
+		var closed []restPull
+		if err := c.get(repoPath(repo)+"/pulls?state=closed&per_page=100&page="+strconv.Itoa(page), &closed); err != nil {
+			return nil, err
+		}
+		for _, p := range closed {
+			if p.MergedAt != nil && len(prs) < 1000 {
+				prs = append(prs, MergedPR{Number: p.Number, HeadRefName: p.Head.Ref, HeadRefOid: p.Head.SHA})
+			}
+		}
+		if len(closed) < 100 {
+			break
+		}
+	}
+	return prs, nil
 }
 
 // cloneRemote picks the remote name whose value matches the clone's repo.

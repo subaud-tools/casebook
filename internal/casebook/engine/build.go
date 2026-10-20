@@ -42,7 +42,7 @@ type Item struct {
 	Locations   []string          `json:"locations,omitempty"`
 	Evidence    []string          `json:"evidence,omitempty"`
 	Author      string            `json:"author,omitempty"`
-	AuthorIsBot bool              `json:"author_is_bot,omitempty"` // true when GitHub GraphQL __typename == "Bot"
+	AuthorIsBot bool              `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
 	CreatedAt   time.Time         `json:"created_at,omitzero"`
 	UpdatedAt   time.Time         `json:"updated_at,omitzero"`
 	Labels      []string          `json:"labels,omitempty"`
@@ -573,6 +573,36 @@ func LookupKeys(decisions map[string]item.Decision) []item.Key {
 		}
 		if c, err := item.ParseUntil(d.Until); err == nil && c.Ref.Kind != "" {
 			add(c.Ref)
+		}
+	}
+	keys := make([]item.Key, 0, len(set))
+	for _, k := range set {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	return keys
+}
+
+// MergeKeys returns the pull requests decided merge: a sync asks GitHub for
+// their merge state, which only GitHub's single-PR read has.
+func MergeKeys(decisions map[string]item.Decision) []item.Key {
+	var keys []item.Key
+	for id, d := range decisions {
+		if k, err := item.ParseKey(id); err == nil && k.Kind == item.KindPR && d.Disposition == item.Merge {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	return keys
+}
+
+// ReleaseKeys returns the repos a released() condition names: a sync asks
+// GitHub for their latest release.
+func ReleaseKeys(decisions map[string]item.Decision) []item.Key {
+	set := map[string]item.Key{}
+	for _, d := range decisions {
+		if c, err := item.ParseUntil(d.Until); err == nil && c.Op == "released" && c.Ref.Kind == item.KindRepo {
+			set[c.Ref.String()] = c.Ref
 		}
 	}
 	keys := make([]item.Key, 0, len(set))
