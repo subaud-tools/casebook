@@ -1566,7 +1566,49 @@ async function staleScenario(context, t, s) {
     await pg.click(HEAD('delete|branch'));
     await until(pg, (b) => !!document.querySelector(b), RUN_ON, 8000);
 
-    // A search that hides the ticked items: the ticks go, and the
+    // A run serve refuses says why, the words stay once the page has
+    // settled (the stored plan's events reload the list), and the button
+    // is on again for the next press.
+    const WORDS = 'probe: serve refused this run';
+    await pg.route('**/api/apply/approve', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: WORDS }),
+      }),
+    );
+    t.expectError('status of 409');
+    const refused = pg.waitForResponse((r) =>
+      r.url().includes('/api/apply/approve'),
+    );
+    await pg.click(`${RUN_BTN}.fill`);
+    await refused;
+    await pg.waitForTimeout(1500); // kept: a window for the stored plan's events and reloads to settle
+    const after = await pg.evaluate(
+      ([w, b]) => {
+        const el = [
+          ...document.querySelectorAll(
+            '[data-testid="review-group"] .cb-apply-note',
+          ),
+        ].find((e) => e.textContent.includes(w));
+        return {
+          seen: !!el && !!el.offsetParent,
+          on: !!document.querySelector(b),
+        };
+      },
+      [WORDS, RUN_ON],
+    );
+    check(
+      'review: a refused run says why, and it is still on the page once it settles',
+      after.seen,
+    );
+    check(
+      'review: after a refused run its button is on again for the next press',
+      after.on,
+    );
+    await pg.unroute('**/api/apply/approve');
+
+    // Then a search that hides the ticked items: the ticks go, and the
     // middle shows review's summary, not the old plan or its button.
     await pg.fill(SEARCH, 'zz-matches-nothing');
     const settled = await until(

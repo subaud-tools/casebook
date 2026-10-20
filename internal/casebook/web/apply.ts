@@ -269,6 +269,10 @@ export function makeApply(ctx: Ctx): Section {
   // item already running): shown in the pane, no "sync first".
   let reviewNote = '';
   let refusal = '';
+  // runNote: why the last press of review's button ran nothing (serve
+  // refused it, or the plan changed). It stays until the next press or the
+  // next change to the ticks: no redraw takes it away.
+  let runNote = '';
 
   // run: the job open.
   let openId: number | null = null;
@@ -526,6 +530,7 @@ export function makeApply(ctx: Ctx): Section {
   });
 
   reviewSel.onChange(() => {
+    runNote = '';
     reviewPane.paintHeads();
     if (mode !== 'review') return;
     // Ticks only cover what the plan drawn is for: the buttons go off now,
@@ -1465,7 +1470,7 @@ export function makeApply(ctx: Ctx): Section {
     const keys = tickedKeys();
     if (reviewPending || !sameKeys(keys, reviewKeys)) return;
     busy = true;
-    note = '';
+    runNote = '';
     drawReview();
     try {
       const saved = await ctx.api.post<PlanView>('/apply/plan', { keys });
@@ -1473,7 +1478,7 @@ export function makeApply(ctx: Ctx): Section {
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       if (want.join('\n') !== got.join('\n')) {
         reviewView = { ...saved, job: { ...saved.job } };
-        note =
+        runNote =
           'What would run changed since you looked; nothing ran. Look again.';
         busy = false;
         drawReview();
@@ -1494,10 +1499,12 @@ export function makeApply(ctx: Ctx): Section {
       stepsShown = STEPS_PAGE;
       ctx.route.go('run', String(v.job.id));
     } catch (err) {
-      note = message(err);
-      drawReview();
+      runNote = message(err);
     } finally {
       busy = false;
+      // Drawn once busy is off: the button is on again for the next press,
+      // with the words that say why the last one ran nothing.
+      drawReview();
       if (active) ctx.setPrimary(primary());
     }
   }
@@ -1648,6 +1655,14 @@ export function makeApply(ctx: Ctx): Section {
         acts: runs && v ? [runActs(v)] : [],
       }),
     );
+    if (runNote)
+      doc.append(
+        h(
+          'p',
+          { class: 'cb-apply-note', role: 'status', 'data-testid': 'run-note' },
+          runNote,
+        ),
+      );
     if (refusal) {
       doc.append(refusalCard());
       return paint(doc);
@@ -1923,7 +1938,7 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  // planLines: what waits and is held, the plan's tags, and a note.
+  // planLines: what waits and is held, and the plan's tags.
   function planLines(v: PlanView): HTMLElement {
     const steps = v.job.steps ?? [];
     const el = h('div', { class: 'cb-approve' });
@@ -1932,8 +1947,6 @@ export function makeApply(ctx: Ctx): Section {
     const tags = stepTags(steps);
     if (tags.length)
       el.append(h('p', { class: 'cb-tags-line' }, ...tagEls(tags, 0)));
-    if (note)
-      el.append(h('p', { class: 'cb-apply-note', role: 'status' }, note));
     return el;
   }
 

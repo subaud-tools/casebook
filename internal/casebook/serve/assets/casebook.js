@@ -4103,6 +4103,7 @@ function makeApply(ctx) {
   let runPending = false;
   let reviewNote = "";
   let refusal = "";
+  let runNote = "";
   let openId = null;
   let open = null;
   let stepsShown = STEPS_PAGE;
@@ -4295,6 +4296,7 @@ function makeApply(ctx) {
     else drawOverview();
   });
   reviewSel.onChange(() => {
+    runNote = "";
     reviewPane.paintHeads();
     if (mode !== "review") return;
     if (!sameKeys(tickedKeys(), reviewKeys)) freezeMid();
@@ -5027,7 +5029,7 @@ function makeApply(ctx) {
     const keys = tickedKeys();
     if (reviewPending || !sameKeys(keys, reviewKeys)) return;
     busy = true;
-    note = "";
+    runNote = "";
     drawReview();
     try {
       const saved = await ctx.api.post("/apply/plan", { keys });
@@ -5035,7 +5037,7 @@ function makeApply(ctx) {
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       if (want.join("\n") !== got.join("\n")) {
         reviewView = { ...saved, job: { ...saved.job } };
-        note = "What would run changed since you looked; nothing ran. Look again.";
+        runNote = "What would run changed since you looked; nothing ran. Look again.";
         busy = false;
         drawReview();
         return;
@@ -5054,10 +5056,10 @@ function makeApply(ctx) {
       stepsShown = STEPS_PAGE;
       ctx.route.go("run", String(v.job.id));
     } catch (err) {
-      note = message2(err);
-      drawReview();
+      runNote = message2(err);
     } finally {
       busy = false;
+      drawReview();
       if (active) ctx.setPrimary(primary());
     }
   }
@@ -5183,6 +5185,14 @@ function makeApply(ctx) {
         acts: runs && v ? [runActs(v)] : []
       })
     );
+    if (runNote)
+      doc.append(
+        h9(
+          "p",
+          { class: "cb-apply-note", role: "status", "data-testid": "run-note" },
+          runNote
+        )
+      );
     if (refusal) {
       doc.append(refusalCard());
       return paint(doc);
@@ -5425,8 +5435,6 @@ function makeApply(ctx) {
     const tags = stepTags(steps);
     if (tags.length)
       el2.append(h9("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
-    if (note)
-      el2.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
     return el2;
   }
   function drawOpen() {
