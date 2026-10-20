@@ -649,6 +649,26 @@ export function untickHidden(ticked: string[], shown: Set<string>): string[] {
 }
 
 /**
+ * reviewFollow is what review's middle pane shows once its list settles
+ * (a search, a filter, a reload) or its ticks change: the summary with
+ * nothing ticked (never a plan reviewed before), the plan for the ticks
+ * left when they are not the ones the plan shown is for, or that plan
+ * again.
+ */
+export function reviewFollow(
+  ticked: string[],
+  reviewed: string[],
+  open: boolean,
+): 'overview' | 'replan' | 'redraw' {
+  if (!ticked.length) return 'overview';
+  const same =
+    open &&
+    ticked.length === reviewed.length &&
+    ticked.every((k, i) => k === reviewed[i]);
+  return same ? 'redraw' : 'replan';
+}
+
+/**
  * waitBlocks splits the items waiting for another Mac into runs of rows
  * that one sentence is true of, in first-seen order: a branch whose GitHub
  * delete is among steps says its GitHub copy is deleted above, one without

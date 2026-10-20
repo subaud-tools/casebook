@@ -34,6 +34,7 @@ import {
   reviewKick,
   reviewLine,
   untickHidden,
+  reviewFollow,
   stepLine,
   waitBlocks,
   heldText,
@@ -982,4 +983,17 @@ describe('stepLine', () => {
       }),
       "gh pr merge 7 -R 'o/r' --squash",
     ));
+});
+
+describe('reviewFollow', () => {
+  test('nothing ticked shows the summary, never the plan reviewed before', () => {
+    assert.equal(reviewFollow([], ['a', 'b'], true), 'overview');
+    assert.equal(reviewFollow([], [], false), 'overview');
+  });
+  test('ticks a narrowing dropped ask for the plan of the ticks left', () =>
+    assert.equal(reviewFollow(['a'], ['a', 'b'], true), 'replan'));
+  test('ticks with no review open ask for their plan', () =>
+    assert.equal(reviewFollow(['a'], [], false), 'replan'));
+  test('the same ticks redraw the plan shown', () =>
+    assert.equal(reviewFollow(['a', 'b'], ['a', 'b'], true), 'redraw'));
 });

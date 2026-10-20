@@ -96,6 +96,7 @@ import {
   reviewKick,
   reviewLine,
   untickHidden,
+  reviewFollow,
   ranLine,
   runBulk,
   tickedRunWords,
@@ -786,7 +787,7 @@ export function makeApply(ctx: Ctx): Section {
       }
       reviewPending = false;
       paintList();
-      if (offset === 0) drawReview();
+      if (offset === 0) followTicks();
       applyWanted();
     } catch (err) {
       if (!itemsSeq.isLatest(mine)) return;
@@ -976,6 +977,18 @@ export function makeApply(ctx: Ctx): Section {
     wantGroup = '';
     reviewSel.clear();
     void tickGroup(id, true);
+  }
+
+  // followTicks redraws review's middle pane for the ticks left once the
+  // list is in: a narrowing that dropped ticks never leaves the plan for
+  // the old ones (its button off, for no reason shown) on the page.
+  function followTicks(): void {
+    if (mode !== 'review') return drawReview();
+    const next = reviewFollow(tickedKeys(), reviewKeys, reviewOpen);
+    if (next === 'redraw') return drawReview();
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = null;
+    void openTicked();
   }
 
   // openTicked builds serve's plan for exactly the ticked items and shows

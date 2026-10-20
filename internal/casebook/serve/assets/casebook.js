@@ -1755,6 +1755,11 @@ function stepLine(s) {
 function untickHidden(ticked, shown) {
   return ticked.filter((k) => !shown.has(k));
 }
+function reviewFollow(ticked, reviewed, open) {
+  if (!ticked.length) return "overview";
+  const same = open && ticked.length === reviewed.length && ticked.every((k, i) => k === reviewed[i]);
+  return same ? "redraw" : "replan";
+}
 function waitBlocks(waits, steps) {
   const github = new Set(
     steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
@@ -4490,7 +4495,7 @@ function makeApply(ctx) {
       }
       reviewPending = false;
       paintList();
-      if (offset === 0) drawReview();
+      if (offset === 0) followTicks();
       applyWanted();
     } catch (err) {
       if (!itemsSeq.isLatest(mine)) return;
@@ -4642,6 +4647,14 @@ function makeApply(ctx) {
     wantGroup = "";
     reviewSel.clear();
     void tickGroup(id, true);
+  }
+  function followTicks() {
+    if (mode !== "review") return drawReview();
+    const next = reviewFollow(tickedKeys(), reviewKeys, reviewOpen);
+    if (next === "redraw") return drawReview();
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = null;
+    void openTicked();
   }
   async function openTicked(force = false) {
     const keys = tickedKeys();

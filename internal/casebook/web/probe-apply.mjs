@@ -145,7 +145,7 @@ export async function applyScenarios(shared, t) {
 }
 
 // PROBE_SCENARIO (with PROBE_ONLY=apply) runs only the scenario groups
-// whose name has it: main, same, ticked, changed, holds, frame.
+// whose name has it: main, same, ticked, changed, holds, frame, stale.
 const runs = (name) =>
   !process.env.PROBE_SCENARIO || name.includes(process.env.PROBE_SCENARIO);
 
@@ -157,6 +157,7 @@ async function applyScenariosIn(context, t) {
     ['changed', CHANGED_SEED, changedPlanScenario],
     ['holds', HOLDS_SEED, holdsScenario],
     ['frame', FRAME_SEED, frameScenario],
+    ['stale', STALE_SEED, staleScenario],
   ];
   for (const [name, seed, run] of groups) {
     if (!runs(name)) continue;
@@ -1535,6 +1536,54 @@ async function frameScenario(context, t, s) {
     );
     clearInterval(keepFS);
     await pg.setViewportSize({ width: 1280, height: 800 });
+  } finally {
+    await pg.close();
+  }
+}
+
+// ---- review follows the ticks it has ---------------------------------------
+// Court 2026-10-20: a search hid the ticked items and the middle pane kept
+// the old plan, its button off; a refused run said nothing that stayed.
+const STALE_SEED = {
+  seedClones: [{ name: 'st-local', branches: ['feat/a', 'feat/b'] }],
+};
+const ST = (b) => `branch:schuettc/st-local@${b}`;
+async function staleScenario(context, t, s) {
+  const { check, until } = t;
+  console.log('\nscenario: review — the middle follows the ticks it has');
+  const agent = createAgent(s.base, s.token);
+  await agent.api('POST', '/api/decide', {
+    keys: [ST('feat/a'), ST('feat/b')],
+    disposition: 'delete',
+  });
+  const SEARCH = '.cb-pane-review input[placeholder="search by key or title"]';
+  const RUN_ON = `${RUN_BTN}:not([disabled])`;
+  const pg = await context.newPage();
+  await pg.setViewportSize({ width: 1600, height: 900 });
+  try {
+    await pg.goto(`${s.url}#/review`, { waitUntil: 'domcontentloaded' });
+    await until(pg, (b) => !!document.querySelector(b), HEAD('delete|branch'));
+    await pg.click(HEAD('delete|branch'));
+    await until(pg, (b) => !!document.querySelector(b), RUN_ON, 8000);
+
+    // A search that hides the ticked items: the ticks go, and the
+    // middle shows review's summary, not the old plan or its button.
+    await pg.fill(SEARCH, 'zz-matches-nothing');
+    const settled = await until(
+      pg,
+      () =>
+        !document.querySelector('.cb-pane-review .kit-row[data-key]') &&
+        !!document.querySelector('[data-testid="review-overview"]') &&
+        !document.querySelector('[data-testid="review-group"]') &&
+        !document.querySelector('[data-testid="run-group"]'),
+      undefined,
+      8000,
+    );
+    check(
+      'review: a search that hides the ticked items shows the summary, not the old plan or its run button',
+      settled,
+    );
+    await pg.fill(SEARCH, '');
   } finally {
     await pg.close();
   }
