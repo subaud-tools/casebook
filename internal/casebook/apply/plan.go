@@ -73,6 +73,22 @@ type Waiting struct {
 	Path    string `json:"path,omitempty"`
 }
 
+// Items is every item key the plan was built for: those with a step, those
+// it holds back and those waiting for another Mac.
+func (p Plan) Items() []string {
+	var out []string
+	for _, st := range p.Steps {
+		out = append(out, st.Key)
+	}
+	for _, h := range p.HeldBack {
+		out = append(out, h.Key)
+	}
+	for _, w := range p.Waiting {
+		out = append(out, w.Key)
+	}
+	return out
+}
+
 // Plan is the ordered set of steps for one apply session.
 type Plan struct {
 	// BuiltAt is the wall-clock time at which the plan was built (= now).

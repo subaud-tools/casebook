@@ -239,6 +239,24 @@ func (s *Store) Create(ctx context.Context, p Plan, machine string) (Job, error)
 	return job, nil
 }
 
+// PlanItems is every item key job jobID's plan was built for: those with a
+// step, those it held back and those waiting for another Mac (all kept in
+// plan_json at Create).
+func (s *Store) PlanItems(ctx context.Context, jobID int64) ([]string, error) {
+	var raw string
+	if err := s.DB.QueryRowContext(ctx, `SELECT plan_json FROM jobs WHERE id = ?`, jobID).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("job %d not found", jobID)
+		}
+		return nil, err
+	}
+	var p Plan
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return nil, fmt.Errorf("job %d plan: %w", jobID, err)
+	}
+	return p.Items(), nil
+}
+
 // Preview is the job Create would make of p, not stored (no ids): what
 // review shows before Court runs it.
 func Preview(p Plan, machine string, now time.Time) Job {

@@ -233,8 +233,15 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 
 	// The group's plan already exists: reuse it.
 	if len(planned) == 1 && sameSteps(planned[0].Steps, plan.Steps) {
-		reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: planned[0]}, nil)
-		return
+		have, err := s.Apply.PlanItems(ctx, planned[0].ID)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if sameKeySet(have, plan.Items()) {
+			reply(w, PlanView{Plan: plan, Groups: plan.Groups(), Job: planned[0]}, nil)
+			return
+		}
 	}
 	for _, j := range planned {
 		if err := s.Apply.Cancel(ctx, j.ID); err != nil {
@@ -376,10 +383,20 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 	s.planMu.Lock()
 	defer s.planMu.Unlock()
 	if plan, err := s.Apply.Get(ctx, in.PlanID); err == nil && plan.State == apply.JobPlanned {
-		if in.Keys != nil && !sameKeySet(*in.Keys, plan.Steps) {
-			reply(w, nil, httpError{code: http.StatusConflict,
-				msg: fmt.Sprintf("plan #%d is not for the items ticked now; nothing ran. Look again.", plan.ID)})
-			return
+		if in.Keys != nil {
+			// The plan's items are its steps' and the ones it holds back or
+			// leaves waiting: a ticked held item has no step but is the
+			// plan's all the same.
+			planKeys, err := s.Apply.PlanItems(ctx, plan.ID)
+			if err != nil {
+				reply(w, nil, err)
+				return
+			}
+			if !sameKeySet(*in.Keys, planKeys) {
+				reply(w, nil, httpError{code: http.StatusConflict,
+					msg: fmt.Sprintf("plan #%d is not for the items ticked now; nothing ran. Look again.", plan.ID)})
+				return
+			}
 		}
 		held, err := s.heldKeys(ctx, in.PlanID, true)
 		if err != nil {
@@ -445,18 +462,18 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 	reply(w, JobView{Job: job, NeedsYou: cards}, nil)
 }
 
-// sameKeySet reports whether keys name exactly the items steps act on.
-func sameKeySet(keys []string, steps []apply.JobStep) bool {
+// sameKeySet reports whether keys name exactly the items of planKeys.
+func sameKeySet(keys, planKeys []string) bool {
 	want := map[string]bool{}
 	for _, k := range keys {
 		want[k] = true
 	}
 	got := map[string]bool{}
-	for _, st := range steps {
-		if !want[st.Key] {
+	for _, k := range planKeys {
+		if !want[k] {
 			return false
 		}
-		got[st.Key] = true
+		got[k] = true
 	}
 	return len(got) == len(want)
 }
