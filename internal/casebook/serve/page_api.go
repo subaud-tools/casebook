@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/app"
+	"github.com/subaud-tools/casebook/internal/casebook/apply"
 	"github.com/subaud-tools/casebook/internal/casebook/config"
 	"github.com/subaud-tools/casebook/internal/casebook/deliver"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
@@ -323,6 +324,32 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 	reply(w, s.itemDetail(ctx, it, k), nil)
 }
 
+// ranOn is key's latest job that ran (its mark, as run lists it) and the
+// steps on key from jobs that ran: planned and cancelled jobs never did.
+func (s *Server) ranOn(ctx context.Context, key string, steps []apply.JobStep) (*RunMark, []apply.JobStep) {
+	jobs, err := s.Apply.List(ctx)
+	if err != nil {
+		return nil, nil
+	}
+	never := map[int64]bool{}
+	for _, j := range jobs {
+		if j.State == apply.JobPlanned || j.State == apply.JobCancelled {
+			never[j.ID] = true
+		}
+	}
+	var out []apply.JobStep
+	for _, st := range steps {
+		if !never[st.JobID] {
+			out = append(out, st)
+		}
+	}
+	m, ok := runMarks(jobs)[key]
+	if !ok {
+		return nil, out
+	}
+	return &m, out
+}
+
 // itemDetail is one item with its pending proposal, its proposals, evidence,
 // recent history (the last 50 events) and decision log: GET /api/item and
 // casebook_next.
@@ -347,8 +374,11 @@ func (s *Server) itemDetail(ctx context.Context, it engine.Item, k item.Key) Ite
 	log, _ := s.App.Repo.Log(ctx, k.File())
 	job, verified, _ := s.Apply.LastVerified(ctx, it.ID)
 	steps, _ := s.Apply.KeySteps(ctx, it.ID)
+	ran, ranSteps := s.ranOn(ctx, it.ID, steps)
 	return ItemDetailView{
 		Steps:     nonNil(steps),
+		Ran:       ran,
+		RanSteps:  nonNil(ranSteps),
 		DoneHow:   doneHow(string(v.Status), job, verified, time.Local),
 		Item:      v,
 		Proposals: nonNil(proposals),

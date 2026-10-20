@@ -5036,11 +5036,8 @@ function makeApply(ctx) {
     try {
       const d = await ctx.api.get("/item", { key });
       if (!ranSeq.isLatest(mine) || ranKey !== key) return;
-      const never = new Set(
-        jobs.filter((j) => j.state === "planned" || j.state === "cancelled").map((j) => j.id)
-      );
-      const steps = (d.steps ?? []).filter((x) => !never.has(x.job_id));
-      const jobId = runItems.find((it) => it.key === key)?.ran?.job ?? Math.max(0, ...steps.map((x) => x.job_id));
+      const steps = d.ran_steps ?? [];
+      const jobId = d.ran?.job ?? 0;
       const jv = jobId ? await ctx.api.get("/job", { id: String(jobId) }).catch(() => null) : null;
       if (!ranSeq.isLatest(mine) || ranKey !== key) return;
       if (jv) patchJob(jv);

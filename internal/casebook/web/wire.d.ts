@@ -67,6 +67,8 @@ export interface ItemDetailView {
   decisions: LogEntry[] | null;
   done_how: string;
   steps: JobStep[] | null;
+  ran: RunMark | null;
+  ran_steps: JobStep[] | null;
 }
 
 export interface DecideResult {
@@ -454,6 +456,13 @@ export interface JobStep {
   permanent?: boolean;
 }
 
+export interface RunMark {
+  job: number;
+  group: string;
+  finished?: boolean;
+  steps: JobStep[] | null;
+}
+
 export interface Committed {
   disposition: string;
   until: string;
@@ -731,13 +740,6 @@ export interface Copy {
 export interface Looking {
   message: number;
   session: Session;
-}
-
-export interface RunMark {
-  job: number;
-  group: string;
-  finished?: boolean;
-  steps: JobStep[] | null;
 }
 
 export interface Action {

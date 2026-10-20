@@ -167,6 +167,11 @@ type ItemDetailView struct {
 	// Steps is every step on the item, from every job, in job order: what
 	// ran on it.
 	Steps []apply.JobStep `json:"steps"`
+	// Ran is the item's latest job that ran (planned and cancelled jobs
+	// never did) and its steps there: run's item shows that job. Null when
+	// none ran. RanSteps is Steps less those of jobs that never ran.
+	Ran      *RunMark        `json:"ran"`
+	RanSteps []apply.JobStep `json:"ran_steps"`
 }
 
 // DecideResult is the response body of POST /api/decide and POST

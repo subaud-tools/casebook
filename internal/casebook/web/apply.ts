@@ -1149,21 +1149,16 @@ export function makeApply(ctx: Ctx): Section {
   }
 
   // loadRan loads the item run shows: every step on it (those of a job
-  // that never ran left out) and its latest job that ran.
+  // that never ran left out) and its latest job that ran, both serve's.
   async function loadRan(key: string): Promise<void> {
     const mine = ranSeq.next();
     try {
       const d = await ctx.api.get<ItemDetailView>('/item', { key });
       if (!ranSeq.isLatest(mine) || ranKey !== key) return;
-      const never = new Set(
-        jobs
-          .filter((j) => j.state === 'planned' || j.state === 'cancelled')
-          .map((j) => j.id),
-      );
-      const steps = (d.steps ?? []).filter((x) => !never.has(x.job_id));
-      const jobId =
-        runItems.find((it) => it.key === key)?.ran?.job ??
-        Math.max(0, ...steps.map((x) => x.job_id));
+      // serve says which job is the item's (the latest that ran) and the
+      // steps that ran: a cold load has no jobs here to work it out from.
+      const steps = d.ran_steps ?? [];
+      const jobId = d.ran?.job ?? 0;
       const jv = jobId
         ? await ctx.api
             .get<JobView>('/job', { id: String(jobId) })
