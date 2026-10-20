@@ -630,6 +630,77 @@ describe('review rows', () => {
       'deleted here',
     );
   });
+  // Court, 2026-10-20: ghmr-bench's ten branches read "held" while their
+  // GitHub deletes were in the plan; only their local copies waited.
+  test('a local copy on another Mac waits; the GitHub delete still runs', () =>
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'other-mac',
+              text: 'its local copy is only on pro-2',
+              stops: ['delete'],
+              local: true,
+              machine: 'pro-2',
+            },
+          ],
+          copies: [
+            { machine: 'pro-2' },
+            { machine: 'work', absent: true },
+            { machine: '' },
+          ],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: 'deleted on GitHub \u00b7 local copy waits for pro-2',
+        tone: 'muted',
+      },
+    ));
+  test('a hold on one half names that half; the other half runs', () => {
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'worktree',
+              text: 'in use by worktree ops on work, which has uncommitted changes',
+              stops: ['delete'],
+              local: true,
+              machine: 'work',
+            },
+          ],
+          copies: [{ machine: 'work' }, { machine: '' }],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: 'deleted on GitHub \u00b7 local copy held: in use by worktree ops on work, which has uncommitted changes',
+        tone: 'agent',
+      },
+    );
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'no-access',
+              text: "you can't change branches in o/r on GitHub (your access: read)",
+              stops: ['delete'],
+              remote: true,
+            },
+          ],
+          copies: [{ machine: 'work' }, { machine: '' }],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: "deleted here \u00b7 GitHub copy held: you can't change branches in o/r on GitHub (your access: read)",
+        tone: 'agent',
+      },
+    );
+  });
   test('reviewLine falls back to the done word, lower case', () =>
     assert.deepEqual(reviewLine(prClose(), 'Closed it'), {
       text: 'closed it',

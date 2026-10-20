@@ -1704,18 +1704,40 @@ function reviewKick(n, groups) {
 }
 function reviewLine(it, done) {
   const d = it.decision?.disposition ?? "";
-  const hold = (it.holds ?? []).find((x) => (x.stops ?? []).includes(d));
-  if (hold) return { text: `held: ${hold.text}`, tone: "agent" };
+  const stopping = (it.holds ?? []).filter((x) => (x.stops ?? []).includes(d));
+  const whole = stopping.find((x) => !x.local && !x.remote);
+  if (whole) return { text: `held: ${whole.text}`, tone: "agent" };
   if (it.kind === "branch") {
     const there = (it.copies ?? []).filter((c) => !c.absent);
-    const gh = there.some((c) => !c.machine);
-    const here = there.some((c) => !!c.machine);
+    const remote = stopping.find((x) => x.remote);
+    const local = stopping.filter((x) => x.local);
+    const stopped = new Set(local.map((x) => x.machine ?? ""));
+    const gh = !remote && there.some((c) => !c.machine);
+    const here = there.some((c) => !!c.machine && !stopped.has(c.machine));
+    const parts = [];
     if (gh || here)
-      return {
-        text: `deleted ${[gh ? "on GitHub" : "", here ? "here" : ""].filter(Boolean).join(" and ")}`,
-        tone: "muted"
-      };
+      parts.push(
+        `deleted ${[gh ? "on GitHub" : "", here ? "here" : ""].filter(Boolean).join(" and ")}`
+      );
+    let held = false;
+    for (const x of local) {
+      if (x.kind === "other-mac")
+        parts.push(`local copy waits for ${x.machine}`);
+      else {
+        parts.push(`local copy held: ${x.text}`);
+        held = true;
+      }
+    }
+    if (remote) {
+      parts.push(`GitHub copy held: ${remote.text}`);
+      held = true;
+    }
+    if (parts.length)
+      return { text: parts.join(" · "), tone: held ? "agent" : "muted" };
   }
+  const part = stopping[0];
+  if (part)
+    return part.kind === "other-mac" ? { text: `waits for ${part.machine}`, tone: "muted" } : { text: `held: ${part.text}`, tone: "agent" };
   return { text: done.toLowerCase(), tone: "muted" };
 }
 function untickHidden(ticked, shown) {
