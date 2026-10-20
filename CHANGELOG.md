@@ -6,6 +6,13 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.18.2
+
+- Running a group in review with a held or waiting item ticked works: serve counted only the items with a step and refused the run as "not for the items ticked now".
+- When a search, a filter or a reload takes ticks away, review's middle shows the plan for the ticks left, or review's summary when none are left, never the previous plan with its button off.
+- When serve refuses a run or it fails, review says why and keeps saying it until you press again or change the ticks, and the button is on again.
+- Review names a worktree by its clone and its path in it (`oss-ml-optimizer · .worktrees/cpu-budget`), not by a full path cut off before the part that names it. The full key is in the hover.
+
 ## 0.18.1
 
 - Run lists an item in done once anything on it has verified, even while its other half waits (a branch deleted on GitHub whose local copy is on the other Mac), and its row says what waits.
