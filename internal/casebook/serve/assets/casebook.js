@@ -1771,6 +1771,12 @@ function keyLabel(key, clone) {
   }
   return path.split("/").filter(Boolean).slice(-2).join("/");
 }
+function stepKey(key) {
+  const k = keyLabel(key);
+  if (!key.startsWith("branch:")) return { key: k };
+  const at2 = k.indexOf("@");
+  return at2 < 0 ? { key: k } : { repo: k.slice(0, at2), key: k.slice(at2 + 1) };
+}
 function reviewFollow(ticked, reviewed, open) {
   if (!ticked.length) return "overview";
   const same = open && ticked.length === reviewed.length && ticked.every((k, i) => k === reviewed[i]);
@@ -3669,12 +3675,13 @@ function makeObs(ctx, set) {
 // ran.ts
 import { h as h8, facts, buttons as buttons3, card as card2 } from "/_kit/kit.js";
 var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
-function stepKeyLines(key) {
-  const at2 = key.indexOf("@");
-  if (at2 < 0) return [h8("span", { class: "cb-step-k" }, key)];
+function stepKeyLines(full) {
+  const k = stepKey(full);
+  if (k.repo === void 0)
+    return [h8("span", { class: "cb-step-k", title: full }, k.key)];
   return [
-    h8("span", { class: "cb-step-repo" }, key.slice(0, at2)),
-    h8("span", { class: "cb-step-k" }, key.slice(at2 + 1))
+    h8("span", { class: "cb-step-repo", title: full }, k.repo),
+    h8("span", { class: "cb-step-k", title: full }, k.key)
   ];
 }
 function renderJob(_ctx, v, hooks) {
@@ -3747,7 +3754,7 @@ function renderJob(_ctx, v, hooks) {
   return doc;
 }
 function needsCard(c, step, j, agent, hooks) {
-  const key = step ? keyWithoutKind(step.key) : "";
+  const key = step ? keyLabel(step.key) : "";
   const verb = step ? resumeVerb(step.action) : "run";
   const answer = (action, text = "") => hooks.answer(c, action, text);
   let el2;
@@ -3899,7 +3906,6 @@ function needsCard(c, step, j, agent, hooks) {
 function stepRow(s, next, hooks, o = {}) {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} · ${m.text}` : m.text;
-  const key = keyWithoutKind(s.key);
   return h8(
     "div",
     {
@@ -3909,7 +3915,7 @@ function stepRow(s, next, hooks, o = {}) {
       "data-key": s.key
     },
     h8("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-    ...o.line ? [h8("span", { class: "cb-step-k", title: key }, key)] : stepKeyLines(key),
+    ...o.line ? [h8("span", { class: "cb-step-k", title: s.key }, keyLabel(s.key))] : stepKeyLines(s.key),
     h8(
       "span",
       { class: "cb-step-w" },

@@ -36,6 +36,7 @@ import {
   untickHidden,
   reviewFollow,
   keyLabel,
+  stepKey,
   stepLine,
   waitBlocks,
   heldText,
@@ -1019,4 +1020,21 @@ describe('keyLabel', () => {
     ));
   test('any other key is the key without its kind', () =>
     assert.equal(keyLabel('branch:o/r@feat/x'), 'o/r@feat/x'));
+});
+
+describe('stepKey', () => {
+  test("a worktree step is the worktree's label, not its full path", () =>
+    assert.deepEqual(
+      stepKey(
+        'worktree:work:/Users/c/GitHub/extensions-workspace/oss-ml-optimizer/.worktrees/fast-defaults',
+      ),
+      { key: 'oss-ml-optimizer \u00b7 .worktrees/fast-defaults' },
+    ));
+  test('a branch step is its repo over its branch', () =>
+    assert.deepEqual(stepKey('branch:o/r@feat/x'), {
+      repo: 'o/r',
+      key: 'feat/x',
+    }));
+  test('any other step is its key without its kind', () =>
+    assert.deepEqual(stepKey('pr:o/r#4'), { key: 'o/r#4' }));
 });

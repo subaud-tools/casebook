@@ -674,6 +674,18 @@ export function keyLabel(key: string, clone?: string): string {
 }
 
 /**
+ * stepKey is a step's key in a job's steps table: a worktree by its label
+ * (keyLabel), a branch as its repo over its branch, any other key without
+ * its kind. The full key goes in the hover.
+ */
+export function stepKey(key: string): { repo?: string; key: string } {
+  const k = keyLabel(key);
+  if (!key.startsWith('branch:')) return { key: k };
+  const at = k.indexOf('@');
+  return at < 0 ? { key: k } : { repo: k.slice(0, at), key: k.slice(at + 1) };
+}
+
+/**
  * reviewFollow is what review's middle pane shows once its list settles
  * (a search, a filter, a reload) or its ticks change: the summary with
  * nothing ticked (never a plan reviewed before), the plan for the ticks
