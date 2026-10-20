@@ -313,7 +313,23 @@ func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
 		t.Fatalf("undo: %d", code)
 	}
 	want := "api graphql -f query=mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!,$a:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}){clientMutationId}} -f r=R_1 -f n=refs/heads/feat/x -f b=0000000000000000000000000000000000000000 -f a=" + tip
-	if len(gh.calls) != 1 || gh.calls[0] != want {
-		t.Fatalf("gh calls %q, want %q", gh.calls, want)
+	if len(gh.calls) < 1 || gh.calls[0] != want {
+		t.Fatalf("gh calls %q, want %q first", gh.calls, want)
 	}
+	// Then it re-reads that branch on GitHub, so the item says its GitHub
+	// copy is back without waiting for the next full sync (Court, 2026-10-20).
+	eventually(t, "a re-read of feat/x on GitHub", func() bool {
+		for _, c := range gh.snapshot() {
+			if strings.Contains(c, "ref(qualifiedName") && strings.Contains(c, "feat/x") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func (g *okGh) snapshot() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.calls...)
 }

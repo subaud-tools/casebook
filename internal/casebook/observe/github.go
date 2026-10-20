@@ -393,6 +393,24 @@ func toPR(n gqlPR, repo string) PRObs {
 // lookupRefs fetches keys individually in batches of aliased, parameterized
 // queries. A key whose alias failed for any reason other than NOT_FOUND keeps
 // its previous Ref.
+// LookupRefs re-reads just keys on GitHub into a copy of prev: after a step
+// changed them (a branch deleted, or made again by an undo), so items say so
+// without waiting for the next full sync (Court, 2026-10-20). RefsAt, the
+// last full lookup, stays. The error says what failed.
+func LookupRefs(ctx context.Context, r Runner, prev *GitHub, keys []item.Key, now time.Time) (*GitHub, error) {
+	g := clone(prev)
+	var rep RefreshReport
+	var errs []string
+	lookupRefs(ctx, r, g, keys, now, &rep, func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) })
+	if prev != nil {
+		g.RefsAt = prev.RefsAt
+	}
+	if len(errs) > 0 {
+		return g, errors.New(strings.Join(errs, "; "))
+	}
+	return g, nil
+}
+
 func lookupRefs(ctx context.Context, r Runner, g *GitHub, keys []item.Key, now time.Time, rep *RefreshReport, fail func(string, ...any)) {
 	var todo []item.Key
 	for _, k := range keys {

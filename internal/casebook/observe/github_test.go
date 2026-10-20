@@ -370,3 +370,36 @@ func TestLookupRecordsTheBranchCommit(t *testing.T) {
 		}
 	}
 }
+
+// TestLookupRefsRechecksOnlyThoseKeys: after an undo put feat/boot-trace back
+// on GitHub (Court, 2026-10-20), casebook re-reads just that ref: it is
+// updated, the others keep theirs, and RefsAt (the last full lookup) stays.
+func TestLookupRefsRechecksOnlyThoseKeys(t *testing.T) {
+	at := time.Date(2026, 10, 20, 18, 5, 0, 0, time.UTC)
+	prev := NewGitHub()
+	prev.RefsAt = at
+	prev.Refs["branch:o/r@a"] = Ref{Exists: false}
+	prev.Refs["branch:o/r@b"] = Ref{Exists: false}
+	gh := &fakeGh{handle: func(a []string) (string, error) {
+		if isQuery(a, "k0:") {
+			return `{"data":{"k0":{"id":"R_1","viewerPermission":"ADMIN","ref":{"name":"a","target":{"oid":"abc"}}}}}`, nil
+		}
+		return "", fmt.Errorf("unexpected gh %s", strings.Join(a, " "))
+	}}
+	g, err := LookupRefs(ctx, gh, prev, []item.Key{item.BranchKey("o/r", "a")}, at.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Refs["branch:o/r@a"]; !got.Exists || got.Tip != "abc" {
+		t.Errorf("a = %+v, want exists at abc", got)
+	}
+	if got := g.Refs["branch:o/r@b"]; got.Exists {
+		t.Errorf("b changed: %+v", got)
+	}
+	if !g.RefsAt.Equal(at) {
+		t.Errorf("RefsAt = %v, want %v (a partial lookup is not a full one)", g.RefsAt, at)
+	}
+	if prev.Refs["branch:o/r@a"].Exists {
+		t.Error("prev was changed in place")
+	}
+}

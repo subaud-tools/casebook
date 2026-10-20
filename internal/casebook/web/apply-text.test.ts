@@ -775,6 +775,27 @@ describe('waits and held wording', () => {
 describe('run rows', () => {
   const mk = (over: Partial<JobStep>): JobStep =>
     step(over.action ?? 'pr-close', over.lane ?? 'casebook', over.state, over);
+  // Court, 2026-10-20: a half-done item says what waits.
+  test('ranLine says when the local copy waits for another Mac', () =>
+    assert.equal(
+      ranLine(
+        {
+          job: 35,
+          group: 'done',
+          steps: [mk({ action: 'branch-delete-remote', state: 'verified' })],
+        },
+        [
+          {
+            kind: 'other-mac',
+            text: 'its local copy is only on pro-2',
+            stops: ['delete'],
+            local: true,
+            machine: 'pro-2',
+          },
+        ],
+      ).text,
+      'deleted on the remote \u00b7 verified \u00b7 job #35 \u00b7 local copy waits for pro-2',
+    ));
   test('ranLine names what failed and the job', () =>
     assert.deepEqual(
       ranLine({

@@ -390,6 +390,16 @@ func (s *Server) startCasebookLane(job apply.Job) {
 		// After the casebook lane drains, check whether the job has reached a
 		// terminal state (all steps done or nothing left to run).
 		s.settleJob(bgCtx, job.ID)
+		// Re-read the branches it deleted on GitHub (Court, 2026-10-20).
+		if j, err := s.Apply.Get(bgCtx, job.ID); err == nil {
+			var keys []string
+			for _, st := range j.Steps {
+				if st.Action == "branch-delete-remote" && st.State == apply.StepVerified {
+					keys = append(keys, st.Key)
+				}
+			}
+			s.recheck(keys)
+		}
 	}()
 }
 

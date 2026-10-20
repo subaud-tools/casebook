@@ -12,6 +12,7 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/config"
 	"github.com/subaud-tools/casebook/internal/casebook/engine"
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/journal"
 	"github.com/subaud-tools/casebook/internal/casebook/observe"
 	"github.com/subaud-tools/casebook/internal/casebook/spool"
@@ -157,6 +158,33 @@ func (a *App) Sync(ctx context.Context, o SyncOptions) (SyncReport, error) {
 	}
 	_, err = a.pushSync(ctx, &rep)
 	return rep, err
+}
+
+// RecheckRefs re-reads keys on GitHub into the cache (observe.LookupRefs):
+// after a GitHub branch delete is verified or undone, so the item says where
+// its copies are now (Court, 2026-10-20). A sync running now re-reads them
+// all anyway, so a busy lock is not an error.
+func (a *App) RecheckRefs(ctx context.Context, keys []item.Key) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	unlock, err := LockSync()
+	if errors.Is(err, ErrSyncBusy) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	g, err := observe.LoadGitHub(config.CachePath())
+	if err != nil {
+		return err
+	}
+	g, lerr := observe.LookupRefs(ctx, a.Gh, g, keys, a.Now())
+	if err := observe.SaveGitHub(config.CachePath(), g); err != nil {
+		return err
+	}
+	return lerr
 }
 
 // LockSync takes this machine's sync lock (a flock on StateDir/sync.lock)
