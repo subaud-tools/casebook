@@ -649,6 +649,51 @@ export function untickHidden(ticked: string[], shown: Set<string>): string[] {
 }
 
 /**
+ * keyLabel is a key as review's list and plan name it. A worktree
+ * ("worktree:<machine>:<path>") is "<clone name> · <path inside the
+ * clone>": its clone is the one given (a location's path) or, when none
+ * is, the folder above a ".worktrees" folder in its path. A worktree
+ * outside its clone is its path's last two segments. Any other key is the
+ * key without its kind. The full key goes in the hover.
+ */
+export function keyLabel(key: string, clone?: string): string {
+  const i = key.indexOf(':');
+  if (key.slice(0, i) !== 'worktree') return i > 0 ? key.slice(i + 1) : key;
+  const rest = key.slice(i + 1);
+  const path = rest.slice(rest.indexOf(':') + 1).replace(/\/+$/, '');
+  let root = clone?.replace(/\/+$/, '');
+  if (!root) {
+    const at = path.indexOf('/.worktrees/');
+    if (at > 0) root = path.slice(0, at);
+  }
+  if (root && path.startsWith(`${root}/`)) {
+    const name = root.slice(root.lastIndexOf('/') + 1);
+    return `${name} \u00b7 ${path.slice(root.length + 1)}`;
+  }
+  return path.split('/').filter(Boolean).slice(-2).join('/');
+}
+
+/**
+ * reviewFollow is what review's middle pane shows once its list settles
+ * (a search, a filter, a reload) or its ticks change: the summary with
+ * nothing ticked (never a plan reviewed before), the plan for the ticks
+ * left when they are not the ones the plan shown is for, or that plan
+ * again.
+ */
+export function reviewFollow(
+  ticked: string[],
+  reviewed: string[],
+  open: boolean,
+): 'overview' | 'replan' | 'redraw' {
+  if (!ticked.length) return 'overview';
+  const same =
+    open &&
+    ticked.length === reviewed.length &&
+    ticked.every((k, i) => k === reviewed[i]);
+  return same ? 'redraw' : 'replan';
+}
+
+/**
  * waitBlocks splits the items waiting for another Mac into runs of rows
  * that one sentence is true of, in first-seen order: a branch whose GitHub
  * delete is among steps says its GitHub copy is deleted above, one without

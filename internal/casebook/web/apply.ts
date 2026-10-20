@@ -82,7 +82,7 @@ import type {
   Waiting,
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
-import { keyWithoutKind, pluralize } from './decide-math.ts';
+import { pluralize } from './decide-math.ts';
 import {
   actionTitle,
   groupSteps,
@@ -96,6 +96,8 @@ import {
   reviewKick,
   reviewLine,
   untickHidden,
+  reviewFollow,
+  keyLabel,
   ranLine,
   runBulk,
   tickedRunWords,
@@ -268,6 +270,10 @@ export function makeApply(ctx: Ctx): Section {
   // item already running): shown in the pane, no "sync first".
   let reviewNote = '';
   let refusal = '';
+  // runNote: why the last press of review's button ran nothing (serve
+  // refused it, or the plan changed). It stays until the next press or the
+  // next change to the ticks: no redraw takes it away.
+  let runNote = '';
 
   // run: the job open.
   let openId: number | null = null;
@@ -368,6 +374,12 @@ export function makeApply(ctx: Ctx): Section {
     if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
     return Math.max(0, g.total - n);
   }
+  // itemLabel is a key as review names it (keyLabel), a worktree by the clone
+  // its loaded row was seen in.
+  const itemLabel = (key: string): string => {
+    const loc = items.find((it) => it.key === key)?.locations?.[0];
+    return keyLabel(key, loc ? loc.slice(loc.indexOf(':') + 1) : undefined);
+  };
   const tickedIn = (id: string): string[] =>
     reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
   // tickedKeys is every ticked item, group by group in the list's order,
@@ -410,7 +422,10 @@ export function makeApply(ctx: Ctx): Section {
         return {
           id: it.key,
           key: it.key,
-          title: it.title || undefined,
+          // A worktree names its clone and its path in it, not only its
+          // branch: the full key is the hover.
+          title:
+            it.kind === 'worktree' ? itemLabel(it.key) : it.title || undefined,
           stands: st.text,
           tone: st.tone,
         };
@@ -525,6 +540,7 @@ export function makeApply(ctx: Ctx): Section {
   });
 
   reviewSel.onChange(() => {
+    runNote = '';
     reviewPane.paintHeads();
     if (mode !== 'review') return;
     // Ticks only cover what the plan drawn is for: the buttons go off now,
@@ -786,7 +802,7 @@ export function makeApply(ctx: Ctx): Section {
       }
       reviewPending = false;
       paintList();
-      if (offset === 0) drawReview();
+      if (offset === 0) followTicks();
       applyWanted();
     } catch (err) {
       if (!itemsSeq.isLatest(mine)) return;
@@ -976,6 +992,18 @@ export function makeApply(ctx: Ctx): Section {
     wantGroup = '';
     reviewSel.clear();
     void tickGroup(id, true);
+  }
+
+  // followTicks redraws review's middle pane for the ticks left once the
+  // list is in: a narrowing that dropped ticks never leaves the plan for
+  // the old ones (its button off, for no reason shown) on the page.
+  function followTicks(): void {
+    if (mode !== 'review') return drawReview();
+    const next = reviewFollow(tickedKeys(), reviewKeys, reviewOpen);
+    if (next === 'redraw') return drawReview();
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = null;
+    void openTicked();
   }
 
   // openTicked builds serve's plan for exactly the ticked items and shows
@@ -1425,7 +1453,7 @@ export function makeApply(ctx: Ctx): Section {
         h(
           'ul',
           { class: 'cb-confirm-list' },
-          ...keys.map((k) => h('li', {}, keyWithoutKind(k))),
+          ...keys.map((k) => h('li', { title: k }, itemLabel(k))),
         ),
       ),
       actions: [
@@ -1452,7 +1480,7 @@ export function makeApply(ctx: Ctx): Section {
     const keys = tickedKeys();
     if (reviewPending || !sameKeys(keys, reviewKeys)) return;
     busy = true;
-    note = '';
+    runNote = '';
     drawReview();
     try {
       const saved = await ctx.api.post<PlanView>('/apply/plan', { keys });
@@ -1460,7 +1488,7 @@ export function makeApply(ctx: Ctx): Section {
       const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
       if (want.join('\n') !== got.join('\n')) {
         reviewView = { ...saved, job: { ...saved.job } };
-        note =
+        runNote =
           'What would run changed since you looked; nothing ran. Look again.';
         busy = false;
         drawReview();
@@ -1481,10 +1509,12 @@ export function makeApply(ctx: Ctx): Section {
       stepsShown = STEPS_PAGE;
       ctx.route.go('run', String(v.job.id));
     } catch (err) {
-      note = message(err);
-      drawReview();
+      runNote = message(err);
     } finally {
       busy = false;
+      // Drawn once busy is off: the button is on again for the next press,
+      // with the words that say why the last one ran nothing.
+      drawReview();
       if (active) ctx.setPrimary(primary());
     }
   }
@@ -1635,6 +1665,14 @@ export function makeApply(ctx: Ctx): Section {
         acts: runs && v ? [runActs(v)] : [],
       }),
     );
+    if (runNote)
+      doc.append(
+        h(
+          'p',
+          { class: 'cb-apply-note', role: 'status', 'data-testid': 'run-note' },
+          runNote,
+        ),
+      );
     if (refusal) {
       doc.append(refusalCard());
       return paint(doc);
@@ -1732,11 +1770,7 @@ export function makeApply(ctx: Ctx): Section {
             h(
               'div',
               { class: 'kit-tr cb-plan-step', 'data-key': s.key },
-              h(
-                'span',
-                { class: 'cb-step-k', title: s.key },
-                keyWithoutKind(s.key),
-              ),
+              h('span', { class: 'cb-step-k', title: s.key }, itemLabel(s.key)),
               h(
                 'code',
                 { class: 'cb-cmd', 'data-cmd': s.command, title: s.command },
@@ -1794,7 +1828,11 @@ export function makeApply(ctx: Ctx): Section {
               h(
                 'div',
                 { class: 'kit-tr cb-plan-step' },
-                h('span', { class: 'cb-step-k' }, keyWithoutKind(w.key)),
+                h(
+                  'span',
+                  { class: 'cb-step-k', title: w.key },
+                  itemLabel(w.key),
+                ),
                 h(
                   'span',
                   { class: 'cb-cmd' },
@@ -1837,8 +1875,12 @@ export function makeApply(ctx: Ctx): Section {
               links.push(
                 h(
                   'a',
-                  { class: 'cb-link', href: `#/decide/${pathEscape(hd.by)}` },
-                  keyWithoutKind(hd.by),
+                  {
+                    class: 'cb-link',
+                    href: `#/decide/${pathEscape(hd.by)}`,
+                    title: hd.by,
+                  },
+                  itemLabel(hd.by),
                 ),
               );
             else if (hd.kind === 'long-lived')
@@ -1853,11 +1895,7 @@ export function makeApply(ctx: Ctx): Section {
           return h(
             'div',
             { class: 'kit-tr cb-plan-step cb-held-row', 'data-held': x.key },
-            h(
-              'span',
-              { class: 'cb-step-k', title: x.key },
-              keyWithoutKind(x.key),
-            ),
+            h('span', { class: 'cb-step-k', title: x.key }, itemLabel(x.key)),
             h(
               'span',
               {
@@ -1910,7 +1948,7 @@ export function makeApply(ctx: Ctx): Section {
     );
   }
 
-  // planLines: what waits and is held, the plan's tags, and a note.
+  // planLines: what waits and is held, and the plan's tags.
   function planLines(v: PlanView): HTMLElement {
     const steps = v.job.steps ?? [];
     const el = h('div', { class: 'cb-approve' });
@@ -1919,8 +1957,6 @@ export function makeApply(ctx: Ctx): Section {
     const tags = stepTags(steps);
     if (tags.length)
       el.append(h('p', { class: 'cb-tags-line' }, ...tagEls(tags, 0)));
-    if (note)
-      el.append(h('p', { class: 'cb-apply-note', role: 'status' }, note));
     return el;
   }
 
