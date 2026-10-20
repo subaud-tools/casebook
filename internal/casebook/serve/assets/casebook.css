@@ -2591,18 +2591,19 @@ button.cb-cond-menu-row[aria-disabled=true] {
   color: var(--kit-muted);
 }
 .cb-mid-acts {
-  height: 26px;
+  height: 60px;
   margin: 0 0 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   overflow: hidden;
   white-space: nowrap;
 }
 .cb-mid-acts .kit-btns {
   margin: 0;
-  flex-wrap: nowrap;
+  display: contents;
 }
 .cb-mid-acts .kit-btn {
   height: 26px;
@@ -2676,10 +2677,7 @@ button.cb-cond-menu-row[aria-disabled=true] {
   color: var(--kit-signal);
 }
 .cb-mid-acts > .cb-choices {
-  flex: none;
-  flex-wrap: nowrap;
-  gap: 8px;
-  padding: 0;
+  display: contents;
 }
 .kit-doc:has(> .cb-apply-doc) {
   max-width: 860px;

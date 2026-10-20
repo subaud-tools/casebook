@@ -3142,19 +3142,23 @@ button.cb-cond-menu-row[aria-disabled='true'] {
   font: 13px/20px var(--kit-sans);
   color: var(--kit-muted);
 }
+/* The buttons' block: two fixed lines of 26px on every tab, so a line of
+ * buttons too long for the column (decide's at 1352px) wraps whole onto the
+ * second, never cut. */
 .cb-mid-acts {
-  height: 26px;
+  height: 60px;
   margin: 0 0 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   overflow: hidden;
   white-space: nowrap;
 }
 .cb-mid-acts .kit-btns {
   margin: 0;
-  flex-wrap: nowrap;
+  display: contents;
 }
 .cb-mid-acts .kit-btn {
   height: 26px;
@@ -3238,10 +3242,7 @@ button.cb-cond-menu-row[aria-disabled='true'] {
  * recommendation filled; no "recommended" mark above them (the context
  * line says it). Not now's picker and an error stay under the line. */
 .cb-mid-acts > .cb-choices {
-  flex: none;
-  flex-wrap: nowrap;
-  gap: 8px;
-  padding: 0;
+  display: contents;
 }
 /* The middle pane's documents for ticked items, a plan and a run item use
  * the room they have, as the item page does. */

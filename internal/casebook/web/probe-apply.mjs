@@ -1320,7 +1320,7 @@ async function frameScenario(context, t, s) {
     );
     check(
       `frame: ticked lines sit at the same y on decide, review and run (${tabs.map((x) => JSON.stringify(mid[x])).join(' ')})`,
-      same && mid.decide.map((m) => m[1]).join(',') === '16,30,20,26',
+      same && mid.decide.map((m) => m[1]).join(',') === '16,30,20,60',
     );
 
     await go('decide');
@@ -1443,6 +1443,66 @@ async function frameScenario(context, t, s) {
           foot[x].top === foot.decide.top,
       ),
     );
+
+    // At Court's width (1352px) every button of a ticked document is
+    // whole: the buttons' block wraps onto its fixed second line.
+    await pg.setViewportSize({ width: 1352, height: 900 });
+    // With a session attached: decide's line holds "ask agent" too.
+    const FS = 'probe-frame-pi';
+    await agent.presence(FS, 'pi \u00b7 frame', '/home/court/frame', 'pi');
+    const keepFS = setInterval(
+      () =>
+        void agent.presence(FS, 'pi \u00b7 frame', '/home/court/frame', 'pi'),
+      1000,
+    );
+    const cut = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await openGroup(tab, groupOf[tab]);
+      const box = `.cb-pane-${tab} .kit-row[data-key="${tickKey[tab]}"] .kit-box`;
+      await pg.waitForSelector(box, { timeout: 8000 });
+      if (
+        (await pg.$eval(box, (e) => e.getAttribute('aria-checked'))) !== 'true'
+      )
+        await pg.click(box);
+      await until(
+        pg,
+        () =>
+          (document
+            .querySelector('.kit-read:not([hidden]) .cb-mid-acts')
+            ?.querySelectorAll('button').length ?? 0) > 0,
+        undefined,
+        8000,
+      );
+      cut[tab] = await pg.evaluate(() => {
+        const acts = document.querySelector(
+          '.kit-read:not([hidden]) .cb-mid-acts',
+        );
+        const read = document.querySelector('.kit-read:not([hidden])');
+        const a = acts.getBoundingClientRect();
+        const rd = read.getBoundingClientRect();
+        const bad = [...acts.querySelectorAll('button')]
+          .filter((b) => b.offsetParent)
+          .filter((b) => {
+            const r = b.getBoundingClientRect();
+            return (
+              r.left < a.left - 0.5 ||
+              r.right > a.right + 0.5 ||
+              r.top < a.top - 0.5 ||
+              r.bottom > a.bottom + 0.5 ||
+              r.right > rd.right + 0.5
+            );
+          })
+          .map((b) => b.textContent.trim());
+        return { bad, h: Math.round(a.height) };
+      });
+    }
+    check(
+      `frame: at 1352x900 every button of the ticked document is whole, the buttons' block one height on every tab (${tabs.map((x) => `${x} ${cut[x].h}px cut [${cut[x].bad.join(', ')}]`).join('; ')})`,
+      tabs.every((x) => cut[x].bad.length === 0 && cut[x].h === cut.decide.h),
+    );
+    clearInterval(keepFS);
+    await pg.setViewportSize({ width: 1280, height: 800 });
   } finally {
     await pg.close();
   }
