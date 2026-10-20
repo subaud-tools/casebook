@@ -618,8 +618,8 @@ export function reviewLine(
 }
 
 /**
- * stepLine is a step's command as it reads to Court: what it does to what,
- * and the commit it insists on, rather than the GraphQL or git it runs
+ * stepLine is a step's command as it reads to Court, under the key line
+ * that names the item: what it does and the commit it insists on, rather than the GraphQL or git it runs
  * (Court, 2026-10-20). The exact command stays in the title (hover).
  */
 export function stepLine(s: {
@@ -629,18 +629,15 @@ export function stepLine(s: {
   expected_tip?: string;
 }): string {
   const tip = s.expected_tip
-    ? `, if it is still at ${s.expected_tip.slice(0, 7)}`
+    ? ` \u00b7 if still at ${s.expected_tip.slice(0, 7)}`
     : '';
-  const branch = s.key.slice(s.key.indexOf('@') + 1);
   switch (s.action) {
     case 'branch-delete-remote':
-      return `delete ${branch} on GitHub${tip}`;
+      return `delete on GitHub${tip}`;
     case 'branch-delete-local':
-      return `delete ${branch} here${tip}`;
-    case 'worktree-remove': {
-      const q = s.command.match(/'([^']*)'\s*$/);
-      return `remove worktree ${q ? q[1] : s.key.slice(s.key.indexOf(':', 9) + 1)}`;
-    }
+      return `delete here${tip}`;
+    case 'worktree-remove':
+      return 'remove the worktree';
   }
   return s.command;
 }

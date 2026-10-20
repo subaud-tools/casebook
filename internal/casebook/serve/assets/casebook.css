@@ -2759,3 +2759,6 @@ button.cb-cond-menu-row[aria-disabled=true] {
 .cb-ran .cb-step-w {
   white-space: nowrap;
 }
+.kit-card-body p {
+  overflow-wrap: anywhere;
+}

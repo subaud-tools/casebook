@@ -923,7 +923,7 @@ describe('ticked run items', () => {
 
 // Court, 2026-10-20: "this is also not an intelligible command".
 describe('stepLine', () => {
-  test('a GitHub delete reads as what it does', () =>
+  test('a GitHub delete reads as what it does; the key line above names the branch', () =>
     assert.equal(
       stepLine({
         action: 'branch-delete-remote',
@@ -931,7 +931,7 @@ describe('stepLine', () => {
         command: "gh api graphql -f query='mutation(...)' -f r='R_1'",
         expected_tip: '14da80f3d9aecd97e5321bcf6be172a500fbaa3e',
       }),
-      'delete feat/boot-trace on GitHub, if it is still at 14da80f',
+      'delete on GitHub \u00b7 if still at 14da80f',
     ));
   test('a local delete and a worktree removal read the same way', () => {
     assert.equal(
@@ -941,7 +941,7 @@ describe('stepLine', () => {
         command: "git -C '/r' update-ref -d 'refs/heads/feat/x' abc1234def",
         expected_tip: 'abc1234def',
       }),
-      'delete feat/x here, if it is still at abc1234',
+      'delete here \u00b7 if still at abc1234',
     );
     assert.equal(
       stepLine({
@@ -949,7 +949,7 @@ describe('stepLine', () => {
         key: 'worktree:work:/r/.worktrees/ops',
         command: "git -C '/r' worktree remove '/r/.worktrees/ops'",
       }),
-      'remove worktree /r/.worktrees/ops',
+      'remove the worktree',
     );
   });
   test('a gh command that already reads is shown as it is', () =>

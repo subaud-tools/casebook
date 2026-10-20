@@ -1741,17 +1741,14 @@ function reviewLine(it, done) {
   return { text: done.toLowerCase(), tone: "muted" };
 }
 function stepLine(s) {
-  const tip = s.expected_tip ? `, if it is still at ${s.expected_tip.slice(0, 7)}` : "";
-  const branch = s.key.slice(s.key.indexOf("@") + 1);
+  const tip = s.expected_tip ? ` · if still at ${s.expected_tip.slice(0, 7)}` : "";
   switch (s.action) {
     case "branch-delete-remote":
-      return `delete ${branch} on GitHub${tip}`;
+      return `delete on GitHub${tip}`;
     case "branch-delete-local":
-      return `delete ${branch} here${tip}`;
-    case "worktree-remove": {
-      const q = s.command.match(/'([^']*)'\s*$/);
-      return `remove worktree ${q ? q[1] : s.key.slice(s.key.indexOf(":", 9) + 1)}`;
-    }
+      return `delete here${tip}`;
+    case "worktree-remove":
+      return "remove the worktree";
   }
   return s.command;
 }

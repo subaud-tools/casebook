@@ -3333,3 +3333,8 @@ button.cb-cond-menu-row[aria-disabled='true'] {
 .cb-ran .cb-step-w {
   white-space: nowrap;
 }
+
+/* A needs-you card's message wraps inside its card, however long its words. */
+.kit-card-body p {
+  overflow-wrap: anywhere;
+}
