@@ -35,7 +35,7 @@ import {
   reviewLine,
   untickHidden,
   reviewFollow,
-  keyLabel,
+  stepKey,
   stepLine,
   waitBlocks,
   heldText,
@@ -704,6 +704,37 @@ describe('review rows', () => {
       },
     );
   });
+  // Court, 2026-10-20: "removed it" read as if the worktree were gone.
+  test('reviewLine says a worktree here is removed here, one elsewhere waits', () => {
+    const wt = (over: Partial<ItemView> = {}): ItemView =>
+      ({
+        key: 'worktree:work:/Users/c/GitHub/hail/.worktrees/fix',
+        kind: 'worktree',
+        decision: { disposition: 'delete' },
+        ...over,
+      }) as unknown as ItemView;
+    assert.deepEqual(reviewLine(wt(), 'Removed it'), {
+      text: 'removed here',
+      tone: 'muted',
+    });
+    assert.deepEqual(
+      reviewLine(
+        wt({
+          holds: [
+            {
+              kind: 'other-mac',
+              text: 'its local copy is only on pro-2',
+              stops: ['delete'],
+              local: true,
+              machine: 'pro-2',
+            },
+          ],
+        }),
+        'Removed it',
+      ),
+      { text: 'waits for pro-2', tone: 'muted' },
+    );
+  });
   test('reviewLine falls back to the done word, lower case', () =>
     assert.deepEqual(reviewLine(prClose(), 'Closed it'), {
       text: 'closed it',
@@ -999,24 +1030,19 @@ describe('reviewFollow', () => {
     assert.equal(reviewFollow(['a', 'b'], ['a', 'b'], true), 'redraw'));
 });
 
-describe('keyLabel', () => {
-  const WT =
-    'worktree:work:/Users/c/GitHub/ext/oss-ml-optimizer/.worktrees/cpu-budget';
-  test('a worktree in its clone is the clone name and the path inside it', () =>
-    assert.equal(
-      keyLabel(WT, '/Users/c/GitHub/ext/oss-ml-optimizer'),
-      'oss-ml-optimizer \u00b7 .worktrees/cpu-budget',
+describe('stepKey', () => {
+  test("a worktree step is the worktree's label, not its full path", () =>
+    assert.deepEqual(
+      stepKey(
+        'worktree:work:/Users/c/GitHub/extensions-workspace/oss-ml-optimizer/.worktrees/fast-defaults',
+      ),
+      { key: 'oss-ml-optimizer \u00b7 .worktrees/fast-defaults' },
     ));
-  test('with its clone not known, a .worktrees path names the clone above it', () =>
-    assert.equal(
-      keyLabel(WT),
-      'oss-ml-optimizer \u00b7 .worktrees/cpu-budget',
-    ));
-  test("a worktree outside its clone is its path's last two segments", () =>
-    assert.equal(
-      keyLabel('worktree:work:/tmp/scratch/hail-fix', '/Users/c/GitHub/hail'),
-      'scratch/hail-fix',
-    ));
-  test('any other key is the key without its kind', () =>
-    assert.equal(keyLabel('branch:o/r@feat/x'), 'o/r@feat/x'));
+  test('a branch step is its repo over its branch', () =>
+    assert.deepEqual(stepKey('branch:o/r@feat/x'), {
+      repo: 'o/r',
+      key: 'feat/x',
+    }));
+  test('any other step is its key without its kind', () =>
+    assert.deepEqual(stepKey('pr:o/r#4'), { key: 'o/r#4' }));
 });

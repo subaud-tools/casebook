@@ -13,7 +13,7 @@ import type {
   Waiting,
   Hold,
 } from './wire.d.ts';
-import { pluralize } from './decide-math.ts';
+import { keyLabel, pluralize } from './decide-math.ts';
 import type { Tone } from './list-pane-text.ts';
 
 /**
@@ -569,8 +569,10 @@ export function reviewKick(n: number, groups: string[]): string {
 /**
  * reviewLine is a review row's second line, where the item stands: what
  * holds it from its decision (agent); for a branch, where it is deleted
- * (its copies still there: GitHub's has no machine); else its decision
- * done, in serve's words, lower case.
+ * (its copies still there: GitHub's has no machine); for a worktree on
+ * this Mac, "removed here" (what will happen, not serve's done word, which
+ * reads as already gone); else its decision done, in serve's words, lower
+ * case.
  */
 export function reviewLine(
   it: ItemView,
@@ -615,6 +617,7 @@ export function reviewLine(
     return part.kind === 'other-mac'
       ? { text: `waits for ${part.machine}`, tone: 'muted' }
       : { text: `held: ${part.text}`, tone: 'agent' };
+  if (it.kind === 'worktree') return { text: 'removed here', tone: 'muted' };
   return { text: done.toLowerCase(), tone: 'muted' };
 }
 
@@ -649,28 +652,15 @@ export function untickHidden(ticked: string[], shown: Set<string>): string[] {
 }
 
 /**
- * keyLabel is a key as review's list and plan name it. A worktree
- * ("worktree:<machine>:<path>") is "<clone name> · <path inside the
- * clone>": its clone is the one given (a location's path) or, when none
- * is, the folder above a ".worktrees" folder in its path. A worktree
- * outside its clone is its path's last two segments. Any other key is the
- * key without its kind. The full key goes in the hover.
+ * stepKey is a step's key in a job's steps table: a worktree by its label
+ * (keyLabel), a branch as its repo over its branch, any other key without
+ * its kind. The full key goes in the hover.
  */
-export function keyLabel(key: string, clone?: string): string {
-  const i = key.indexOf(':');
-  if (key.slice(0, i) !== 'worktree') return i > 0 ? key.slice(i + 1) : key;
-  const rest = key.slice(i + 1);
-  const path = rest.slice(rest.indexOf(':') + 1).replace(/\/+$/, '');
-  let root = clone?.replace(/\/+$/, '');
-  if (!root) {
-    const at = path.indexOf('/.worktrees/');
-    if (at > 0) root = path.slice(0, at);
-  }
-  if (root && path.startsWith(`${root}/`)) {
-    const name = root.slice(root.lastIndexOf('/') + 1);
-    return `${name} \u00b7 ${path.slice(root.length + 1)}`;
-  }
-  return path.split('/').filter(Boolean).slice(-2).join('/');
+export function stepKey(key: string): { repo?: string; key: string } {
+  const k = keyLabel(key);
+  if (!key.startsWith('branch:')) return { key: k };
+  const at = k.indexOf('@');
+  return at < 0 ? { key: k } : { repo: k.slice(0, at), key: k.slice(at + 1) };
 }
 
 /**

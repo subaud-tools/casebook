@@ -5,7 +5,7 @@
 // hover.
 
 import { h } from '/_kit/kit.js';
-import { keyWithoutKind } from './decide-math.ts';
+import { keyLabel } from './decide-math.ts';
 import type { Tone } from './list-pane-text.ts';
 
 export function midHead(o: {
@@ -33,7 +33,7 @@ export function midRows(
       h(
         'div',
         { class: 'cb-mid-row', 'data-key': r.key },
-        h('div', { class: 'cb-mid-k', title: r.key }, keyWithoutKind(r.key)),
+        h('div', { class: 'cb-mid-k', title: r.key }, keyLabel(r.key)),
         h(
           'div',
           { class: `cb-mid-st cb-tone-${r.tone ?? 'muted'}`, title: r.stands },

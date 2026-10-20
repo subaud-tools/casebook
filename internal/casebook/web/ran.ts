@@ -16,7 +16,7 @@ import type {
   NeedsYou,
 } from './wire.d.ts';
 import type { Ctx } from './app.ts';
-import { keyWithoutKind, pluralize } from './decide-math.ts';
+import { keyLabel, pluralize } from './decide-math.ts';
 import { DANGER_DISPS } from './decide.ts';
 import {
   actionVerb,
@@ -30,6 +30,7 @@ import {
   resumeVerb,
   stepMark,
   stepLine,
+  stepKey,
 } from './apply-text.ts';
 import { midHead } from './mid.ts';
 
@@ -57,17 +58,19 @@ export interface JobHooks {
  * Court (signal edge) or say the agent paused (amber), and the steps table.
  */
 /**
- * stepKeyLines is a step's key in the steps table: for a branch, the repo
- * (muted, the row's full width) over the branch, which shares its line with
- * the state; neither wraps mid-word (Court, 2026-10-18). Any other key is the
- * one line beside the state.
+ * stepKeyLines is a step's key in the steps table (stepKey): for a branch,
+ * the repo (muted, the row's full width) over the branch, which shares its
+ * line with the state; neither wraps mid-word (Court, 2026-10-18). Any other
+ * key, a worktree by its label, is the one line beside the state. The full
+ * key is the hover.
  */
-function stepKeyLines(key: string): HTMLElement[] {
-  const at = key.indexOf('@');
-  if (at < 0) return [h('span', { class: 'cb-step-k' }, key)];
+function stepKeyLines(full: string): HTMLElement[] {
+  const k = stepKey(full);
+  if (k.repo === undefined)
+    return [h('span', { class: 'cb-step-k', title: full }, k.key)];
   return [
-    h('span', { class: 'cb-step-repo' }, key.slice(0, at)),
-    h('span', { class: 'cb-step-k' }, key.slice(at + 1)),
+    h('span', { class: 'cb-step-repo', title: full }, k.repo),
+    h('span', { class: 'cb-step-k', title: full }, k.key),
   ];
 }
 
@@ -157,7 +160,7 @@ export function needsCard(
   agent: string,
   hooks: JobHooks,
 ): HTMLElement {
-  const key = step ? keyWithoutKind(step.key) : '';
+  const key = step ? keyLabel(step.key) : '';
   const verb = step ? resumeVerb(step.action) : 'run';
   const answer = (action: string, text = '') => hooks.answer(c, action, text);
   let el: HTMLElement;
@@ -328,7 +331,6 @@ function stepRow(
 ): HTMLElement {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} \u00b7 ${m.text}` : m.text;
-  const key = keyWithoutKind(s.key);
   return h(
     'div',
     {
@@ -340,8 +342,8 @@ function stepRow(
     h('span', { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
     // One line for the key (whole on hover), or a branch's repo over it.
     ...(o.line
-      ? [h('span', { class: 'cb-step-k', title: key }, key)]
-      : stepKeyLines(key)),
+      ? [h('span', { class: 'cb-step-k', title: s.key }, keyLabel(s.key))]
+      : stepKeyLines(s.key)),
     h(
       'span',
       { class: 'cb-step-w' },
@@ -378,7 +380,7 @@ function stepRow(
 // needs-you cards and the steps.
 function ranHead(detail: ItemDetailView): HTMLElement[] {
   const it = detail.item;
-  const key = keyWithoutKind(it.key);
+  const key = keyLabel(it.key);
   const status = detail.done_how
     ? `${it.status}: ${detail.done_how}`
     : (it.status ?? '');

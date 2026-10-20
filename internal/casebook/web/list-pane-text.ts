@@ -2,6 +2,8 @@
 // kit imports, safe under node --test): what a pane's filters and search
 // put in a tab's address and in GET /api/items, and a row's two lines.
 
+import { keyLabel } from './decide-math.ts';
+
 /** Tone is a line's colour: the kit's ok, agent, signal, wait or muted. */
 export type Tone = 'ok' | 'agent' | 'signal' | 'wait' | 'muted';
 
@@ -59,15 +61,17 @@ export interface PaneRow {
 }
 
 /**
- * paneLines is a row's two lines and its hover: the title when it has one,
- * else the key ("branch · o/r@feat/x"); then where it stands. The hover is
- * always the full key.
+ * paneLines is a row's two lines and its hover: a worktree's label
+ * (keyLabel), else the title when it has one, else the key ("branch ·
+ * o/r@feat/x"); then where it stands. The hover is always the full key.
  */
 export function paneLines(r: PaneRow): {
   one: string;
   two: string;
   hover: string;
 } {
+  if (r.key.startsWith('worktree:'))
+    return { one: keyLabel(r.key), two: r.stands, hover: r.key };
   const i = r.key.indexOf(':');
   const key =
     i < 0 ? r.key : `${r.key.slice(0, i)} \u00b7 ${r.key.slice(i + 1)}`;

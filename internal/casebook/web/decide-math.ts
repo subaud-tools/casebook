@@ -52,6 +52,29 @@ export function keyWithoutKind(key: string): string {
 }
 
 /**
+ * keyLabel is a key as every page names it beside its kind: a worktree
+ * ("worktree:<machine>:<path>") in a ".worktrees" or ".claude/worktrees"
+ * folder is "<the folder above it> · <the path from that folder on>"
+ * ("oss-ml-optimizer · .worktrees/fast-defaults"), wherever its clone is;
+ * any other worktree is its path's last two segments ("scratch · hail-fix").
+ * Any other key is the key without its kind. The full key goes in the hover.
+ */
+export function keyLabel(key: string): string {
+  if (!key.startsWith('worktree:')) return keyWithoutKind(key);
+  const rest = key.slice('worktree:'.length);
+  const path = rest.slice(rest.indexOf(':') + 1).replace(/\/+$/, '');
+  for (const dir of ['/.claude/worktrees/', '/.worktrees/']) {
+    const at = path.indexOf(dir);
+    if (at > 0) {
+      const above = path.slice(0, at);
+      const name = above.slice(above.lastIndexOf('/') + 1);
+      return `${name} \u00b7 ${path.slice(at + 1)}`;
+    }
+  }
+  return path.split('/').filter(Boolean).slice(-2).join(' \u00b7 ');
+}
+
+/**
  * allowedForKeys returns the intersection of allowed dispositions for every
  * key in the slice, derived from each key's kind prefix.  This is the correct
  * way to compute allowed for a selection: it works for keys on unrendered
