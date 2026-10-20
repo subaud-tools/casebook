@@ -16,7 +16,6 @@ import {
   fillLabel,
   recommendLine,
   countWord,
-  groupButtons,
   discardConfirm,
   pastedKeys,
   lookIntoCard,
@@ -26,7 +25,7 @@ import {
   waitingStrip,
 } from './decide-math.ts';
 import { sessionName } from './sessions.ts';
-import type { DecisionVocabView, GroupView, NotNowForm } from './wire.d.ts';
+import type { DecisionVocabView, NotNowForm } from './wire.d.ts';
 
 // The forms as serve sends them (item.NotNowForms).
 const FORMS: NotNowForm[] = [
@@ -155,10 +154,10 @@ const VOCAB: DecisionVocabView = {
       needs_until: ['wait', 'watch'],
       question: 'What should happen to this issue?',
       choices: [
-        c('keep', 'Leave it open', 'stays'),
-        c('close', 'Close it', 'goes to To apply', true),
-        c('wait', 'Not now', 'hidden', false, true),
-        c('ignore', 'Stop tracking it', 'never asks'),
+        c('keep', 'leave it open', 'stays'),
+        c('close', 'close it', 'goes to To apply', true),
+        c('wait', 'not now', 'hidden', false, true),
+        c('ignore', 'stop tracking it', 'never asks'),
       ],
     },
     {
@@ -167,10 +166,10 @@ const VOCAB: DecisionVocabView = {
       needs_until: ['wait', 'watch'],
       question: 'What should happen to this branch?',
       choices: [
-        c('keep', 'Keep it', 'stays as it is'),
-        c('delete', 'Delete it', 'goes to To apply', true),
-        c('wait', 'Not now', 'hidden', false, true),
-        c('ignore', 'Stop tracking it', 'never asks'),
+        c('keep', 'keep it', 'stays as it is'),
+        c('delete', 'delete it', 'goes to To apply', true),
+        c('wait', 'not now', 'hidden', false, true),
+        c('ignore', 'stop tracking it', 'never asks'),
       ],
     },
   ],
@@ -199,7 +198,7 @@ describe('choicesForKeys', () => {
     const got = choicesForKeys(VOCAB, ['issue:o/r#1', 'issue:o/r#2']);
     assert.deepEqual(
       got.map((x) => x.label),
-      ['Leave it open', 'Close it', 'Not now', 'Stop tracking it'],
+      ['leave it open', 'close it', 'not now', 'stop tracking it'],
     );
   });
 
@@ -208,9 +207,9 @@ describe('choicesForKeys', () => {
     assert.deepEqual(
       got.map((x) => [x.disposition, x.label]),
       [
-        ['keep', 'Leave it open / Keep it'],
-        ['wait', 'Not now'],
-        ['ignore', 'Stop tracking it'],
+        ['keep', 'leave it open / keep it'],
+        ['wait', 'not now'],
+        ['ignore', 'stop tracking it'],
       ],
     );
   });
@@ -219,23 +218,23 @@ describe('choicesForKeys', () => {
 describe('fillLabel', () => {
   test('the choice and the count, in the kind’s noun', () => {
     assert.equal(
-      fillLabel('Close it', ['issue:o/r#1', 'issue:o/r#2']),
-      'Close it · 2 issues',
+      fillLabel('close it', ['issue:o/r#1', 'issue:o/r#2']),
+      'close it · 2 issues',
     );
     assert.equal(
-      fillLabel('Merge it', ['pr:o/r#1']),
-      'Merge it · 1 pull request',
+      fillLabel('merge it', ['pr:o/r#1']),
+      'merge it · 1 pull request',
     );
     assert.equal(
-      fillLabel('Keep it', ['repo:o/a', 'repo:o/b']),
-      'Keep it · 2 repositories',
+      fillLabel('keep it', ['repo:o/a', 'repo:o/b']),
+      'keep it · 2 repositories',
     );
   });
 
   test('several kinds: items', () => {
     assert.equal(
-      fillLabel('Not now', ['issue:o/r#1', 'branch:o/r@x']),
-      'Not now · 2 items',
+      fillLabel('not now', ['issue:o/r#1', 'branch:o/r@x']),
+      'not now · 2 items',
     );
   });
 });
@@ -244,35 +243,31 @@ describe('recommendLine', () => {
   test("an agent's recommendation names the agent, not its session, then serve's label for its kind", () => {
     assert.equal(
       recommendLine(VOCAB, 'issue:o/r#1', 'pi:abc', 'close'),
-      'agent recommends Close it',
+      'agent recommends close it',
     );
   });
 
   test("a rule's names the rule (its name when given, else its id)", () => {
     assert.equal(
       recommendLine(VOCAB, 'branch:o/r@x', 'rule:stale', 'delete'),
-      'stale recommends Delete it',
+      'stale recommends delete it',
     );
     assert.equal(
       recommendLine(VOCAB, 'branch:o/r@x', 'rule:stale', 'delete', 'Stale'),
-      'Stale recommends Delete it',
+      'Stale recommends delete it',
     );
   });
 
-  test('watch reads as Not now', () => {
+  test('watch reads as not now', () => {
     assert.equal(
       recommendLine(VOCAB, 'issue:o/r#1', 'pi:abc', 'watch'),
-      'agent recommends Not now',
+      'agent recommends not now',
     );
   });
 });
 
-// The group buttons' words as serve sends them (the vocabulary).
+// The count words as serve sends them (the vocabulary).
 const WORDS = { one: 'it', two: 'both', all: 'all {n}', some: '{n}' };
-const GROUP_VOCAB = {
-  discard_many: 'Discard {n}',
-  count_words: WORDS,
-};
 
 describe('countWord', () => {
   test('the whole group: it, both, all N; some ticked: N', () => {
@@ -287,36 +282,6 @@ describe('countWord', () => {
   });
 });
 
-describe('groupButtons', () => {
-  const close: GroupView = {
-    id: 'pi:s1|close|Close it without merging',
-    source: 'pi:s1',
-    disposition: 'close',
-    label: 'Close it without merging',
-    outward: true,
-    many: 'Close {n}',
-    total: 27,
-  };
-  test('nothing ticked: the whole group', () => {
-    assert.deepEqual(groupButtons(close, 0, GROUP_VOCAB), {
-      act: 'Close all 27',
-      discard: 'Discard all 27',
-    });
-  });
-
-  test('some ticked: those', () => {
-    assert.deepEqual(groupButtons(close, 3, GROUP_VOCAB), {
-      act: 'Close 3',
-      discard: 'Discard 3',
-    });
-  });
-
-  test("a choice's own wording around the count", () => {
-    const keep = { ...close, many: 'Leave {n} open', total: 2 };
-    assert.equal(groupButtons(keep, 0, GROUP_VOCAB).act, 'Leave both open');
-  });
-});
-
 describe('decideRoute', () => {
   const pending = { id: 7, disposition: 'close', until: '' };
   test('the recommended choice accepts the recommendation', () => {
@@ -328,7 +293,7 @@ describe('decideRoute', () => {
   test('no recommendation: a plain decide', () => {
     assert.deepEqual(decideRoute(null, 'close'), { path: 'decide' });
   });
-  test('Not now on a recommended Not now: accepted only with its until', () => {
+  test('not now on a recommended not now: accepted only with its until', () => {
     const wait = { id: 8, disposition: 'wait', until: 'date(2027-01-01)' };
     assert.deepEqual(decideRoute(wait, 'wait', 'date(2027-01-01)'), {
       path: 'accept',
@@ -339,7 +304,7 @@ describe('decideRoute', () => {
       id: 8,
     });
   });
-  test('a recommended watch is pressed as Not now', () => {
+  test('a recommended watch is pressed as not now', () => {
     const watch = { id: 9, disposition: 'watch', until: 'merged(a/b#1)' };
     assert.deepEqual(decideRoute(watch, 'wait', 'merged(a/b#1)'), {
       path: 'change',
@@ -356,9 +321,9 @@ describe('doneWords', () => {
         choices: [
           {
             disposition: 'close',
-            label: 'Close it',
-            done: 'Closed it',
-            done_many: 'Closed {n}',
+            label: 'close it',
+            done: 'closed it',
+            done_many: 'closed {n}',
           },
         ],
       },
@@ -367,9 +332,9 @@ describe('doneWords', () => {
         choices: [
           {
             disposition: 'delete',
-            label: 'Delete it',
-            done: 'Deleted it',
-            done_many: 'Deleted {n}',
+            label: 'delete it',
+            done: 'deleted it',
+            done_many: 'deleted {n}',
           },
         ],
       },
@@ -379,17 +344,17 @@ describe('doneWords', () => {
   test("one item: its kind's choice's done", () => {
     assert.equal(
       doneWords(vocab, 'close', { key: 'issue:a/b#1' }),
-      'Closed it',
+      'closed it',
     );
   });
   test("a group: its choice's done_many with the count word", () => {
     assert.equal(
-      doneWords(vocab, 'delete', { label: 'Delete it', total: 3, ticked: 0 }),
-      'Deleted all 3',
+      doneWords(vocab, 'delete', { label: 'delete it', total: 3, ticked: 0 }),
+      'deleted all 3',
     );
     assert.equal(
-      doneWords(vocab, 'delete', { label: 'Delete it', total: 9, ticked: 2 }),
-      'Deleted 2',
+      doneWords(vocab, 'delete', { label: 'delete it', total: 9, ticked: 2 }),
+      'deleted 2',
     );
   });
 });
@@ -401,8 +366,8 @@ describe('waitingStrip', () => {
       apply: 'review',
       undo: 'undo',
     };
-    assert.deepEqual(waitingStrip(w, 'Closed it'), [
-      'Closed it \u00b7 waiting in ',
+    assert.deepEqual(waitingStrip(w, 'closed it'), [
+      'closed it \u00b7 waiting in ',
       { link: 'review' },
       ' \u00b7 ',
       { button: 'undo' },

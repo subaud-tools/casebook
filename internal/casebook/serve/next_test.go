@@ -109,7 +109,7 @@ func TestNextOrderAndDone(t *testing.T) {
 		t.Fatalf("first item %s, want the due repo", first.Item.Item.Key)
 	}
 	if first.Guide == "" || !strings.Contains(first.ProposeHow, "from_next") || len(first.NotNow) != 7 {
-		t.Fatalf("next lacks the guide, how to propose or Not now: %+v", first)
+		t.Fatalf("next lacks the guide, how to propose or not now: %+v", first)
 	}
 	if len(first.Choices) == 0 || first.Choices[0].Disposition != "keep" || first.Choices[0].Says == "" {
 		t.Fatalf("repo choices %+v", first.Choices)

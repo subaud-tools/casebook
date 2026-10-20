@@ -145,7 +145,7 @@ export async function applyScenarios(shared, t) {
 }
 
 // PROBE_SCENARIO (with PROBE_ONLY=apply) runs only the scenario groups
-// whose name has it: main, same, ticked, changed, holds.
+// whose name has it: main, same, ticked, changed, holds, frame.
 const runs = (name) =>
   !process.env.PROBE_SCENARIO || name.includes(process.env.PROBE_SCENARIO);
 
@@ -156,6 +156,7 @@ async function applyScenariosIn(context, t) {
     ['ticked', TICKED_SEED, tickedRunScenario],
     ['changed', CHANGED_SEED, changedPlanScenario],
     ['holds', HOLDS_SEED, holdsScenario],
+    ['frame', FRAME_SEED, frameScenario],
   ];
   for (const [name, seed, run] of groups) {
     if (!runs(name)) continue;
@@ -174,22 +175,36 @@ async function applyScenariosIn(context, t) {
   }
 }
 
-// A waiting group's head button, a group's address, and the open group's
+// A waiting group's checkbox (ticking it reviews the group), and the plan's
 // one button.
-const HEAD = (id) => `.cb-apply-part[data-part="${id}"] .cb-group-plan`;
-const groupHash = (id) => `#/review?group=${encodeURIComponent(id)}`;
+const HEAD = (id) => `.cb-apply-part[data-part="${id}"] .cb-group-box`;
 const RUN_BTN = '[data-testid="run-group"] .kit-btn';
 
-// openedGroup waits for group id to be open in review, its plan (job) shown.
+// openedGroup waits for group id's ticks to be reviewed, its plan (job)
+// shown.
 function openedGroup(t, pg, id, jobId) {
   return t.until(
     pg,
-    ([hash, g, j]) =>
-      location.hash === hash &&
+    ([g, j]) =>
+      location.hash.startsWith('#/review') &&
       document.querySelector('[data-testid="review-group"]')?.dataset.group ===
         g &&
       (j === null || !!document.querySelector('[data-testid="run-group"]')),
-    [groupHash(id), id, jobId ?? null],
+    [id, jobId ?? null],
+  );
+}
+
+// clearTicks unticks every group in review: the overview shows.
+async function clearTicks(t, pg) {
+  await pg.evaluate(() => {
+    for (const b of document.querySelectorAll(
+      '.cb-pane-review .cb-group-ticked:not([hidden]) .cb-group-untick',
+    ))
+      b.click();
+  });
+  await t.until(
+    pg,
+    () => !!document.querySelector('[data-testid="review-overview"]'),
   );
 }
 
@@ -253,12 +268,14 @@ async function applyScenariosOn(context, t, serveHandle) {
     note: 'superseded by #9',
   });
 
-  // openGroup opens group id from its head in review; its plan's reply.
+  // openGroup ticks group id in review, nothing else ticked; its plan's
+  // reply.
   const openGroup = async (pg, id) => {
     await pg.evaluate(() => {
       if (!location.hash.startsWith('#/review')) location.hash = '#/review';
     });
     await until(pg, (b) => !!document.querySelector(b), HEAD(id));
+    await clearTicks(t, pg);
     const resp = pg.waitForResponse(
       (r) =>
         r.url().includes('/api/apply/plan') && r.request().method() === 'POST',
@@ -345,9 +362,6 @@ async function applyScenariosOn(context, t, serveHandle) {
       (await jobsNow()).length === 0,
     );
     await pg.click(`.cb-apply-list .kit-row[data-key="${REPO_B}"] .kit-box`);
-    await pg.evaluate(() => {
-      location.hash = '#/review';
-    });
     await until(
       pg,
       () => !!document.querySelector('[data-testid="review-overview"]'),
@@ -362,15 +376,20 @@ async function applyScenariosOn(context, t, serveHandle) {
     const branchResp = pg.waitForResponse((r) =>
       r.url().includes('/api/apply/plan'),
     );
-    await pg.click(HEAD('delete|branch'), { clickCount: 2 });
+    await pg.click(HEAD('delete|branch'));
     const branchPlan = await (await branchResp).json();
     await openedGroup(t, pg, 'delete|branch', branchPlan.job.id);
+    // An item unticked and ticked again at once: the same items, no new ask.
+    await pg.click(
+      `.cb-apply-list .kit-row[data-key="${BR('feat/l1')}"] .kit-box`,
+      { clickCount: 2 },
+    );
     // Kept: the check is that the second press posts nothing; a window for
     // a second POST to go out.
     await pg.waitForTimeout(500);
     pg.off('request', onPlanPost);
     check(
-      `a double press of a group's name asks serve once, a preview that stores nothing (${planPosts.length} POST /api/apply/plan)`,
+      `ticking a group asks serve once for the same ticks, a preview that stores nothing (${planPosts.length} POST /api/apply/plan)`,
       planPosts.length === 1 && (await jobsNow()).length === 0,
     );
     const shown = await readGroup(pg);
@@ -379,15 +398,11 @@ async function applyScenariosOn(context, t, serveHandle) {
       shown.cmds,
       branchPlan.groups.flatMap((g) => g.steps.map((s) => s.command)),
     );
-    await pg.evaluate(() => {
-      location.hash = '#/review';
-    });
+    await clearTicks(t, pg);
     check(
-      'leaving it runs nothing: serve stores nothing',
-      (await until(
-        pg,
-        () => !!document.querySelector('[data-testid="review-overview"]'),
-      )) && (await jobsNow()).length === 0,
+      'unticking it runs nothing: serve stores nothing',
+      !!(await pg.$('[data-testid="review-overview"]')) &&
+        (await jobsNow()).length === 0,
     );
     const again = await openGroup(pg, 'delete|branch');
     check(
@@ -562,7 +577,7 @@ async function applyScenariosOn(context, t, serveHandle) {
       'cancel runs nothing: the sheet goes, serve stores no plan for it, review stays',
       (await until(pg, () => !document.querySelector('.kit-sheet'))) &&
         !(await holds(REPO_C)) &&
-        (await pg.evaluate(() => location.hash)) === groupHash('delete|repo'),
+        (await pg.evaluate(() => location.hash)).startsWith('#/review'),
     );
     await pg.click(`${RUN_BTN}.fill`);
     await until(pg, () => !!document.querySelector('.kit-sheet'));
@@ -732,7 +747,28 @@ async function tickedRunScenario(context, t, s) {
     });
     await pg.waitForSelector('.cb-apply-part[data-part="close|pr"]');
     await pg.click('.cb-apply-part[data-part="close|pr"] .cb-group-caret');
-    await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(1)}"] .kit-box`);
+    const planKeys = (k) =>
+      until(
+        pg,
+        (want) =>
+          [
+            ...new Set(
+              [
+                ...document.querySelectorAll(
+                  '[data-testid="review-group"] .cb-plan-step',
+                ),
+              ].map((e) => e.dataset.key),
+            ),
+          ]
+            .sort()
+            .join(',') === want,
+        k,
+      );
+    for (const n of [1, 3])
+      await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(n)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // Unticking an item turns the run button off at once: the plan drawn
+    // still holds it, and a click before the new plan is in would run it.
     await until(
       pg,
       () =>
@@ -740,20 +776,70 @@ async function tickedRunScenario(context, t, s) {
           '[data-testid="run-group"] .kit-btn:not([disabled])',
         ),
     );
-    // The review is for the ticked PR alone.
+    const offAtOnce = await pg.evaluate((k) => {
+      document
+        .querySelector(`.cb-apply-list .kit-row[data-key="${k}"] .kit-box`)
+        .click();
+      return [
+        ...document.querySelectorAll('.cb-apply-read .cb-ticked button'),
+        ...document.querySelectorAll('[data-testid="run-group"] .kit-btn'),
+      ].every((b) => b.disabled);
+    }, TPR(3));
+    check(
+      'review: unticking an item turns the run button off at once, before the new plan is in',
+      offAtOnce,
+    );
+    await planKeys(TPR(1));
+    await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(3)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // A filter serve refuses lists nothing: the ticks and the plan go too.
+    t.expectError('status of 400');
+    await pg.evaluate(() => (location.hash = '#/review?filters=tk-no-such'));
+    check(
+      'review: a filter serve refuses clears the ticks and the plan, and nothing can run',
+      await until(
+        pg,
+        () =>
+          !document.querySelector('[data-testid="run-group"]') &&
+          !!document.querySelector('[data-testid="review-overview"]') &&
+          [
+            ...document.querySelectorAll('.cb-pane-review .cb-group-ticked'),
+          ].every((e) => e.hidden),
+      ),
+    );
+    await pg.evaluate(() => (location.hash = '#/review'));
+    await pg.waitForSelector(
+      `.cb-apply-list .kit-row[data-key="${TPR(3)}"] .kit-box`,
+    );
+    for (const n of [1, 3])
+      await pg.click(`.cb-apply-list .kit-row[data-key="${TPR(n)}"] .kit-box`);
+    await planKeys([TPR(1), TPR(3)].sort().join(','));
+    // A saved filter that hides #3: the plan is what is shown and ticked.
+    await agent.api('POST', '/api/filters/save?create=1', {
+      id: 'tk-not-3',
+      name: 'Not dep 3',
+      match: [{ field: 'title', op: 'matches', value: 'dep [12]' }],
+    });
+    const chip = '.cb-pane-review .cb-filter[data-id="tk-not-3"]';
+    await pg.waitForSelector(chip, { timeout: 8000 });
+    await pg.click(chip);
+    check(
+      'review: a filter narrows the plan to what is shown and ticked',
+      (await planKeys(TPR(1))) &&
+        (await pg.evaluate(
+          (k) =>
+            !document.querySelector(
+              `.cb-pane-review .kit-row[data-key="${k}"]`,
+            ),
+          TPR(3),
+        )),
+    );
     await until(
       pg,
-      (k) =>
-        [
-          ...new Set(
-            [
-              ...document.querySelectorAll(
-                '[data-testid="review-group"] .cb-plan-step',
-              ),
-            ].map((e) => e.dataset.key),
-          ),
-        ].join(',') === k,
-      TPR(1),
+      () =>
+        !!document.querySelector(
+          '[data-testid="run-group"] .kit-btn:not([disabled])',
+        ),
     );
     const approved = pg.waitForResponse(
       (r) =>
@@ -780,7 +866,9 @@ async function tickedRunScenario(context, t, s) {
     const redrawn = await until(
       pg,
       ([id, step]) =>
-        !!document.querySelector(`.cb-apply-list .kit-row[data-job="${id}"]`) &&
+        !!document.querySelector(
+          `.cb-pane-run .cb-run-job[data-job="${id}"]`,
+        ) &&
         document.querySelector(`.cb-step[data-step="${step}"]`)?.dataset
           .state === 'running',
       [ran.id, ran.steps[0].id],
@@ -865,13 +953,46 @@ async function changedPlanScenario(context, t, s) {
           e.textContent.includes('first note'),
         ),
     );
+    // A step with a public comment is a 44px row like the rest, its
+    // comment on a fixed line of its own under it, there before it runs.
+    const pub = await pg.evaluate(() => {
+      const rows = [...document.querySelectorAll('.cb-plan .cb-plan-step')];
+      const lines = [...document.querySelectorAll('.cb-plan .cb-plan-pub')];
+      const h = (e) => Math.round(e.getBoundingClientRect().height);
+      return {
+        rows: rows.map(h),
+        lines: lines.map(h),
+        text: lines.map((e) => e.textContent).join(' | '),
+      };
+    });
+    check(
+      `review: a step with a comment is a 44px row, its comment whole on a fixed 44px line under it (rows ${pub.rows.join('/')}, lines ${pub.lines.join('/')}: ${pub.text})`,
+      pub.rows.length > 0 &&
+        pub.rows.every((x) => x === 44) &&
+        pub.lines.length === 1 &&
+        pub.lines.every((x) => x === 44) &&
+        pub.text.includes('first note'),
+    );
     // Another tab re-decides it with a new closing comment: the command
-    // changes, and this page still shows the first.
+    // changes, and this page still shows the first. The list reloads on
+    // the event (its buttons off until it is in); the press waits for it.
+    const reloaded = pg.waitForResponse(
+      (r) => r.url().includes('/api/items') && r.url().includes('to-apply'),
+    );
     await agent.api('POST', '/api/decide', {
       keys: [CPR],
       disposition: 'close',
       note: 'second note',
     });
+    await reloaded;
+    await until(
+      pg,
+      () =>
+        !!document.querySelector(
+          '[data-testid="run-group"] .kit-btn:not([disabled])',
+        ),
+    );
+    await pg.waitForTimeout(300); // kept: a window for the event's reloads to settle
     // The press stores the plan; its reply is held while "a" is pressed.
     let release;
     const held = new Promise((r) => (release = r));
@@ -897,7 +1018,7 @@ async function changedPlanScenario(context, t, s) {
           e.textContent.includes('second note'),
         ) &&
         (
-          document.querySelector('[data-testid="run-group"] .cb-apply-note')
+          document.querySelector('[data-testid="review-group"] .cb-apply-note')
             ?.textContent ?? ''
         ).includes('changed since you looked'),
     );
@@ -986,7 +1107,7 @@ async function holdsScenario(context, t, s) {
         const doc = document.querySelector('[data-testid="review-group"]');
         return (
           !!doc &&
-          doc.querySelector('.cb-held-h')?.textContent === 'Held \u00b7 1' &&
+          doc.querySelector('.cb-held-h')?.textContent === 'held \u00b7 1' &&
           (doc.textContent ?? '').includes(
             'schuettc/t11-archived is archived: GitHub refuses any change to it',
           )
@@ -996,12 +1117,13 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check(
-      "review shows an archived repo's PR under Held with its reason",
+      "review shows an archived repo's PR under held with its reason",
       held,
     );
 
-    // Tick an item in each group: one review of both (opening close|pr
+    // Tick an item in each group: one review of both (ticking close|pr
     // unfolded it; archive|repo starts folded).
+    await clearTicks(t, pg);
     await pg.click('.cb-apply-part[data-part="archive|repo"] .cb-group-caret');
     for (const k of [T11_PR, T11_REPO]) {
       await until(
@@ -1019,8 +1141,8 @@ async function holdsScenario(context, t, s) {
       () => {
         const doc = document.querySelector('[data-testid="review-group"]');
         return (
-          doc?.querySelector('.kit-kick')?.textContent ===
-            'review \u00b7 2 groups ticked' &&
+          doc?.querySelector('.cb-mid-kick')?.textContent ===
+            'review \u00b7 2 ticked in 2 groups' &&
           !!doc.querySelector('.cb-tags-line .cb-tag-github-undo') &&
           !!doc.querySelector('.cb-held-row')
         );
@@ -1029,7 +1151,7 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check(
-      'ticking two groups makes one review: "review \u00b7 2 groups ticked", an "undo on GitHub" tag in its summary',
+      'ticking two groups makes one review: "review \u00b7 2 ticked in 2 groups", an "undo on GitHub" tag in its summary',
       combined,
     );
 
@@ -1048,6 +1170,371 @@ async function holdsScenario(context, t, s) {
       8000,
     );
     check('the item page says what is in the way', inTheWay);
+  } finally {
+    await pg.close();
+  }
+}
+
+// ---- one frame: every tab's lines at the same place and height -------------
+// Spec one-frame (Court, 2026-10-19): decide, review and run share one list
+// pane, its top block 178px, a group's head 32px, a row 44px; ticked items
+// show in the middle with every line at a fixed place; labels lower case.
+// Four landed branches (the starter rule recommends deleting them): one
+// run (done), one waiting in review, two left to decide.
+const FR = (b) => `branch:schuettc/fr-local@${b}`;
+const FRAME_SEED = {
+  seedClones: [
+    { name: 'fr-local', branches: ['feat/a', 'feat/b', 'feat/c', 'feat/d'] },
+  ],
+};
+async function frameScenario(context, t, s) {
+  const { check, until, eventually } = t;
+  console.log('\nscenario: one frame — decide, review and run line up');
+  const agent = createAgent(s.base, s.token);
+  const api = (m, p, b) => agent.api(m, p, b);
+  await api('POST', '/api/decide', {
+    keys: [FR('feat/a'), FR('feat/b'), FR('feat/d')],
+    disposition: 'delete',
+  });
+  // feat/d runs beside feat/a: "its job" shows it as a neighbour.
+  const plan = await api('POST', '/api/apply/plan', {
+    keys: [FR('feat/a'), FR('feat/d')],
+  });
+  await api('POST', '/api/apply/approve', {
+    plan_id: plan.job.id,
+    session: '',
+  });
+  await eventually(async () => {
+    const v = await api('GET', '/api/items?view=run');
+    return (v.items ?? []).some(
+      (it) => it.key === FR('feat/a') && it.group === 'done',
+    );
+  }, 15000);
+  const pg = await context.newPage();
+  await pg.setViewportSize({ width: 1280, height: 800 });
+  try {
+    await pg.goto(`${s.url}#/decide`, { waitUntil: 'domcontentloaded' });
+    const tabs = ['decide', 'review', 'run'];
+    const go = async (tab) => {
+      await pg.evaluate((h) => {
+        location.hash = h;
+      }, `#/${tab}`);
+      await until(
+        pg,
+        (tb) =>
+          document.querySelector('.kit-ctl.on')?.dataset.id === tb &&
+          !!document.querySelector(`.cb-pane-${tb} .cb-group`) &&
+          !!document.querySelector(`.cb-pane-${tb}`)?.offsetParent,
+        tab,
+        8000,
+      );
+    };
+    // The visible pane's geometry: its top block, first group, heads, rows.
+    const geo = (tab) =>
+      pg.evaluate((tb) => {
+        const pane = document.querySelector(`.cb-pane-${tb}`);
+        const r = (e) => e.getBoundingClientRect();
+        return {
+          top: r(pane.querySelector('.kit-lh')).height,
+          first: r(pane.querySelector('.cb-group')).top,
+          heads: [...pane.querySelectorAll('.cb-group-top')].map(
+            (e) => r(e).height,
+          ),
+          rows: [...pane.querySelectorAll('.kit-rows > .kit-row')].map(
+            (e) => r(e).height,
+          ),
+        };
+      }, tab);
+    // Open one group per tab: decide's rule group, review's waiting group,
+    // run's done.
+    const openGroup = async (tab, sel) => {
+      const caret = `.cb-pane-${tab} ${sel} .cb-group-caret`;
+      await pg.waitForSelector(caret, { timeout: 8000 });
+      if (
+        (await pg.$eval(caret, (e) => e.getAttribute('aria-expanded'))) !==
+        'true'
+      )
+        await pg.click(caret);
+      await until(
+        pg,
+        (q) => !!document.querySelector(q),
+        `.cb-pane-${tab} .kit-rows > .kit-row`,
+        8000,
+      );
+    };
+    const groupOf = {
+      decide: '.cb-group[data-rule="landed-branches"]',
+      review: '.cb-group[data-group="delete|branch"]',
+      run: '.cb-group[data-group="done"]',
+    };
+    const g = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await openGroup(tab, groupOf[tab]);
+      g[tab] = await geo(tab);
+    }
+    check(
+      `frame: the top block is 178px on decide, review and run (${tabs.map((x) => g[x].top).join(', ')})`,
+      tabs.every((x) => g[x].top === 178),
+    );
+    check(
+      `frame: the first group starts at the same y on all three tabs (${tabs.map((x) => g[x].first).join(', ')})`,
+      Math.max(...tabs.map((x) => g[x].first)) -
+        Math.min(...tabs.map((x) => g[x].first)) <
+        1,
+    );
+    check(
+      `frame: every group head is the same height on all three tabs (${tabs.map((x) => g[x].heads.join('/')).join(', ')})`,
+      tabs.every(
+        (x) => g[x].heads.length > 0 && g[x].heads.every((h) => h === 32),
+      ),
+    );
+    check(
+      `frame: every row is 44px on all three tabs (${tabs.map((x) => [...new Set(g[x].rows)].join('/')).join(', ')})`,
+      tabs.every(
+        (x) => g[x].rows.length > 0 && g[x].rows.every((h) => h === 44),
+      ),
+    );
+
+    // One item ticked per tab: the middle's lines sit at one place.
+    const tickKey = {
+      decide: FR('feat/c'),
+      review: FR('feat/b'),
+      run: FR('feat/a'),
+    };
+    const mid = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await pg.click(
+        `.cb-pane-${tab} .kit-row[data-key="${tickKey[tab]}"] .kit-box`,
+      );
+      await until(
+        pg,
+        () =>
+          [
+            '.cb-mid-kick',
+            '.cb-mid-title',
+            '.cb-mid-ctx',
+            '.cb-mid-acts',
+          ].every(
+            (q) => !!document.querySelector(`.kit-read:not([hidden]) ${q}`),
+          ) &&
+          (document.querySelector('.kit-read:not([hidden]) .cb-mid-acts')
+            ?.children.length ?? 0) > 0,
+        undefined,
+        8000,
+      );
+      mid[tab] = await pg.evaluate(() =>
+        ['.cb-mid-kick', '.cb-mid-title', '.cb-mid-ctx', '.cb-mid-acts'].map(
+          (q) => {
+            const b = document
+              .querySelector(`.kit-read:not([hidden]) ${q}`)
+              .getBoundingClientRect();
+            return [Math.round(b.top), Math.round(b.height)];
+          },
+        ),
+      );
+    }
+    const same = tabs.every(
+      (x) => JSON.stringify(mid[x]) === JSON.stringify(mid.decide),
+    );
+    check(
+      `frame: ticked lines sit at the same y on decide, review and run (${tabs.map((x) => JSON.stringify(mid[x])).join(' ')})`,
+      same && mid.decide.map((m) => m[1]).join(',') === '16,30,20,60',
+    );
+
+    await go('decide');
+    const head = `.cb-pane-decide ${groupOf.decide}`;
+    // Leaving a tab cleared its ticks: they covered what it showed.
+    check(
+      'frame: coming back to decide, its ticks were cleared when it was left',
+      await until(
+        pg,
+        (hd) =>
+          !!document.querySelector(hd) &&
+          !document.querySelector(
+            '.cb-pane-decide .kit-row .kit-box[aria-checked="true"]',
+          ) &&
+          !!document.querySelector(`${hd} .cb-group-ticked`)?.hidden,
+        head,
+      ),
+    );
+    await pg.click(
+      `.cb-pane-decide .kit-row[data-key="${tickKey.decide}"] .kit-box`,
+    );
+    await until(
+      pg,
+      (hd) => !document.querySelector(`${hd} .cb-group-ticked`)?.hidden,
+      head,
+    );
+    check(
+      "frame: decide's group head shows only its ticks",
+      (await pg.$$(`${head} .kit-btn`)).length === 0 &&
+        (await pg.$eval(`${head} .cb-group-ticked`, (e) => e.textContent)) ===
+          '1 ticked \u00b7 untick',
+    );
+
+    await go('run');
+    const row = `.cb-pane-run .kit-row[data-key="${FR('feat/a')}"]`;
+    const said = await pg.$eval(
+      `${row} .kit-title`,
+      (e) => e.textContent ?? '',
+    );
+    await pg.click(`${row} .kit-kicker`);
+    check(
+      `frame: run lists the item that ran, with its job ("${said}"), and opening it shows what ran and its job`,
+      / \u00b7 job #\d+$/.test(said) &&
+        (await until(
+          pg,
+          () =>
+            !!document.querySelector('[data-testid="what-ran"] .cb-step') &&
+            !!document.querySelector('[data-testid="its-job"] .cb-here'),
+          undefined,
+          8000,
+        )),
+    );
+    const ranHead = await pg.evaluate(() =>
+      ['.cb-mid-kick', '.cb-mid-title', '.cb-mid-ctx'].map((q) =>
+        Math.round(
+          document.querySelector(`.cb-ran ${q}`)?.getBoundingClientRect()
+            .height ?? -1,
+        ),
+      ),
+    );
+    check(
+      `frame: the run item's head is the fixed lines, 16, 30 and 20px (${ranHead.join(', ')})`,
+      ranHead.join(',') === '16,30,20',
+    );
+    const neighbours = await pg.evaluate(() => {
+      const rows = [
+        ...document.querySelectorAll(
+          '[data-testid="its-job"] .cb-step:not(.cb-here)',
+        ),
+      ];
+      return {
+        rows: rows.length,
+        buttons: rows.reduce(
+          (n, r) => n + r.querySelectorAll('button').length,
+          0,
+        ),
+      };
+    });
+    check(
+      `frame: "its job" shows its other items' steps read-only, no buttons (${neighbours.rows} rows, ${neighbours.buttons} buttons)`,
+      neighbours.rows > 0 && neighbours.buttons === 0,
+    );
+
+    const lower = [];
+    for (const tab of tabs) {
+      await go(tab);
+      lower.push(
+        await pg.evaluate(() => {
+          const el = document.createElement('p');
+          el.className = 'kit-label';
+          el.textContent = 'what ran';
+          document.querySelector('.kit-read:not([hidden])')?.append(el);
+          const tt = getComputedStyle(el).textTransform;
+          el.remove();
+          return tt;
+        }),
+      );
+    }
+    check(
+      `frame: headings are lower case (${lower.join(', ')})`,
+      lower.every((x) => x === 'none'),
+    );
+
+    // The foot: "show N more" has its own place, at the foot's right end,
+    // apart from the observations' line, the same on every tab.
+    const foot = {};
+    for (const tab of tabs) {
+      await go(tab);
+      foot[tab] = await pg.evaluate((tb) => {
+        const f = document.querySelector(`.cb-pane-${tb} .cb-pane-foot`);
+        const more = f.querySelector('.cb-foot-more');
+        const obs = f.querySelector('.cb-apply-obs');
+        more.hidden = false;
+        more.textContent = 'show 200 more';
+        obs.hidden = false;
+        const r = (e) => e.getBoundingClientRect();
+        const out = {
+          right: Math.round(r(f).right - r(more).right),
+          gap: Math.round(r(more).left - r(obs).right),
+          top: Math.round(r(more).top),
+        };
+        more.hidden = true;
+        return out;
+      }, tab);
+    }
+    check(
+      `frame: "show N more" sits at the foot's right end, apart from the observations, at one place on every tab (${tabs.map((x) => JSON.stringify(foot[x])).join(' ')})`,
+      tabs.every(
+        (x) =>
+          foot[x].right === 0 &&
+          foot[x].gap >= 16 &&
+          foot[x].top === foot.decide.top,
+      ),
+    );
+
+    // At Court's width (1352px) every button of a ticked document is
+    // whole: the buttons' block wraps onto its fixed second line.
+    await pg.setViewportSize({ width: 1352, height: 900 });
+    // With a session attached: decide's line holds "ask agent" too.
+    const FS = 'probe-frame-pi';
+    await agent.presence(FS, 'pi \u00b7 frame', '/home/court/frame', 'pi');
+    const keepFS = setInterval(
+      () =>
+        void agent.presence(FS, 'pi \u00b7 frame', '/home/court/frame', 'pi'),
+      1000,
+    );
+    const cut = {};
+    for (const tab of tabs) {
+      await go(tab);
+      await openGroup(tab, groupOf[tab]);
+      const box = `.cb-pane-${tab} .kit-row[data-key="${tickKey[tab]}"] .kit-box`;
+      await pg.waitForSelector(box, { timeout: 8000 });
+      if (
+        (await pg.$eval(box, (e) => e.getAttribute('aria-checked'))) !== 'true'
+      )
+        await pg.click(box);
+      await until(
+        pg,
+        () =>
+          (document
+            .querySelector('.kit-read:not([hidden]) .cb-mid-acts')
+            ?.querySelectorAll('button').length ?? 0) > 0,
+        undefined,
+        8000,
+      );
+      cut[tab] = await pg.evaluate(() => {
+        const acts = document.querySelector(
+          '.kit-read:not([hidden]) .cb-mid-acts',
+        );
+        const read = document.querySelector('.kit-read:not([hidden])');
+        const a = acts.getBoundingClientRect();
+        const rd = read.getBoundingClientRect();
+        const bad = [...acts.querySelectorAll('button')]
+          .filter((b) => b.offsetParent)
+          .filter((b) => {
+            const r = b.getBoundingClientRect();
+            return (
+              r.left < a.left - 0.5 ||
+              r.right > a.right + 0.5 ||
+              r.top < a.top - 0.5 ||
+              r.bottom > a.bottom + 0.5 ||
+              r.right > rd.right + 0.5
+            );
+          })
+          .map((b) => b.textContent.trim());
+        return { bad, h: Math.round(a.height) };
+      });
+    }
+    check(
+      `frame: at 1352x900 every button of the ticked document is whole, the buttons' block one height on every tab (${tabs.map((x) => `${x} ${cut[x].h}px cut [${cut[x].bad.join(', ')}]`).join('; ')})`,
+      tabs.every((x) => cut[x].bad.length === 0 && cut[x].h === cut.decide.h),
+    );
+    clearInterval(keepFS);
+    await pg.setViewportSize({ width: 1280, height: 800 });
   } finally {
     await pg.close();
   }

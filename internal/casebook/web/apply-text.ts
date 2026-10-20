@@ -2,8 +2,18 @@
 // functions over serve's jobs (no kit or browser imports, so node --test can
 // load it).
 
-import type { Job, JobStep, NeedsYou, Plan, Step, Waiting } from './wire.d.ts';
+import type {
+  ItemView,
+  RunMark,
+  Job,
+  JobStep,
+  NeedsYou,
+  Plan,
+  Step,
+  Waiting,
+} from './wire.d.ts';
 import { pluralize } from './decide-math.ts';
+import type { Tone } from './list-pane-text.ts';
 
 /**
  * runOrder splits the jobs as run lists them, each part newest first:
@@ -49,14 +59,14 @@ export function applyLabel(
 }
 
 const TITLES: Record<string, string> = {
-  'branch-delete-local': 'Delete local branches',
-  'branch-delete-remote': 'Delete remote branches',
-  'worktree-remove': 'Remove worktrees',
-  'repo-archive': 'Archive repos',
-  'repo-delete': 'Delete repos',
-  'pr-close': 'Close PRs',
-  'pr-merge': 'Merge PRs',
-  'issue-close': 'Close issues',
+  'branch-delete-local': 'delete local branches',
+  'branch-delete-remote': 'delete remote branches',
+  'worktree-remove': 'remove worktrees',
+  'repo-archive': 'archive repos',
+  'repo-delete': 'delete repos',
+  'pr-close': 'close PRs',
+  'pr-merge': 'merge PRs',
+  'issue-close': 'close issues',
 };
 
 /** actionTitle names a group of steps: "Delete local branches". */
@@ -83,9 +93,7 @@ export function planTitle(
     return [words[0], String(n), ...mid, n === 1 ? one : many].join(' ');
   });
   if (!parts.length) return `job #${job.id}`;
-  return parts
-    .map((t, i) => (i ? t.charAt(0).toLowerCase() + t.slice(1) : t))
-    .join(', ');
+  return parts.join(', ');
 }
 
 const PAST: Record<string, string> = {
@@ -100,7 +108,7 @@ const PAST: Record<string, string> = {
 };
 
 /** The verb a paused step would do if Court resumes it: "close anyway". */
-const VERB: Record<string, string> = {
+const RESUME: Record<string, string> = {
   'branch-delete-local': 'delete',
   'branch-delete-remote': 'delete',
   'worktree-remove': 'remove',
@@ -111,6 +119,23 @@ const VERB: Record<string, string> = {
   'issue-close': 'close',
 };
 
+export function resumeVerb(action: string): string {
+  return RESUME[action] ?? 'run';
+}
+
+/** What a step does, naming where a branch is deleted (which copy failed matters). */
+const VERB: Record<string, string> = {
+  'branch-delete-local': 'local delete',
+  'branch-delete-remote': 'GitHub delete',
+  'worktree-remove': 'worktree remove',
+  'repo-archive': 'archive',
+  'repo-delete': 'delete',
+  'pr-close': 'close',
+  'pr-merge': 'merge',
+  'issue-close': 'close',
+};
+
+/** actionVerb names what a step does: "GitHub delete", "merge". */
 export function actionVerb(action: string): string {
   return VERB[action] ?? 'run';
 }
@@ -164,9 +189,7 @@ export function jobTitle(job: Job): string {
     ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action))),
   ];
   if (!titles.length) return `job #${job.id}`;
-  return titles
-    .map((t, i) => (i ? t.charAt(0).toLowerCase() + t.slice(1) : t))
-    .join(', ');
+  return titles.join(', ');
 }
 
 /** jobLanes: the lanes a job has steps in, casebook's first. */
@@ -237,7 +260,7 @@ export function openCardsByJob(cards: NeedsYou[]): Map<number, number> {
   return m;
 }
 
-export type Tone = 'ok' | 'agent' | 'signal' | 'wait' | 'muted';
+export type { Tone };
 
 export interface StepMark {
   glyph: string;
@@ -508,7 +531,7 @@ export function runsNow(plan: Plan): string {
   if (steps.length && agent === steps.length) {
     first = `${pluralize(steps.length, 'step')} \u00b7 all on GitHub, through the agent.`;
   } else if (!steps.length) {
-    first = 'Nothing runs now.';
+    first = 'nothing runs now.';
   } else {
     const parts: string[] = [];
     if (wt)
@@ -518,7 +541,7 @@ export function runsNow(plan: Plan): string {
     if (remote) parts.push(`${count(remote)} deleted on GitHub`);
     if (local) parts.push(`${count(local)} deleted here`);
     if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
-    first = `Runs now: ${parts.join(', ')}.`;
+    first = `runs now: ${parts.join(', ')}.`;
   }
   const rest: string[] = [];
   const waits = new Map<string, number>();
@@ -534,25 +557,94 @@ export function runsNow(plan: Plan): string {
 }
 
 /**
- * reviewKeys is what review shows, given each group's ticked and waiting
- * keys and the open group's index: every ticked key of every group that has
- * ticks (the open group need have none), or, with no tick anywhere, the open
- * group's waiting keys. groups is how many groups the ticks are from (at
- * least 1).
+ * reviewKick is review's small line: how many are ticked, and in which
+ * group, or how many groups.
  */
-export function reviewKeys(
-  groups: { ticked: string[]; waiting: string[] }[],
-  open: number,
-): { keys: string[]; groups: number } {
-  const ticked = groups.filter((g) => g.ticked.length > 0);
-  if (!ticked.length)
-    return { keys: [...(groups[open]?.waiting ?? [])], groups: 1 };
-  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
+export function reviewKick(n: number, groups: string[]): string {
+  const where = groups.length === 1 ? groups[0] : `${groups.length} groups`;
+  return `review \u00b7 ${n} ticked in ${where}`;
 }
 
-/** reviewKicker is review's kicker: how many groups its ticks are from. */
-export function reviewKicker(groups: number): string {
-  return groups > 1 ? `review \u00b7 ${groups} groups ticked` : 'review';
+/**
+ * reviewLine is a review row's second line, where the item stands: what
+ * holds it from its decision (agent); for a branch, where it is deleted
+ * (its copies still there: GitHub's has no machine); else its decision
+ * done, in serve's words, lower case.
+ */
+export function reviewLine(
+  it: ItemView,
+  done: string,
+): { text: string; tone: Tone } {
+  const d = it.decision?.disposition ?? '';
+  const stopping = (it.holds ?? []).filter((x) => (x.stops ?? []).includes(d));
+  // A hold on one half (a local copy, or GitHub's) is not the item held:
+  // the other half still runs (Court, 2026-10-20).
+  const whole = stopping.find((x) => !x.local && !x.remote);
+  if (whole) return { text: `held: ${whole.text}`, tone: 'agent' };
+  if (it.kind === 'branch') {
+    const there = (it.copies ?? []).filter((c) => !c.absent);
+    const remote = stopping.find((x) => x.remote);
+    const local = stopping.filter((x) => x.local);
+    const stopped = new Set(local.map((x) => x.machine ?? ''));
+    const gh = !remote && there.some((c) => !c.machine);
+    const here = there.some((c) => !!c.machine && !stopped.has(c.machine));
+    const parts: string[] = [];
+    if (gh || here)
+      parts.push(
+        `deleted ${[gh ? 'on GitHub' : '', here ? 'here' : ''].filter(Boolean).join(' and ')}`,
+      );
+    let held = false;
+    for (const x of local) {
+      if (x.kind === 'other-mac')
+        parts.push(`local copy waits for ${x.machine}`);
+      else {
+        parts.push(`local copy held: ${x.text}`);
+        held = true;
+      }
+    }
+    if (remote) {
+      parts.push(`GitHub copy held: ${remote.text}`);
+      held = true;
+    }
+    if (parts.length)
+      return { text: parts.join(' \u00b7 '), tone: held ? 'agent' : 'muted' };
+  }
+  const part = stopping[0];
+  if (part)
+    return part.kind === 'other-mac'
+      ? { text: `waits for ${part.machine}`, tone: 'muted' }
+      : { text: `held: ${part.text}`, tone: 'agent' };
+  return { text: done.toLowerCase(), tone: 'muted' };
+}
+
+/**
+ * stepLine is a step's command as it reads to Court, under the key line
+ * that names the item: what it does and the commit it insists on, rather than the GraphQL or git it runs
+ * (Court, 2026-10-20). The exact command stays in the title (hover).
+ */
+export function stepLine(s: {
+  action: string;
+  key: string;
+  command: string;
+  expected_tip?: string;
+}): string {
+  const tip = s.expected_tip
+    ? ` \u00b7 if still at ${s.expected_tip.slice(0, 7)}`
+    : '';
+  switch (s.action) {
+    case 'branch-delete-remote':
+      return `delete on GitHub${tip}`;
+    case 'branch-delete-local':
+      return `delete here${tip}`;
+    case 'worktree-remove':
+      return 'remove the worktree';
+  }
+  return s.command;
+}
+
+/** untickHidden is the ticked keys a filter or a search no longer shows. */
+export function untickHidden(ticked: string[], shown: Set<string>): string[] {
+  return ticked.filter((k) => !shown.has(k));
 }
 
 /**
@@ -597,4 +689,132 @@ export function otherHalf(key: string, steps: Pick<Step, 'key'>[]): string {
   return steps.some((s) => s.key === key)
     ? ' \u00b7 its other half runs above'
     : '';
+}
+
+// ---- run's items ----
+
+const NEEDS = new Set(['failed', 'needs_you', 'paused']);
+const UNFINISHED = new Set(['pending', 'running', 'reported']);
+
+/**
+ * standsStep is the step that says where an item stands in its job: the
+ * first that needs Court, else the first not finished, else the last.
+ */
+export function standsStep(m: RunMark): JobStep {
+  const steps = m.steps ?? [];
+  return (
+    steps.find((s) => NEEDS.has(s.state)) ??
+    steps.find((s) => UNFINISHED.has(s.state)) ??
+    steps[steps.length - 1]
+  );
+}
+
+/**
+ * ranLine is a run row's second line: what happened and in which job. A
+ * step that stopped names what it was ("GitHub delete failed · job #33");
+ * one that ran says how it ended ("deleted · verified · job #28").
+ */
+export function ranLine(m: RunMark): { text: string; tone: Tone } {
+  const s = standsStep(m);
+  if (!s) return { text: `job #${m.job}`, tone: 'muted' };
+  const mark = stepMark(s, false);
+  const stopped = NEEDS.has(s.state) || s.state === 'skipped';
+  const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
+  return { text: `${what} \u00b7 job #${m.job}`, tone: mark.tone };
+}
+
+/**
+ * aroundSteps is the steps of a job around key's first: span before and
+ * after it, and how many that leaves out.
+ */
+export function aroundSteps(
+  steps: JobStep[],
+  key: string,
+  span: number,
+): { steps: JobStep[]; hidden: number } {
+  const i = Math.max(
+    0,
+    steps.findIndex((s) => s.key === key),
+  );
+  const shown = steps.slice(Math.max(0, i - span), i + span + 1);
+  return { steps: shown, hidden: steps.length - shown.length };
+}
+
+/**
+ * runBulk is the steps each of run's buttons acts on for the ticked items
+ * (their marks), every step of each item, not one: skip covers each step
+ * that needs Court in a job still open, when every one of them has an open
+ * failed or paused card; hand to agent the same, open failed cards only;
+ * undo every step that can be undone, when every item has one. Empty: the
+ * button doesn't fit them all.
+ */
+export function runBulk(
+  marks: RunMark[],
+  cards: NeedsYou[],
+): { skip: JobStep[]; hand: JobStep[]; undo: JobStep[] } {
+  const open = (s: JobStep, kinds: string[]) =>
+    cards.some(
+      (c) => c.state === 'open' && c.step_id === s.id && kinds.includes(c.kind),
+    );
+  const per = (f: (m: RunMark) => JobStep[]): JobStep[] | null => {
+    const each = marks.map(f);
+    return marks.length > 0 && each.every((x) => x.length > 0)
+      ? each.flat()
+      : null;
+  };
+  const needs = per((m) =>
+    m.finished ? [] : (m.steps ?? []).filter((s) => NEEDS.has(s.state)),
+  );
+  const fit = (kinds: string[]) =>
+    needs && needs.every((s) => open(s, kinds)) ? needs : [];
+  return {
+    skip: fit(['failed', 'paused']),
+    hand: fit(['failed']),
+    undo: per((m) => (m.steps ?? []).filter((s) => !!s.undoable)) ?? [],
+  };
+}
+
+// A step's state as ticked steps are counted: "2 failed steps".
+const STATE_WORD: Record<string, string> = {
+  failed: 'failed',
+  paused: 'paused',
+  needs_you: 'waiting',
+  skipped: 'skipped',
+  verified: 'done',
+  reported: 'reported',
+  running: 'running',
+  pending: 'queued',
+};
+
+/**
+ * tickedRunWords is the middle pane's lines for ticked run items: where
+ * they are ticked, what their steps are ("2 failed steps"; "3 items" when
+ * they differ), and their jobs.
+ */
+export function tickedRunWords(
+  marks: RunMark[],
+  groupLabel: string,
+): { kick: string; title: string; ctx: string } {
+  const n = marks.length;
+  const steps = marks.map(standsStep).filter(Boolean);
+  const states = [
+    ...new Set(steps.map((s) => (s.undone_at ? 'undone' : s.state))),
+  ];
+  const word =
+    states.length === 1
+      ? states[0] === 'undone'
+        ? 'undone'
+        : STATE_WORD[states[0]]
+      : '';
+  const jobs = [...new Set(marks.map((m) => m.job))].sort((a, b) => a - b);
+  return {
+    kick: `run \u00b7 ${n} ticked in ${groupLabel}`,
+    title: word
+      ? `${n} ${word} ${n === 1 ? 'step' : 'steps'}`
+      : pluralize(n, 'item'),
+    ctx:
+      jobs.length === 1
+        ? `job #${jobs[0]}`
+        : `jobs ${jobs.map((j) => `#${j}`).join(', ')}`,
+  };
 }

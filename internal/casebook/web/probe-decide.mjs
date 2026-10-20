@@ -105,14 +105,8 @@ async function press(pg, ...keys) {
   for (const k of keys) await pg.keyboard.press(k);
 }
 
-// row is the shown list's row for key (its kicker is the key).
-const escapeRe = (x) => x.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
-const row = (pg, key) =>
-  pg.locator(`${LIST} .kit-row`).filter({
-    has: pg.locator('.kit-kicker', {
-      hasText: new RegExp(`^${escapeRe(key.replace(':', ' \u00b7 '))}$`),
-    }),
-  });
+// row is the shown list's row for key.
+const row = (pg, key) => pg.locator(`${LIST} .kit-row[data-key="${key}"]`);
 
 // opened waits for the reading column to show key with its buttons.
 function opened(t, pg, key) {
@@ -200,10 +194,21 @@ async function decisionsScenario(context, t, s) {
   // First, so no other decision's strip is up when its own is looked for.
   const OLDS = [1, 2, 3].map(IPOLD);
   const OLD = `${LIST} .cb-group[data-rule="${IP_OLD.id}"]`;
-  await pg.waitForSelector(`${OLD} .cb-group-act`, { timeout: 8000 });
+  await pg.waitForSelector(`${OLD} .cb-group-box`, { timeout: 8000 });
   const oldBefore = await Promise.all(OLDS.map(held));
   posts.length = 0;
-  await pg.click(`${OLD} .cb-group-act`);
+  // Ticking the group shows its three in the middle, the rule's choice
+  // filled; nothing is decided until it is pressed.
+  await pg.click(`${OLD} .cb-group-box`);
+  const FILLED = `${READ} .cb-mid-acts .cb-choice.on[data-d="delete"]`;
+  await pg.waitForSelector(FILLED, { timeout: 8000 });
+  check(
+    `ticking the group decides nothing: its three show in the middle, "1 ticked" aside (${posts.length} POSTs)`,
+    posts.filter((p) => /^\/api\/(decide|proposals\/)/.test(p)).length === 0 &&
+      (await pg.$eval(`${OLD} .cb-group-ticked`, (e) => e.textContent)) ===
+        '3 ticked \u00b7 untick',
+  );
+  await pg.click(FILLED);
   const groupDecided = await eventually(async () => {
     const now = await Promise.all(OLDS.map(held));
     return now.every(
@@ -215,7 +220,7 @@ async function decisionsScenario(context, t, s) {
     /^\/api\/(decide|proposals\/)/.test(p),
   );
   check(
-    `the group's Delete all 3 decides each of the three delete, once: one commit each, from one POST (${groupPosts.join(', ')})`,
+    `ticked, the three's delete decides each of them, once: one commit each, from one POST (${groupPosts.join(', ')})`,
     groupDecided && groupPosts.length === 1,
   );
   await until(
@@ -352,7 +357,7 @@ async function decisionsScenario(context, t, s) {
       `${READ} .cb-notnow:not([hidden]) .kit-chip[data-id="in-1w"]`,
     );
     check(
-      `a recommendation that came while picking a Not now (the page heard it: ${heard}) counts as decided differently: waiting, its recommendation changed`,
+      `a recommendation that came while picking a not now (the page heard it: ${heard}) counts as decided differently: waiting, its recommendation changed`,
       heard &&
         (await eventually(async () => {
           const h = await held(IPPR(5));
@@ -364,6 +369,87 @@ async function decisionsScenario(context, t, s) {
         posts.includes('/api/proposals/change') &&
         !posts.includes('/api/decide'),
     );
+  }
+
+  // ---- ticks only cover what is shown -------------------------------------
+  // Review 2026-10-19: a tick a search had hidden was decided with the one
+  // shown. Tick A, narrow until only B shows, tick B, press: only B.
+  {
+    const [A, B] = [IPOLD(1), IPOLD(2)];
+    await pg.evaluate(() => (location.hash = '#/decide'));
+    await openGroups(pg);
+    await row(pg, A).locator('.kit-box').click();
+    const SEARCH = `${LIST} input[placeholder="search by key or title"]`;
+    await pg.fill(SEARCH, 'rd-old-2');
+    await until(
+      pg,
+      ([l, a, b]) =>
+        !document.querySelector(`${l} .kit-row[data-key="${a}"]`) &&
+        !!document.querySelector(`${l} .kit-row[data-key="${b}"]`),
+      [LIST, A, B],
+      8000,
+    );
+    await openGroups(pg);
+    await row(pg, B).locator('.kit-box').click();
+    const DEL = `${READ} .cb-mid-acts .cb-choice[data-d="delete"]:not([disabled])`;
+    await pg.waitForSelector(DEL, { timeout: 8000 });
+    await pg.click(DEL);
+    const bDone = await eventually(
+      async () => (await held(B)).d?.disposition === 'delete',
+      8000,
+    );
+    const a = await held(A);
+    check(
+      `tick A, search until only B shows, tick B, delete: only B is decided (B ${bDone}, A ${a.d?.disposition ?? 'undecided'})`,
+      bDone && a.d === null,
+    );
+    await pg.fill(SEARCH, '');
+
+    // A whole-group tick whose pages come back after the view changed
+    // ticks nothing: its keys are the old view's.
+    await openGroups(pg);
+    await until(
+      pg,
+      ([l, a]) => !!document.querySelector(`${l} .kit-row[data-key="${a}"]`),
+      [LIST, A],
+      8000,
+    );
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const GROUPED = (u) => {
+      const g = new URL(u).searchParams.get('group');
+      return !!g && g !== 'false';
+    };
+    await pg.route(GROUPED, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    const asked = pg.waitForRequest((r) => GROUPED(r.url()));
+    await pg.click(`${LIST} .cb-group[data-rule="${IP_OLD.id}"] .cb-group-box`);
+    await asked;
+    await pg.fill(SEARCH, 'rd-old-3');
+    await until(
+      pg,
+      ([l, a]) => !document.querySelector(`${l} .kit-row[data-key="${a}"]`),
+      [LIST, A],
+      8000,
+    );
+    const done = pg.waitForResponse((r) => GROUPED(r.url()));
+    release();
+    await done;
+    await pg.waitForTimeout(300); // kept: a window for the late pages to tick
+    check(
+      'a whole-group tick that finishes after the search changed ticks nothing',
+      await pg.evaluate(
+        (l) =>
+          [...document.querySelectorAll(`${l} .cb-group-ticked`)].every(
+            (e) => e.hidden,
+          ),
+        LIST,
+      ),
+    );
+    await pg.unroute(GROUPED);
+    await pg.fill(SEARCH, '');
   }
   await pg.close();
 }

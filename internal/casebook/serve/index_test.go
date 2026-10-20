@@ -216,18 +216,18 @@ func groupedFixture() (*Index, map[string]propose.Proposal) {
 }
 
 const (
-	closeID = "pi:s1|close|Close it without merging"
-	mergeID = "pi:s1|merge|Merge it"
+	closeID = "pi:s1|close|close it without merging"
+	mergeID = "pi:s1|merge|merge it"
 )
 
 var groupedWant = []GroupView{
-	{ID: "none", Label: "Not recommended yet", Total: 2},
-	{ID: closeID, Source: "pi:s1", Disposition: "close", Label: "Close it without merging", Outward: true, Many: "Close {n}", Total: 3},
-	{ID: mergeID, Source: "pi:s1", Disposition: "merge", Label: "Merge it", Outward: true, Many: "Merge {n}", Total: 1},
+	{ID: "none", Label: "not recommended yet", Total: 2},
+	{ID: closeID, Source: "pi:s1", Disposition: "close", Label: "close it without merging", Outward: true, Many: "close {n}", Total: 3},
+	{ID: mergeID, Source: "pi:s1", Disposition: "merge", Label: "merge it", Outward: true, Many: "merge {n}", Total: 1},
 }
 
 // TestGroupsOrderByNewestItem: groups by their newest item (a fresh item
-// with no recommendation lifts "Not recommended yet" to the top), newest
+// with no recommendation lifts "not recommended yet" to the top), newest
 // first inside each.
 func TestGroupsOrderByNewestItem(t *testing.T) {
 	idx, pending := groupedFixture()
@@ -295,11 +295,11 @@ func TestGroupSplitsByKindLabel(t *testing.T) {
 	}
 	// Equal totals: the order of the disposition in the kind's choices
 	// (an issue's close is its second choice, a PR's its third).
-	if want := []string{"Close it", "Close it without merging", "Not now"}; !slices.Equal(labels, want) {
+	if want := []string{"close it", "close it without merging", "not now"}; !slices.Equal(labels, want) {
 		t.Fatalf("labels %v, want %v", labels, want)
 	}
 	items, _ := idx.List(Query{View: ViewNew}, pending)
-	if items[2].Group != "pi:s1|wait|Not now" {
+	if items[2].Group != "pi:s1|wait|not now" {
 		t.Fatalf("watch's group %q", items[2].Group)
 	}
 }
@@ -321,13 +321,13 @@ func cameBackFixture() (*Index, map[string]propose.Proposal) {
 }
 
 // TestCameBackItemsComeFirst: whatever its age, an item that came back
-// (due, drift, conflict) is in the "Came back" group, listed first; flat,
+// (due, drift, conflict) is in the "came back" group, listed first; flat,
 // it comes first.
 func TestCameBackItemsComeFirst(t *testing.T) {
 	idx, pending := cameBackFixture()
 	q := Query{View: ViewAll}
 	gs := idx.Groups(q, pending)
-	if len(gs) == 0 || gs[0].ID != GroupCameBack || gs[0].Label != "Came back" || gs[0].Total != 2 {
+	if len(gs) == 0 || gs[0].ID != GroupCameBack || gs[0].Label != "came back" || gs[0].Total != 2 {
 		t.Fatalf("groups %+v, want came-back first with 2", gs)
 	}
 	items, _ := idx.List(q, pending)
@@ -342,7 +342,7 @@ func TestCameBackItemsComeFirst(t *testing.T) {
 }
 
 // TestCameBackItemIsNotInItsRecommendationGroup: a due item a rule
-// recommends is in "Came back", and the rule's group leaves it out, so the
+// recommends is in "came back", and the rule's group leaves it out, so the
 // group's button never decides it.
 func TestCameBackItemIsNotInItsRecommendationGroup(t *testing.T) {
 	idx, pending := cameBackFixture()
@@ -357,13 +357,13 @@ func TestCameBackItemIsNotInItsRecommendationGroup(t *testing.T) {
 			t.Fatalf("rule group %+v counts the item that came back", g)
 		}
 	}
-	if keys := idx.Keys(Query{View: ViewAll, Group: "rule:stale|close|Close it without merging"}, pending); !slices.Equal(keys, []string{"pr:schuettc/hail#3"}) {
+	if keys := idx.Keys(Query{View: ViewAll, Group: "rule:stale|close|close it without merging"}, pending); !slices.Equal(keys, []string{"pr:schuettc/hail#3"}) {
 		t.Fatalf("rule group keys %v", keys)
 	}
 }
 
 // TestCameBackFirstWhenFiltered: a filter or a rule narrows the list but
-// "Came back" still leads it, grouped and flat (review 2026-10-17).
+// "came back" still leads it, grouped and flat (review 2026-10-17).
 func TestCameBackFirstWhenFiltered(t *testing.T) {
 	idx, pending := cameBackFixture()
 	all := map[string]bool{}

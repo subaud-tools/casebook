@@ -66,6 +66,9 @@ export interface ItemDetailView {
   history: Event[] | null;
   decisions: LogEntry[] | null;
   done_how: string;
+  steps: JobStep[] | null;
+  ran: RunMark | null;
+  ran_steps: JobStep[] | null;
 }
 
 export interface DecideResult {
@@ -366,6 +369,7 @@ export interface ItemView {
   looking?: Looking;
   group: string;
   recommended_by?: Session;
+  ran?: RunMark;
 }
 
 export interface Session {
@@ -429,6 +433,34 @@ export interface LogEntry {
   Commit: string;
   Time: string;
   Subject: string;
+}
+
+export interface JobStep {
+  id: number;
+  job_id: number;
+  key: string;
+  action: string;
+  lane: string;
+  command: string;
+  precondition?: string;
+  posts?: boolean;
+  expected_tip?: string;
+  text?: string;
+  restore?: string;
+  state: string;
+  detail?: string;
+  verified_at?: string;
+  undone_at?: string;
+  undoable?: boolean;
+  undo_note?: string;
+  permanent?: boolean;
+}
+
+export interface RunMark {
+  job: number;
+  group: string;
+  finished?: boolean;
+  steps: JobStep[] | null;
 }
 
 export interface Committed {
@@ -773,27 +805,6 @@ export interface Waiting {
   key: string;
   machine: string;
   path?: string;
-}
-
-export interface JobStep {
-  id: number;
-  job_id: number;
-  key: string;
-  action: string;
-  lane: string;
-  command: string;
-  precondition?: string;
-  posts?: boolean;
-  expected_tip?: string;
-  text?: string;
-  restore?: string;
-  state: string;
-  detail?: string;
-  verified_at?: string;
-  undone_at?: string;
-  undoable?: boolean;
-  undo_note?: string;
-  permanent?: boolean;
 }
 
 export interface Conflict {

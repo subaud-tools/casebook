@@ -235,6 +235,7 @@ function decideQuery(o) {
   const parts = [];
   if (o.rule) parts.push(`rule=${o.rule}`);
   if (o.filters.length) parts.push(`filters=${o.filters.join(",")}`);
+  if (o.q) parts.push(`q=${encodeURIComponent(o.q)}`);
   if (o.flat) parts.push("flat");
   return parts.join("&");
 }
@@ -392,22 +393,22 @@ var WALKTHROUGH_STEPS = [
 ];
 var MARGIN = 8;
 var clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
-function placeNote(target, card6, view, gap = 12) {
-  const maxX = Math.max(MARGIN, view.width - card6.width - MARGIN);
-  const maxY = Math.max(MARGIN, view.height - card6.height - MARGIN);
+function placeNote(target, card7, view, gap = 12) {
+  const maxX = Math.max(MARGIN, view.width - card7.width - MARGIN);
+  const maxY = Math.max(MARGIN, view.height - card7.height - MARGIN);
   const x = clamp(target.x, MARGIN, maxX);
   const y = clamp(target.y, MARGIN, maxY);
   const below = target.y + target.height + gap;
-  if (below + card6.height <= view.height - MARGIN) return { x, y: below };
-  const above = target.y - gap - card6.height;
+  if (below + card7.height <= view.height - MARGIN) return { x, y: below };
+  const above = target.y - gap - card7.height;
   if (above >= MARGIN) return { x, y: above };
-  const left = target.x - gap - card6.width;
+  const left = target.x - gap - card7.width;
   if (left >= MARGIN) return { x: left, y };
   const right = target.x + target.width + gap;
-  if (right + card6.width <= view.width - MARGIN) return { x: right, y };
+  if (right + card7.width <= view.width - MARGIN) return { x: right, y };
   return {
-    x: clamp((view.width - card6.width) / 2, MARGIN, maxX),
-    y: clamp((view.height - card6.height) / 2, MARGIN, maxY)
+    x: clamp((view.width - card7.width) / 2, MARGIN, maxX),
+    y: clamp((view.height - card7.height) / 2, MARGIN, maxY)
   };
 }
 function walkthroughSeen() {
@@ -458,7 +459,7 @@ function makeWalkthrough(ctx) {
     overlay.setAttribute("aria-modal", "true");
     overlay.setAttribute("aria-label", "walkthrough");
     const ring = el("div", "cb-walk-ring");
-    const card6 = el("div", "cb-walk-card");
+    const card7 = el("div", "cb-walk-card");
     const count2 = el("p", "cb-walk-count");
     const note = el("p", "cb-walk-note");
     const skipBtn = el("button", "kit-btn cb-walk-skip", "skip");
@@ -467,10 +468,10 @@ function makeWalkthrough(ctx) {
     nextBtn.type = "button";
     const acts = el("div", "cb-walk-acts");
     acts.append(skipBtn, nextBtn);
-    card6.append(count2, note, acts);
+    card7.append(count2, note, acts);
     ring.hidden = true;
-    card6.hidden = true;
-    overlay.append(ring, card6);
+    card7.hidden = true;
+    overlay.append(ring, card7);
     document.body.append(overlay);
     let steps = WALKTHROUGH_STEPS;
     let at2 = -1;
@@ -494,11 +495,11 @@ function makeWalkthrough(ctx) {
         ring.style.height = `${r.height}px`;
         const p = placeNote(
           r,
-          { width: card6.offsetWidth, height: card6.offsetHeight },
+          { width: card7.offsetWidth, height: card7.offsetHeight },
           { width: innerWidth, height: innerHeight }
         );
-        card6.style.left = `${p.x}px`;
-        card6.style.top = `${p.y}px`;
+        card7.style.left = `${p.x}px`;
+        card7.style.top = `${p.y}px`;
       }
       raf = requestAnimationFrame(place);
     }
@@ -526,7 +527,7 @@ function makeWalkthrough(ctx) {
         note.textContent = step.note;
         nextBtn.textContent = i === steps.length - 1 ? "done" : "next";
         ring.hidden = false;
-        card6.hidden = false;
+        card7.hidden = false;
         nextBtn.focus();
         return;
       }
@@ -608,16 +609,16 @@ function registerDock(make) {
 }
 var liveListeners = /* @__PURE__ */ new Map();
 function onLiveEvent(type, cb) {
-  let list3 = liveListeners.get(type);
-  if (!list3) {
-    list3 = [];
-    liveListeners.set(type, list3);
+  let list2 = liveListeners.get(type);
+  if (!list2) {
+    list2 = [];
+    liveListeners.set(type, list2);
   }
-  list3.push(cb);
+  list2.push(cb);
 }
 function emitLive(type, data) {
-  const list3 = liveListeners.get(type);
-  if (list3) for (const cb of list3) cb(data);
+  const list2 = liveListeners.get(type);
+  if (list2) for (const cb of list2) cb(data);
 }
 var booted = false;
 function boot() {
@@ -755,7 +756,7 @@ function start(first) {
   let livePaused = false;
   const held = [];
   const layer = makeKeyLayer(
-    (list3) => createKeys(list3 ? { list: list3 } : {}),
+    (list2) => createKeys(list2 ? { list: list2 } : {}),
     (m) => console.error(m)
   );
   const ctx = {
@@ -828,9 +829,9 @@ function start(first) {
     app.append(sec.list, sec.read);
   }
   if (sections.size === 0) {
-    const list3 = h("div", { class: "kit-list" });
+    const list2 = h("div", { class: "kit-list" });
     const read = h("div", { class: "kit-read" });
-    app.append(list3, read);
+    app.append(list2, read);
   }
   const rail = h("div", { class: "kit-rail" });
   for (const make of dockMakers) {
@@ -1001,13 +1002,13 @@ function start(first) {
 
 // apply.ts
 import {
-  ApiError,
-  list,
-  h as h4,
-  facts,
-  buttons as buttons2,
-  card,
-  sheet as sheet2
+  ApiError as ApiError2,
+  createSelection,
+  h as h9,
+  facts as facts2,
+  buttons as buttons4,
+  card as card3,
+  sheet
 } from "/_kit/kit.js";
 
 // sessions.ts
@@ -1158,13 +1159,18 @@ function recommendsWho(vocab2, source, ruleName = "") {
   return vocab2.recommends;
 }
 var CAME_BACK = "came-back";
-function rowSub(vocab2, it, flat) {
-  const p = it.status !== "left-open" && it.proposal?.state === "pending" ? it.proposal : void 0;
-  return [
-    it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : void 0,
-    p && flat ? choiceLabel(vocab2, it.key, p.disposition) : void 0,
-    p?.note || void 0
-  ].filter(Boolean).join(" · ") || void 0;
+function standsLine(vocab2, it, flat) {
+  const looking = lookingLine(it.looking);
+  if (looking) return { text: looking, tone: "agent" };
+  if (it.status === "left-open")
+    return { text: leftOpenMeta(it.decision?.decided_at), tone: "muted" };
+  const back = it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : "";
+  if (back) return { text: back, tone: "signal" };
+  const p = it.proposal?.state === "pending" ? it.proposal : void 0;
+  if (!p) return { text: "not recommended yet", tone: "muted" };
+  const label = choiceLabel(vocab2, it.key, p.disposition);
+  const text = flat ? [label, p.note].filter(Boolean).join(" · ") : p.note || label;
+  return { text, tone: "muted" };
 }
 function decideSummary(groups, total, rules, vocab2) {
   const w = vocab2.summary;
@@ -1190,14 +1196,6 @@ function countWord(total, ticked, words) {
   if (total === 1) return words.one;
   if (total === 2) return words.two;
   return words.all.replaceAll("{n}", String(total));
-}
-function groupButtons(g, ticked, vocab2) {
-  const n = countWord(g.total, ticked, vocab2.count_words);
-  const fill = (s) => s.replaceAll("{n}", n);
-  return {
-    act: fill(g.many || g.label),
-    discard: fill(vocab2.discard_many)
-  };
 }
 function lookIntoCard(words, session, key) {
   return {
@@ -1340,9 +1338,514 @@ function applyGroupLink(disposition, key) {
   const kind = key.slice(0, key.indexOf(":"));
   return `#/review?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
 }
+function splitTicked(items, disposition, until = "") {
+  const out = { accept: [], decide: [] };
+  for (const it of items) {
+    const p = it.proposal;
+    if (p?.state === "pending" && p.disposition === disposition && (p.until ?? "") === until)
+      out.accept.push(p.id);
+    else out.decide.push(it.key);
+  }
+  return out;
+}
+function tickedWords(vocab2, items, groupLabel) {
+  const n = items.length;
+  const kinds = [...new Set(items.map((it) => kindFromKey(it.key)))];
+  const kv = kinds.length === 1 ? (vocab2.kinds ?? []).find((k) => k.kind === kinds[0]) : void 0;
+  const title = kv?.nouns ? `${n} ${n === 1 ? kv.noun : kv.nouns}` : pluralize(n, "item");
+  const ps = items.map(
+    (it) => it.proposal?.state === "pending" ? it.proposal : void 0
+  );
+  const first = ps[0];
+  const shared = !!first && ps.every(
+    (p) => p?.disposition === first.disposition && p?.source === first.source
+  );
+  let ctx = "not recommended yet";
+  if (shared && first) {
+    const all = n === 1 ? "it" : n === 2 ? "both" : `all ${n}`;
+    ctx = `${recommendsWho(vocab2, first.source, groupLabel)} ${choiceLabel(vocab2, items[0].key, first.disposition)} for ${all}`;
+  } else if (ps.some(Boolean)) ctx = "their recommendations differ";
+  return {
+    kick: `decide · ${n} ticked in ${groupLabel}`,
+    title,
+    ctx
+  };
+}
+
+// apply-text.ts
+function runOrder(jobs) {
+  const out = { running: [], done: [] };
+  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
+    if (j.state === "planned" || j.state === "cancelled") continue;
+    if (FINISHED_JOB.has(j.state)) out.done.push(j);
+    else out.running.push(j);
+  }
+  return out;
+}
+var FINISHED_JOB = /* @__PURE__ */ new Set(["done", "failed", "cancelled"]);
+function isRunning(job) {
+  return job.state !== "planned" && !FINISHED_JOB.has(job.state);
+}
+function applyLabel(many, noun, nouns, n) {
+  return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
+}
+var TITLES = {
+  "branch-delete-local": "delete local branches",
+  "branch-delete-remote": "delete remote branches",
+  "worktree-remove": "remove worktrees",
+  "repo-archive": "archive repos",
+  "repo-delete": "delete repos",
+  "pr-close": "close PRs",
+  "pr-merge": "merge PRs",
+  "issue-close": "close issues"
+};
+function actionTitle(action) {
+  return TITLES[action] ?? action;
+}
+function planTitle(job, nouns) {
+  const parts = groupSteps(job.steps ?? []).map((g) => {
+    const n = new Set(g.steps.map((s) => s.key)).size;
+    const kind = g.steps[0]?.key.slice(0, g.steps[0].key.indexOf(":")) ?? "";
+    const [one, many] = nouns(kind);
+    const words = actionTitle(g.action).split(" ");
+    const mid = words.slice(1, -1);
+    return [words[0], String(n), ...mid, n === 1 ? one : many].join(" ");
+  });
+  if (!parts.length) return `job #${job.id}`;
+  return parts.join(", ");
+}
+var PAST = {
+  "branch-delete-local": "deleted",
+  "branch-delete-remote": "deleted on the remote",
+  "worktree-remove": "removed",
+  "repo-archive": "archived",
+  "repo-delete": "deleted",
+  "pr-close": "closed",
+  "pr-merge": "merged",
+  "issue-close": "closed"
+};
+var RESUME = {
+  "branch-delete-local": "delete",
+  "branch-delete-remote": "delete",
+  "worktree-remove": "remove",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function resumeVerb(action) {
+  return RESUME[action] ?? "run";
+}
+var VERB = {
+  "branch-delete-local": "local delete",
+  "branch-delete-remote": "GitHub delete",
+  "worktree-remove": "worktree remove",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function actionVerb(action) {
+  return VERB[action] ?? "run";
+}
+function laneLabel(lane, agent) {
+  return lane === "agent" ? `${agent || "agent"} · outward` : "casebook · local";
+}
+function groupSteps(steps) {
+  const out = [];
+  const at2 = /* @__PURE__ */ new Map();
+  for (const s of steps) {
+    const k = `${s.action}\0${s.lane}`;
+    const i = at2.get(k);
+    if (i === void 0) {
+      at2.set(k, out.length);
+      out.push({
+        action: s.action,
+        lane: s.lane,
+        undo: s.undo_note ?? "",
+        steps: [s]
+      });
+    } else out[i].steps.push(s);
+  }
+  return out;
+}
+function jobTitle(job) {
+  const titles = [
+    ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action)))
+  ];
+  if (!titles.length) return `job #${job.id}`;
+  return titles.join(", ");
+}
+function jobLanes(job) {
+  const have = new Set((job.steps ?? []).map((s) => s.lane));
+  return ["casebook", "agent"].filter((l) => have.has(l));
+}
+var FINISHED = /* @__PURE__ */ new Set(["verified", "reported", "skipped", "failed"]);
+function progress(job) {
+  const p = {
+    total: 0,
+    finished: 0,
+    byLane: {},
+    verified: 0,
+    paused: 0,
+    skipped: 0,
+    failed: 0,
+    started: job.state === "running"
+  };
+  for (const s of job.steps ?? []) {
+    p.total++;
+    if (s.state !== "pending") p.started = true;
+    if (FINISHED.has(s.state)) {
+      p.finished++;
+      p.byLane[s.lane] = (p.byLane[s.lane] ?? 0) + 1;
+    }
+    if (s.state === "verified") p.verified++;
+    if (s.state === "paused") p.paused++;
+    if (s.state === "skipped") p.skipped++;
+    if (s.state === "failed") p.failed++;
+  }
+  return p;
+}
+function openCardsByJob(cards) {
+  const m = /* @__PURE__ */ new Map();
+  for (const c of cards) {
+    if (c.state !== "open") continue;
+    m.set(c.job_id, (m.get(c.job_id) ?? 0) + 1);
+  }
+  return m;
+}
+function stepMark(s, next) {
+  const past = PAST[s.action] ?? "done";
+  const why = (glyph, text, tone) => s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
+  if (s.undone_at) return { glyph: "↺", text: "undone", tone: "muted" };
+  switch (s.state) {
+    case "verified":
+      return { glyph: "✓", text: `${past} · verified`, tone: "ok" };
+    case "reported":
+      return {
+        glyph: "✓",
+        text: `${past} · reported`,
+        tone: "muted"
+      };
+    case "running":
+      return {
+        glyph: "▸",
+        text: "running",
+        tone: s.lane === "agent" ? "agent" : "signal"
+      };
+    case "paused":
+      return why("‖", "paused", "agent");
+    case "needs_you":
+      return { glyph: "!", text: "needs you", tone: "signal" };
+    case "failed":
+      return why("✗", "failed", "signal");
+    case "skipped":
+      return why("–", "skipped", "muted");
+    default:
+      return { glyph: "·", text: next ? "next" : "queued", tone: "wait" };
+  }
+}
+function nextSteps(steps) {
+  const out = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
+  for (const s of steps) {
+    if (s.state !== "pending" || seen2.has(s.lane)) continue;
+    seen2.add(s.lane);
+    out.add(s.id);
+  }
+  return out;
+}
+function needsSession(steps) {
+  return steps.some((s) => s.lane === "agent");
+}
+function makeSeq() {
+  let latest = 0;
+  return {
+    next: () => ++latest,
+    isLatest: (n) => n === latest
+  };
+}
+function startedKeys(jobs) {
+  const m = /* @__PURE__ */ new Map();
+  for (const j of jobs) {
+    if (!STARTED.has(j.state)) continue;
+    for (const s of j.steps ?? []) {
+      const was = m.get(s.key);
+      if (was === void 0 || j.id > was) m.set(s.key, j.id);
+    }
+  }
+  return m;
+}
+var STARTED = /* @__PURE__ */ new Set(["approved", "running", "paused"]);
+function runsThrough(steps, agent) {
+  if (!needsSession(steps)) return { text: "", can: true };
+  if (agent === null)
+    return { text: "Open casebook from an agent to run this.", can: false };
+  return { text: `runs through ${agent || "agent"}`, can: true };
+}
+function ageText(ms) {
+  const s = Math.max(0, Math.floor(ms / 1e3));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h18 = Math.floor(m / 60);
+  if (h18 < 24) return `${h18}h`;
+  return `${Math.floor(h18 / 24)}d`;
+}
+function observations(builtAt, intervalMs, now) {
+  const age = now - builtAt;
+  if (!intervalMs || age <= intervalMs)
+    return { text: "observations fresh", stale: false };
+  return { text: `observations ${ageText(age)} old`, stale: true };
+}
+var STEP_DISPOSITION = {
+  "branch-delete-local": "delete",
+  "branch-delete-remote": "delete",
+  "worktree-remove": "delete",
+  "repo-archive": "archive",
+  "repo-delete": "delete",
+  "pr-close": "close",
+  "pr-merge": "merge",
+  "issue-close": "close"
+};
+function stepGroup(s) {
+  return `${STEP_DISPOSITION[s.action] ?? ""}|${s.key.slice(0, s.key.indexOf(":"))}`;
+}
+function heldOutside(jobs, id, loaded) {
+  const held = /* @__PURE__ */ new Set();
+  for (const j of jobs) {
+    if (!STARTED.has(j.state)) continue;
+    for (const s of j.steps ?? [])
+      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
+  }
+  return held.size;
+}
+var ACTION_TAGS = {
+  "repo-delete": ["permanent"],
+  "pr-merge": ["permanent"],
+  "pr-close": ["github-undo"],
+  "issue-close": ["github-undo"],
+  "repo-archive": ["github-undo"]
+};
+function actionTags(action) {
+  return ACTION_TAGS[action] ?? [];
+}
+function stepTags(steps) {
+  const n = {
+    permanent: 0,
+    posts: 0,
+    "github-undo": 0
+  };
+  for (const s of steps) {
+    for (const k of actionTags(s.action)) n[k]++;
+    if (s.posts) n.posts++;
+  }
+  return ["permanent", "posts", "github-undo"].filter((k) => n[k] > 0).map((kind) => ({ kind, n: n[kind] }));
+}
+function tagText(t, of) {
+  const counted = of === 0 || t.n < of;
+  const lead = counted ? `${count(t.n)} ` : "";
+  switch (t.kind) {
+    case "permanent":
+      return `${lead}can't be undone`;
+    case "github-undo":
+      return `${lead}undo on GitHub`;
+    case "posts":
+      return `${lead}${counted && t.n > 1 ? "post" : "posts"} a public comment`;
+  }
+}
+function publicLine(s) {
+  return `posts publicly${s.public ? " on a public repo" : ""}: “${s.comment ?? ""}”`;
+}
+function count(n) {
+  return n.toLocaleString("en-US");
+}
+function runsNow(plan) {
+  const steps = plan.steps ?? [];
+  const by = (a) => steps.filter((s) => s.action === a).length;
+  const agent = steps.filter((s) => s.lane === "agent").length;
+  const wt = by("worktree-remove");
+  const remote = by("branch-delete-remote");
+  const local = by("branch-delete-local");
+  let first;
+  if (steps.length && agent === steps.length) {
+    first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
+  } else if (!steps.length) {
+    first = "nothing runs now.";
+  } else {
+    const parts = [];
+    if (wt)
+      parts.push(
+        `${count(wt)} ${wt === 1 ? "worktree" : "worktrees"} removed${remote + local ? " first" : ""}`
+      );
+    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
+    if (local) parts.push(`${count(local)} deleted here`);
+    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
+    first = `runs now: ${parts.join(", ")}.`;
+  }
+  const rest = [];
+  const waits = /* @__PURE__ */ new Map();
+  for (const w of plan.waiting ?? [])
+    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
+  for (const [m, n] of waits)
+    rest.push(
+      `Waits for ${m}: ${count(n)} ${n === 1 ? "local copy" : "local copies"}.`
+    );
+  const held = plan.held_back?.length ?? 0;
+  if (held) rest.push(`Held: ${count(held)}.`);
+  return rest.length ? `${first}
+${rest.join(" ")}` : first;
+}
+function reviewKick(n, groups) {
+  const where = groups.length === 1 ? groups[0] : `${groups.length} groups`;
+  return `review · ${n} ticked in ${where}`;
+}
+function reviewLine(it, done) {
+  const d = it.decision?.disposition ?? "";
+  const stopping = (it.holds ?? []).filter((x) => (x.stops ?? []).includes(d));
+  const whole = stopping.find((x) => !x.local && !x.remote);
+  if (whole) return { text: `held: ${whole.text}`, tone: "agent" };
+  if (it.kind === "branch") {
+    const there = (it.copies ?? []).filter((c) => !c.absent);
+    const remote = stopping.find((x) => x.remote);
+    const local = stopping.filter((x) => x.local);
+    const stopped = new Set(local.map((x) => x.machine ?? ""));
+    const gh = !remote && there.some((c) => !c.machine);
+    const here = there.some((c) => !!c.machine && !stopped.has(c.machine));
+    const parts = [];
+    if (gh || here)
+      parts.push(
+        `deleted ${[gh ? "on GitHub" : "", here ? "here" : ""].filter(Boolean).join(" and ")}`
+      );
+    let held = false;
+    for (const x of local) {
+      if (x.kind === "other-mac")
+        parts.push(`local copy waits for ${x.machine}`);
+      else {
+        parts.push(`local copy held: ${x.text}`);
+        held = true;
+      }
+    }
+    if (remote) {
+      parts.push(`GitHub copy held: ${remote.text}`);
+      held = true;
+    }
+    if (parts.length)
+      return { text: parts.join(" · "), tone: held ? "agent" : "muted" };
+  }
+  const part = stopping[0];
+  if (part)
+    return part.kind === "other-mac" ? { text: `waits for ${part.machine}`, tone: "muted" } : { text: `held: ${part.text}`, tone: "agent" };
+  return { text: done.toLowerCase(), tone: "muted" };
+}
+function stepLine(s) {
+  const tip = s.expected_tip ? ` · if still at ${s.expected_tip.slice(0, 7)}` : "";
+  switch (s.action) {
+    case "branch-delete-remote":
+      return `delete on GitHub${tip}`;
+    case "branch-delete-local":
+      return `delete here${tip}`;
+    case "worktree-remove":
+      return "remove the worktree";
+  }
+  return s.command;
+}
+function untickHidden(ticked, shown) {
+  return ticked.filter((k) => !shown.has(k));
+}
+function waitBlocks(waits, steps) {
+  const github = new Set(
+    steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
+  );
+  const out = [];
+  for (const w of waits) {
+    const m = w.machine;
+    let text;
+    if (w.key.startsWith("worktree:"))
+      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
+    else if (github.has(w.key))
+      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
+    else
+      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
+    const block = out.find((b) => b.text === text);
+    if (block) block.waits.push(w);
+    else out.push({ text, waits: [w] });
+  }
+  return out;
+}
+var heldText = "Not run here. Each says what holds it; settle that and it joins the next run.";
+function otherHalf(key, steps) {
+  return steps.some((s) => s.key === key) ? " · its other half runs above" : "";
+}
+var NEEDS = /* @__PURE__ */ new Set(["failed", "needs_you", "paused"]);
+var UNFINISHED = /* @__PURE__ */ new Set(["pending", "running", "reported"]);
+function standsStep(m) {
+  const steps = m.steps ?? [];
+  return steps.find((s) => NEEDS.has(s.state)) ?? steps.find((s) => UNFINISHED.has(s.state)) ?? steps[steps.length - 1];
+}
+function ranLine(m) {
+  const s = standsStep(m);
+  if (!s) return { text: `job #${m.job}`, tone: "muted" };
+  const mark = stepMark(s, false);
+  const stopped = NEEDS.has(s.state) || s.state === "skipped";
+  const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
+  return { text: `${what} · job #${m.job}`, tone: mark.tone };
+}
+function aroundSteps(steps, key, span) {
+  const i = Math.max(
+    0,
+    steps.findIndex((s) => s.key === key)
+  );
+  const shown = steps.slice(Math.max(0, i - span), i + span + 1);
+  return { steps: shown, hidden: steps.length - shown.length };
+}
+function runBulk(marks, cards) {
+  const open = (s, kinds) => cards.some(
+    (c) => c.state === "open" && c.step_id === s.id && kinds.includes(c.kind)
+  );
+  const per = (f) => {
+    const each = marks.map(f);
+    return marks.length > 0 && each.every((x) => x.length > 0) ? each.flat() : null;
+  };
+  const needs = per(
+    (m) => m.finished ? [] : (m.steps ?? []).filter((s) => NEEDS.has(s.state))
+  );
+  const fit = (kinds) => needs && needs.every((s) => open(s, kinds)) ? needs : [];
+  return {
+    skip: fit(["failed", "paused"]),
+    hand: fit(["failed"]),
+    undo: per((m) => (m.steps ?? []).filter((s) => !!s.undoable)) ?? []
+  };
+}
+var STATE_WORD = {
+  failed: "failed",
+  paused: "paused",
+  needs_you: "waiting",
+  skipped: "skipped",
+  verified: "done",
+  reported: "reported",
+  running: "running",
+  pending: "queued"
+};
+function tickedRunWords(marks, groupLabel) {
+  const n = marks.length;
+  const steps = marks.map(standsStep).filter(Boolean);
+  const states = [
+    ...new Set(steps.map((s) => s.undone_at ? "undone" : s.state))
+  ];
+  const word = states.length === 1 ? states[0] === "undone" ? "undone" : STATE_WORD[states[0]] : "";
+  const jobs = [...new Set(marks.map((m) => m.job))].sort((a, b) => a - b);
+  return {
+    kick: `run · ${n} ticked in ${groupLabel}`,
+    title: word ? `${n} ${word} ${n === 1 ? "step" : "steps"}` : pluralize(n, "item"),
+    ctx: jobs.length === 1 ? `job #${jobs[0]}` : `jobs ${jobs.map((j) => `#${j}`).join(", ")}`
+  };
+}
 
 // decide.ts
-import { sheet, h as h3, noteField as noteField2 } from "/_kit/kit.js";
+import { h as h4 } from "/_kit/kit.js";
 
 // choices.ts
 import { h as h2, noteField, buttons } from "/_kit/kit.js";
@@ -1390,22 +1893,22 @@ function renderChoices(ctx, kind, opts) {
     notNow.append(...notNowPicker(vocab2.not_now ?? []));
   });
   function mark(d) {
-    for (const card6 of grid.querySelectorAll(
+    for (const card7 of grid.querySelectorAll(
       ".cb-choice[data-d]"
     )) {
-      card6.classList.toggle("on", card6.dataset.d === d);
-      const k = card6.querySelector(".cb-choice-mark");
-      if (k) k.textContent = markText(card6);
+      card7.classList.toggle("on", card7.dataset.d === d);
+      const k = card7.querySelector(".cb-choice-mark");
+      if (k) k.textContent = markText(card7);
     }
   }
-  function markText(card6) {
+  function markText(card7) {
     const parts = [];
-    if (card6.classList.contains("rec")) parts.push("recommended");
-    if (card6.classList.contains("on")) parts.push("chosen");
+    if (card7.classList.contains("rec")) parts.push("recommended");
+    if (card7.classList.contains("on")) parts.push("chosen");
     return parts.join(" · ");
   }
   function choiceCard(c, n, rec) {
-    const card6 = h2(
+    const card7 = h2(
       "button",
       {
         type: "button",
@@ -1432,9 +1935,9 @@ function renderChoices(ctx, kind, opts) {
       h2("span", { class: "cb-choice-mark" }),
       h2("span", { class: "cb-choice-label" }, c.label)
     );
-    const k = card6.querySelector(".cb-choice-mark");
-    if (k) k.textContent = markText(card6);
-    return card6;
+    const k = card7.querySelector(".cb-choice-mark");
+    if (k) k.textContent = markText(card7);
+    return card7;
   }
   function closeComment() {
     const field = noteField({
@@ -1637,6 +2140,36 @@ function renderChoices(ctx, kind, opts) {
   return root;
 }
 
+// mid.ts
+import { h as h3 } from "/_kit/kit.js";
+function midHead(o) {
+  return [
+    h3("p", { class: "cb-mid-kick", title: o.kick }, o.kick),
+    h3("h1", { class: "cb-mid-title", title: o.title }, o.title),
+    h3("p", { class: "cb-mid-ctx", title: o.ctx }, o.ctx),
+    h3("div", { class: "cb-mid-acts" }, ...o.acts)
+  ];
+}
+function midRows(rows, more) {
+  return h3(
+    "div",
+    { class: "cb-mid-rows" },
+    ...rows.map(
+      (r) => h3(
+        "div",
+        { class: "cb-mid-row", "data-key": r.key },
+        h3("div", { class: "cb-mid-k", title: r.key }, keyWithoutKind(r.key)),
+        h3(
+          "div",
+          { class: `cb-mid-st cb-tone-${r.tone ?? "muted"}`, title: r.stands },
+          r.stands
+        )
+      )
+    ),
+    more > 0 ? h3("div", { class: "cb-mid-row cb-mid-more" }, `… ${more} more`) : null
+  );
+}
+
 // decide.ts
 var _vocab = null;
 async function getVocab(ctx) {
@@ -1645,363 +2178,49 @@ async function getVocab(ctx) {
   return _vocab;
 }
 var DANGER_DISPS = /* @__PURE__ */ new Set(["close", "delete", "archive"]);
-
-// apply-text.ts
-function runOrder(jobs) {
-  const out = { running: [], done: [] };
-  for (const j of [...jobs].sort((a, b) => b.id - a.id)) {
-    if (j.state === "planned" || j.state === "cancelled") continue;
-    if (FINISHED_JOB.has(j.state)) out.done.push(j);
-    else out.running.push(j);
-  }
-  return out;
-}
-var FINISHED_JOB = /* @__PURE__ */ new Set(["done", "failed", "cancelled"]);
-function isRunning(job) {
-  return job.state !== "planned" && !FINISHED_JOB.has(job.state);
-}
-function isFinished(job) {
-  return FINISHED_JOB.has(job.state);
-}
-function applyLabel(many, noun, nouns, n) {
-  return many.replace("{n}", `${n} ${n === 1 ? noun : nouns}`);
-}
-var TITLES = {
-  "branch-delete-local": "Delete local branches",
-  "branch-delete-remote": "Delete remote branches",
-  "worktree-remove": "Remove worktrees",
-  "repo-archive": "Archive repos",
-  "repo-delete": "Delete repos",
-  "pr-close": "Close PRs",
-  "pr-merge": "Merge PRs",
-  "issue-close": "Close issues"
-};
-function actionTitle(action) {
-  return TITLES[action] ?? action;
-}
-function planTitle(job, nouns) {
-  const parts = groupSteps(job.steps ?? []).map((g) => {
-    const n = new Set(g.steps.map((s) => s.key)).size;
-    const kind = g.steps[0]?.key.slice(0, g.steps[0].key.indexOf(":")) ?? "";
-    const [one, many] = nouns(kind);
-    const words = actionTitle(g.action).split(" ");
-    const mid = words.slice(1, -1);
-    return [words[0], String(n), ...mid, n === 1 ? one : many].join(" ");
-  });
-  if (!parts.length) return `job #${job.id}`;
-  return parts.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
-}
-var PAST = {
-  "branch-delete-local": "deleted",
-  "branch-delete-remote": "deleted on the remote",
-  "worktree-remove": "removed",
-  "repo-archive": "archived",
-  "repo-delete": "deleted",
-  "pr-close": "closed",
-  "pr-merge": "merged",
-  "issue-close": "closed"
-};
-var VERB = {
-  "branch-delete-local": "delete",
-  "branch-delete-remote": "delete",
-  "worktree-remove": "remove",
-  "repo-archive": "archive",
-  "repo-delete": "delete",
-  "pr-close": "close",
-  "pr-merge": "merge",
-  "issue-close": "close"
-};
-function actionVerb(action) {
-  return VERB[action] ?? "run";
-}
-function laneLabel(lane, agent) {
-  return lane === "agent" ? `${agent || "agent"} · outward` : "casebook · local";
-}
-function groupSteps(steps) {
-  const out = [];
-  const at2 = /* @__PURE__ */ new Map();
-  for (const s of steps) {
-    const k = `${s.action}\0${s.lane}`;
-    const i = at2.get(k);
-    if (i === void 0) {
-      at2.set(k, out.length);
-      out.push({
-        action: s.action,
-        lane: s.lane,
-        undo: s.undo_note ?? "",
-        steps: [s]
-      });
-    } else out[i].steps.push(s);
-  }
-  return out;
-}
-function jobTitle(job) {
-  const titles = [
-    ...new Set(groupSteps(job.steps ?? []).map((g) => actionTitle(g.action)))
-  ];
-  if (!titles.length) return `job #${job.id}`;
-  return titles.map((t, i) => i ? t.charAt(0).toLowerCase() + t.slice(1) : t).join(", ");
-}
-function jobLanes(job) {
-  const have = new Set((job.steps ?? []).map((s) => s.lane));
-  return ["casebook", "agent"].filter((l) => have.has(l));
-}
-var FINISHED = /* @__PURE__ */ new Set(["verified", "reported", "skipped", "failed"]);
-function progress(job) {
-  const p = {
-    total: 0,
-    finished: 0,
-    byLane: {},
-    verified: 0,
-    paused: 0,
-    skipped: 0,
-    failed: 0,
-    started: job.state === "running"
-  };
-  for (const s of job.steps ?? []) {
-    p.total++;
-    if (s.state !== "pending") p.started = true;
-    if (FINISHED.has(s.state)) {
-      p.finished++;
-      p.byLane[s.lane] = (p.byLane[s.lane] ?? 0) + 1;
-    }
-    if (s.state === "verified") p.verified++;
-    if (s.state === "paused") p.paused++;
-    if (s.state === "skipped") p.skipped++;
-    if (s.state === "failed") p.failed++;
-  }
-  return p;
-}
-function needsLine(needsYou, paused) {
-  const parts = [];
-  if (needsYou)
-    parts.push(`${needsYou} ${needsYou === 1 ? "needs" : "need"} you`);
-  if (paused) parts.push(`${paused} paused`);
-  return parts.join(" · ");
-}
-function openCardsByJob(cards) {
-  const m = /* @__PURE__ */ new Map();
-  for (const c of cards) {
-    if (c.state !== "open") continue;
-    m.set(c.job_id, (m.get(c.job_id) ?? 0) + 1);
-  }
-  return m;
-}
-function stepMark(s, next) {
-  const past = PAST[s.action] ?? "done";
-  const why = (glyph, text, tone) => s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
-  if (s.undone_at) return { glyph: "↺", text: "undone", tone: "muted" };
-  switch (s.state) {
-    case "verified":
-      return { glyph: "✓", text: `${past} · verified`, tone: "ok" };
-    case "reported":
-      return {
-        glyph: "✓",
-        text: `${past} · reported`,
-        tone: "muted"
-      };
-    case "running":
-      return {
-        glyph: "▸",
-        text: "running",
-        tone: s.lane === "agent" ? "agent" : "signal"
-      };
-    case "paused":
-      return why("‖", "paused", "agent");
-    case "needs_you":
-      return { glyph: "!", text: "needs you", tone: "signal" };
-    case "failed":
-      return why("✗", "failed", "signal");
-    case "skipped":
-      return why("–", "skipped", "muted");
-    default:
-      return { glyph: "·", text: next ? "next" : "queued", tone: "wait" };
-  }
-}
-function nextSteps(steps) {
-  const out = /* @__PURE__ */ new Set();
-  const seen2 = /* @__PURE__ */ new Set();
-  for (const s of steps) {
-    if (s.state !== "pending" || seen2.has(s.lane)) continue;
-    seen2.add(s.lane);
-    out.add(s.id);
-  }
-  return out;
-}
-function needsSession(steps) {
-  return steps.some((s) => s.lane === "agent");
-}
-function makeSeq() {
-  let latest = 0;
-  return {
-    next: () => ++latest,
-    isLatest: (n) => n === latest
-  };
-}
-function startedKeys(jobs) {
-  const m = /* @__PURE__ */ new Map();
-  for (const j of jobs) {
-    if (!STARTED.has(j.state)) continue;
-    for (const s of j.steps ?? []) {
-      const was = m.get(s.key);
-      if (was === void 0 || j.id > was) m.set(s.key, j.id);
-    }
-  }
-  return m;
-}
-var STARTED = /* @__PURE__ */ new Set(["approved", "running", "paused"]);
-function runsThrough(steps, agent) {
-  if (!needsSession(steps)) return { text: "", can: true };
-  if (agent === null)
-    return { text: "Open casebook from an agent to run this.", can: false };
-  return { text: `runs through ${agent || "agent"}`, can: true };
-}
-function ageText(ms) {
-  const s = Math.max(0, Math.floor(ms / 1e3));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h15 = Math.floor(m / 60);
-  if (h15 < 24) return `${h15}h`;
-  return `${Math.floor(h15 / 24)}d`;
-}
-function observations(builtAt, intervalMs, now) {
-  const age = now - builtAt;
-  if (!intervalMs || age <= intervalMs)
-    return { text: "observations fresh", stale: false };
-  return { text: `observations ${ageText(age)} old`, stale: true };
-}
-var STEP_DISPOSITION = {
-  "branch-delete-local": "delete",
-  "branch-delete-remote": "delete",
-  "worktree-remove": "delete",
-  "repo-archive": "archive",
-  "repo-delete": "delete",
-  "pr-close": "close",
-  "pr-merge": "merge",
-  "issue-close": "close"
-};
-function stepGroup(s) {
-  return `${STEP_DISPOSITION[s.action] ?? ""}|${s.key.slice(0, s.key.indexOf(":"))}`;
-}
-function heldOutside(jobs, id, loaded) {
-  const held = /* @__PURE__ */ new Set();
-  for (const j of jobs) {
-    if (!STARTED.has(j.state)) continue;
-    for (const s of j.steps ?? [])
-      if (!loaded.has(s.key) && stepGroup(s) === id) held.add(s.key);
-  }
-  return held.size;
-}
-var ACTION_TAGS = {
-  "repo-delete": ["permanent"],
-  "pr-merge": ["permanent"],
-  "pr-close": ["github-undo"],
-  "issue-close": ["github-undo"],
-  "repo-archive": ["github-undo"]
-};
-function actionTags(action) {
-  return ACTION_TAGS[action] ?? [];
-}
-function stepTags(steps) {
-  const n = {
-    permanent: 0,
-    posts: 0,
-    "github-undo": 0
-  };
-  for (const s of steps) {
-    for (const k of actionTags(s.action)) n[k]++;
-    if (s.posts) n.posts++;
-  }
-  return ["permanent", "posts", "github-undo"].filter((k) => n[k] > 0).map((kind) => ({ kind, n: n[kind] }));
-}
-function tagText(t, of) {
-  const counted = of === 0 || t.n < of;
-  const lead = counted ? `${count(t.n)} ` : "";
-  switch (t.kind) {
-    case "permanent":
-      return `${lead}can't be undone`;
-    case "github-undo":
-      return `${lead}undo on GitHub`;
-    case "posts":
-      return `${lead}${counted && t.n > 1 ? "post" : "posts"} a public comment`;
-  }
-}
-function publicLine(s) {
-  return `posts publicly${s.public ? " on a public repo" : ""}: “${s.comment ?? ""}”`;
-}
-function count(n) {
-  return n.toLocaleString("en-US");
-}
-function runsNow(plan) {
-  const steps = plan.steps ?? [];
-  const by = (a) => steps.filter((s) => s.action === a).length;
-  const agent = steps.filter((s) => s.lane === "agent").length;
-  const wt = by("worktree-remove");
-  const remote = by("branch-delete-remote");
-  const local = by("branch-delete-local");
-  let first;
-  if (steps.length && agent === steps.length) {
-    first = `${pluralize(steps.length, "step")} · all on GitHub, through the agent.`;
-  } else if (!steps.length) {
-    first = "Nothing runs now.";
-  } else {
-    const parts = [];
-    if (wt)
-      parts.push(
-        `${count(wt)} ${wt === 1 ? "worktree" : "worktrees"} removed${remote + local ? " first" : ""}`
-      );
-    if (remote) parts.push(`${count(remote)} deleted on GitHub`);
-    if (local) parts.push(`${count(local)} deleted here`);
-    if (agent) parts.push(`${count(agent)} on GitHub, through the agent`);
-    first = `Runs now: ${parts.join(", ")}.`;
-  }
-  const rest = [];
-  const waits = /* @__PURE__ */ new Map();
-  for (const w of plan.waiting ?? [])
-    waits.set(w.machine, (waits.get(w.machine) ?? 0) + 1);
-  for (const [m, n] of waits)
-    rest.push(
-      `Waits for ${m}: ${count(n)} ${n === 1 ? "local copy" : "local copies"}.`
-    );
-  const held = plan.held_back?.length ?? 0;
-  if (held) rest.push(`Held: ${count(held)}.`);
-  return rest.length ? `${first}
-${rest.join(" ")}` : first;
-}
-function reviewKeys(groups, open) {
-  const ticked = groups.filter((g) => g.ticked.length > 0);
-  if (!ticked.length)
-    return { keys: [...groups[open]?.waiting ?? []], groups: 1 };
-  return { keys: ticked.flatMap((g) => g.ticked), groups: ticked.length };
-}
-function reviewKicker(groups) {
-  return groups > 1 ? `review · ${groups} groups ticked` : "review";
-}
-function waitBlocks(waits, steps) {
-  const github = new Set(
-    steps.filter((s) => s.action === "branch-delete-remote").map((s) => s.key)
+function renderTicked(ctx, items, words, onDecide, extra) {
+  const keys = items.map((it) => it.key);
+  const kinds = [...new Set(keys.map(kindFromKey))];
+  const recs = items.map(
+    (it) => it.proposal?.state === "pending" ? it.proposal.disposition : ""
   );
-  const out = [];
-  for (const w of waits) {
-    const m = w.machine;
-    let text;
-    if (w.key.startsWith("worktree:"))
-      text = `They are only on ${m}. They are removed from review the next time casebook runs there.`;
-    else if (github.has(w.key))
-      text = `Their local copies are only on ${m}; their GitHub copies are deleted above. They run from review the next time casebook runs there.`;
-    else
-      text = `Their local copies are only on ${m}. They run from review the next time casebook runs there.`;
-    const block = out.find((b) => b.text === text);
-    if (block) block.waits.push(w);
-    else out.push({ text, waits: [w] });
-  }
-  return out;
+  const common = recs.every((r) => r && r === recs[0]) ? recs[0] : void 0;
+  const choices2 = renderChoices(ctx, kinds[0] ?? "", {
+    keys,
+    recommended: common,
+    chosen: common,
+    onPick(d, until) {
+      void onDecide(d, until);
+    }
+  });
+  const grid = choices2.querySelector(".cb-choices");
+  const shown = items.slice(0, TICKED_ROWS);
+  return h4(
+    "div",
+    { class: "kit-doc" },
+    h4(
+      "article",
+      { class: "cb-apply-doc cb-ticked", "data-testid": "ticked" },
+      ...midHead({
+        ...words,
+        acts: [...grid ? [grid] : [], ...extra]
+      }),
+      choices2,
+      midRows(
+        shown.map((it) => {
+          const p = it.proposal?.state === "pending" ? it.proposal : void 0;
+          return {
+            key: it.key,
+            stands: p?.note || "not recommended yet",
+            tone: "muted"
+          };
+        }),
+        items.length - shown.length
+      )
+    )
+  );
 }
-var heldText = "Not run here. Each says what holds it; settle that and it joins the next run.";
-function otherHalf(key, steps) {
-  return steps.some((s) => s.key === key) ? " · its other half runs above" : "";
-}
+var TICKED_ROWS = 20;
 
 // coalesce.ts
 function coalesced(load) {
@@ -2026,2067 +2245,14 @@ function coalesced(load) {
   return call;
 }
 
-// apply.ts
-var PAGE = 200;
-var STEPS_PAGE = 200;
-var RUNNING = "running";
-var DONE = "done";
-function message(err) {
-  return err instanceof Error ? err.message : String(err);
-}
-var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
-function focusKey(el2) {
-  const host = el2.closest(
-    "[data-card],[data-step],[data-session],[data-testid]"
-  );
-  const hostKey = host ? ["card", "step", "session", "testid"].map((a) => host.getAttribute(`data-${a}`) ?? "").join("/") : "";
-  const own = el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement ? el2.className : el2.textContent ?? "";
-  return `${hostKey}|${el2.tagName}|${own}`;
-}
-function focusSnapshot(root) {
-  const a = document.activeElement;
-  if (!a || a === document.body || !root.contains(a)) return null;
-  const field = a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement ? a : null;
-  return {
-    key: focusKey(a),
-    start: field ? field.selectionStart : null,
-    end: field ? field.selectionEnd : null
-  };
-}
-function focusRestore(root, snap) {
-  if (!snap) return;
-  const els = root.querySelectorAll(
-    "button, textarea, input, a[href], [tabindex]"
-  );
-  for (const el2 of els) {
-    if (focusKey(el2) !== snap.key) continue;
-    el2.focus({ preventScroll: true });
-    if ((el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement) && snap.start !== null) {
-      el2.setSelectionRange(snap.start, snap.end ?? snap.start);
-    }
-    return;
-  }
-}
-function makeApply(ctx) {
-  const readEl = h4("div", { class: "kit-read cb-apply-read" });
-  let mode = "review";
-  let jobs = [];
-  let cards = [];
-  let sessions = [];
-  let items = [];
-  let itemsTotal = 0;
-  let itemsLoaded = false;
-  let groups = [];
-  let vocab2 = null;
-  const flipped = /* @__PURE__ */ new Set();
-  const startsOpen = (id) => id === RUNNING;
-  const collapsed = {
-    has: (id) => startsOpen(id) === flipped.has(id),
-    delete(id) {
-      if (!this.has(id)) return false;
-      if (flipped.has(id)) flipped.delete(id);
-      else flipped.add(id);
-      return true;
-    },
-    add(id) {
-      if (this.has(id)) return;
-      if (flipped.has(id)) flipped.delete(id);
-      else flipped.add(id);
-    }
-  };
-  let active = false;
-  let wantGroup = "";
-  let reviewGroup = "";
-  let followTimer = null;
-  const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
-  let reviewKeys2 = [];
-  let reviewTicked = 0;
-  let reviewView = null;
-  let drawnView = null;
-  let reviewNote = "";
-  let refusal = "";
-  let opening = false;
-  let openId = null;
-  let open = null;
-  let stepsShown = STEPS_PAGE;
-  let note = "";
-  let busy = false;
-  let painting = false;
-  let builtAt = 0;
-  let intervalMs = 0;
-  let syncing = false;
-  let syncError = "";
-  let afterSync = null;
-  const editors = /* @__PURE__ */ new Map();
-  const itemsSeq = makeSeq();
-  const listSeq = makeSeq();
-  const jobSeq = makeSeq();
-  const planSeq = makeSeq();
-  const runner = () => ctx.dockTarget();
-  const harnessOf = (id) => sessions.find((s) => s.id === id)?.harness || "";
-  const runnerAgent = () => {
-    const t = runner();
-    if (!t) return null;
-    return harnessOf(t.id) || ctx.agentName() || "agent";
-  };
-  const agentOf = (job) => harnessOf(job.session) || ctx.agentName() || "agent";
-  const obsText = h4("span", { "data-testid": "observations" });
-  const obsEl = h4(
-    "div",
-    { class: "cb-apply-obs" },
-    h4("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
-    obsText
-  );
-  const foot = h4("div", { class: "cb-apply-foot" }, obsEl);
-  const held = () => startedKeys(jobs);
-  const order = () => runOrder(jobs);
-  const groupName = (g) => {
-    const kind = g.id.slice(g.id.indexOf("|") + 1);
-    return kindVocab(kind)?.nouns ?? "";
-  };
-  const choiceOf = (g) => {
-    const kind = g.id.slice(g.id.indexOf("|") + 1);
-    return kindVocab(kind)?.choices?.find((c) => c.disposition === g.disposition)?.label ?? "";
-  };
-  const titleOf = (j) => planTitle(j, (kind) => {
-    const kv = kindVocab(kind);
-    return kv ? [kv.noun, kv.nouns] : [kind, `${kind}s`];
-  });
-  const kindVocab = (kind) => vocab2?.kinds?.find((k) => k.kind === kind);
-  function labelFor(g, n) {
-    const kind = g.id.slice(g.id.indexOf("|") + 1);
-    const kv = kindVocab(kind);
-    if (!kv || !g.many) return g.label;
-    return applyLabel(g.many, kv.noun, kv.nouns, n);
-  }
-  const waiting = (g) => items.filter((it) => it.group === g.id && !held().has(it.key));
-  function waitingCount(g) {
-    const loaded = new Set(items.map((i) => i.key));
-    let n = items.filter(
-      (it) => it.group === g.id && held().has(it.key)
-    ).length;
-    if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
-    return Math.max(0, g.total - n);
-  }
-  const tickedIn = (g) => {
-    const sel = new Set(handle.selectedIds());
-    return waiting(g).map((it) => it.key).filter((k) => sel.has(k));
-  };
-  const handle = list({
-    label: "",
-    openOnMove: false,
-    row(r) {
-      if (r.t === "more") {
-        return {
-          id: "more",
-          title: `… ${pluralize(r.left, "more decided item")}`,
-          meta: "show more"
-        };
-      }
-      if (r.t === "item") {
-        const it = r.item;
-        return {
-          id: it.key,
-          key: `${it.kind} · ${keyWithoutKind(it.key)}`,
-          title: it.title ?? keyWithoutKind(it.key),
-          selectable: true
-        };
-      }
-      const j = r.job;
-      const p = progress(j);
-      const lanes = jobLanes(j).map((l) => laneLabel(l, agentOf(j))).join(" + ");
-      return {
-        id: `job:${j.id}`,
-        key: lanes || `job #${j.id}`,
-        title: titleOf(j),
-        meta: p.started || isFinished(j) ? `${p.finished}/${p.total}` : "queued",
-        sub: needsLine(cardsFor(j.id), p.paused) || void 0
-      };
-    },
-    onOpen(r, i) {
-      if (painting) return;
-      if (r.t === "job") ctx.route.go("run", String(r.job.id));
-      else if (r.t === "item") handle.toggle(i);
-      else void loadItems(items.length);
-    },
-    onSelect() {
-      paintHeads();
-      if (mode !== "review") return;
-      let g = reviewGroup ? groups.find((x) => x.id === reviewGroup) : void 0;
-      if (!g) {
-        g = groups.find((x) => tickedIn(x).length > 0);
-        if (!g) return;
-      }
-      if (followTimer) clearTimeout(followTimer);
-      followTimer = setTimeout(() => {
-        followTimer = null;
-        if (!g || mode !== "review") return;
-        if (reviewGroup === g.id) void openGroup(g, true);
-        else if (!reviewGroup && tickedIn(g).length) openFromHead(g);
-      }, 250);
-    },
-    foot
-  });
-  handle.el.classList.add("cb-apply-list");
-  const cardsFor = (jobId) => openCardsByJob(cards.filter((c) => c.kind !== "paused")).get(jobId) ?? 0;
-  function parts() {
-    const ps = [];
-    if (mode === "run") {
-      const o = order();
-      const job = (job2) => ({ t: "job", job: job2 });
-      if (o.running.length)
-        ps.push({
-          id: RUNNING,
-          label: "Running",
-          n: o.running.length,
-          rows: o.running.map(job)
-        });
-      if (o.done.length)
-        ps.push({
-          id: DONE,
-          label: "Done",
-          n: o.done.length,
-          rows: o.done.map(job)
-        });
-      return ps;
-    }
-    for (const g of groups) {
-      const n = waitingCount(g);
-      if (!n) continue;
-      ps.push({
-        id: g.id,
-        label: labelFor(g, n),
-        n,
-        group: g,
-        rows: waiting(g).map((item) => ({ t: "item", item }))
-      });
-    }
-    if (itemsTotal > items.length) {
-      const last = ps.length ? ps[ps.length - 1] : null;
-      if (last?.group)
-        last.rows.push({ t: "more", left: itemsTotal - items.length });
-    }
-    return ps;
-  }
-  let shown = [];
-  let heads = [];
-  function paintList() {
-    ctx.bar.setCount("run", order().running.length);
-    const ps = parts();
-    shown = ps.flatMap((p) => collapsed.has(p.id) ? [] : p.rows);
-    handle.setItems(shown);
-    const els = handle.el.querySelectorAll(".kit-rows > .kit-row");
-    els.forEach((rowEl, i) => {
-      const r = shown[i];
-      if (!r) return;
-      if (r.t === "item") rowEl.dataset.key = r.item.key;
-      else if (r.t === "more") rowEl.classList.add("cb-apply-more");
-      else decorateJobRow(rowEl, r.job);
-    });
-    placeHeads(ps, els);
-    const openAt = mode === "run" ? shown.findIndex((r) => r.t === "job" && r.job.id === openId) : -1;
-    if (openAt >= 0) {
-      painting = true;
-      try {
-        handle.open(openAt);
-      } finally {
-        painting = false;
-      }
-    }
-    if (mode === "review") markOpenGroup();
-    paintObs();
-    drawOverview();
-  }
-  function placeHeads(ps, els) {
-    const body = handle.el.querySelector(".kit-rows");
-    heads = [];
-    if (!body) return;
-    let at2 = 0;
-    let last = null;
-    for (const p of ps) {
-      const head = partHead(p);
-      heads.push(head);
-      const n = collapsed.has(p.id) ? 0 : p.rows.length;
-      if (n) {
-        els[at2]?.before(head.el);
-        last = els[at2 + n - 1] ?? head.el;
-      } else {
-        if (last) last.after(head.el);
-        else body.prepend(head.el);
-        last = head.el;
-      }
-      at2 += n;
-    }
-  }
-  function partHead(p) {
-    const isOpen = !collapsed.has(p.id);
-    const toggleOpen = () => {
-      if (collapsed.has(p.id)) collapsed.delete(p.id);
-      else collapsed.add(p.id);
-      paintList();
-    };
-    const g = p.group;
-    const box = g ? h4("span", {
-      class: "cb-group-box",
-      role: "checkbox",
-      "aria-checked": "false",
-      "aria-label": p.label,
-      onclick() {
-        const keys = waiting(g).map((it) => it.key);
-        if (tickedIn(g).length === keys.length) handle.deselect(keys);
-        else handle.selectAll(keys);
-      }
-    }) : h4("span", { class: "cb-group-nobox" });
-    const top = h4(
-      "div",
-      { class: "cb-group-top" },
-      h4(
-        "button",
-        {
-          type: "button",
-          class: "cb-group-caret",
-          "aria-expanded": String(isOpen),
-          "aria-label": p.label,
-          onclick: toggleOpen
-        },
-        isOpen ? "▼" : "▶"
-      ),
-      box,
-      g ? h4("div", { class: "cb-group-acts cb-apply-head-acts" }) : h4(
-        "span",
-        { class: "cb-group-name", onclick: toggleOpen },
-        h4(
-          "span",
-          { class: "cb-group-line" },
-          h4("span", { class: "cb-group-label" }, p.label)
-        )
-      ),
-      h4("span", { class: "cb-group-n" }, String(p.n))
-    );
-    const acts = g ? top.querySelector(".cb-apply-head-acts") : null;
-    const el2 = h4(
-      "div",
-      {
-        class: "cb-group cb-apply-part" + (isOpen ? "" : " collapsed"),
-        role: "presentation",
-        dataset: { part: p.id }
-      },
-      top
-    );
-    const paint2 = () => {
-      if (!g || !acts) return;
-      const ticked = tickedIn(g);
-      const all = waiting(g).length;
-      box.setAttribute(
-        "aria-checked",
-        !ticked.length ? "false" : ticked.length === all ? "true" : "mixed"
-      );
-      const bs = [
-        h4(
-          "button",
-          {
-            type: "button",
-            class: "cb-group-plan cb-group-namebtn",
-            title: "review these",
-            onclick() {
-              openFromHead(g);
-            }
-          },
-          h4("span", { class: "cb-group-label" }, groupName(g)),
-          h4("span", { class: "cb-group-choice" }, choiceOf(g))
-        )
-      ];
-      if (ticked.length && vocab2?.untick)
-        bs.push(
-          h4(
-            "button",
-            {
-              type: "button",
-              class: "cb-group-untick",
-              onclick() {
-                handle.deselect(ticked);
-              }
-            },
-            vocab2.untick
-          )
-        );
-      acts.replaceChildren(...bs);
-    };
-    paint2();
-    return { el: el2, paint: paint2 };
-  }
-  function paintHeads() {
-    for (const hd of heads) hd.paint();
-  }
-  function markOpenGroup() {
-    for (const el2 of handle.el.querySelectorAll(".cb-apply-part"))
-      el2.classList.toggle(
-        "cb-focus",
-        !!reviewGroup && el2.dataset.part === reviewGroup
-      );
-  }
-  function decorateJobRow(rowEl, j) {
-    rowEl.dataset.job = String(j.id);
-    rowEl.classList.add("cb-job-row");
-    const p = progress(j);
-    const kicker = rowEl.querySelector(".kit-kicker");
-    const lanes = jobLanes(j);
-    if (kicker && lanes.length) {
-      kicker.replaceChildren(
-        ...lanes.flatMap((l, i) => [
-          i ? " + " : "",
-          h4(
-            "span",
-            { class: `cb-lanename cb-lanename-${l}`, "data-lane": l },
-            laneLabel(l, agentOf(j))
-          )
-        ])
-      );
-    }
-    const meta = rowEl.querySelector(".kit-meta");
-    if (meta?.textContent === "queued") meta.classList.add("cb-queued");
-    rowEl.querySelector(".kit-sub")?.classList.add("cb-needs-line");
-    const bar2 = h4("div", {
-      class: "cb-pb",
-      role: "progressbar",
-      "aria-valuemin": "0",
-      "aria-valuemax": String(p.total),
-      "aria-valuenow": String(p.finished)
-    });
-    for (const l of lanes) {
-      const n = p.byLane[l] ?? 0;
-      if (!n) continue;
-      bar2.append(
-        h4("span", {
-          class: `cb-pb-${l}`,
-          style: `width:${100 * n / Math.max(1, p.total)}%`
-        })
-      );
-    }
-    rowEl.querySelector(".kit-title")?.after(bar2);
-  }
-  function paintObs() {
-    const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
-    obsText.textContent = syncing ? "syncing observations…" : o.text;
-    obsEl.dataset.state = syncing ? "syncing" : o.stale ? "stale" : "fresh";
-    obsEl.hidden = !builtAt && !syncing;
-  }
-  const obsTimer = setInterval(paintObs, 1e3);
-  void obsTimer;
-  const dirty = {
-    all: false,
-    items: false,
-    sessions: false,
-    summary: false,
-    jobs: /* @__PURE__ */ new Set()
-  };
-  let flushing = false;
-  let queued = false;
-  function mark(f) {
-    f(dirty);
-    if (flushing) {
-      queued = true;
-      return;
-    }
-    flushing = true;
-    setTimeout(() => void flush(), 40);
-  }
-  async function flush() {
-    try {
-      do {
-        queued = false;
-        const d = {
-          all: dirty.all,
-          items: dirty.items,
-          sessions: dirty.sessions,
-          summary: dirty.summary,
-          jobs: [...dirty.jobs]
-        };
-        dirty.all = dirty.items = dirty.sessions = dirty.summary = false;
-        dirty.jobs.clear();
-        const some = d.all && openId !== null ? [openId] : d.all ? [] : d.jobs;
-        await Promise.all([
-          d.all ? loadJobs() : null,
-          some.length ? loadSome(some) : null,
-          d.items ? loadItems() : null,
-          d.sessions ? loadSessions() : null,
-          d.summary ? loadSummary() : null
-        ]);
-      } while (queued);
-    } finally {
-      flushing = false;
-    }
-  }
-  function patchJob(v) {
-    const i = jobs.findIndex((j) => j.id === v.job.id);
-    if (i >= 0) jobs[i] = v.job;
-    else jobs = [...jobs, v.job];
-    cards = [
-      ...cards.filter((c) => c.job_id !== v.job.id),
-      ...(v.needs_you ?? []).filter((c) => c.state === "open")
-    ];
-  }
-  async function loadJobs() {
-    const mine = listSeq.next();
-    try {
-      const [j, c] = await Promise.all([
-        ctx.api.get("/jobs"),
-        ctx.api.get("/needs-you")
-      ]);
-      if (!listSeq.isLatest(mine)) return;
-      jobs = j.jobs ?? [];
-      cards = c.cards ?? [];
-      if (open) patchJob(open);
-      paintList();
-      askNamedSessions();
-    } catch {
-    }
-  }
-  async function loadSome(ids) {
-    const openMine = openId !== null && ids.includes(openId) ? jobSeq.next() : 0;
-    const at2 = openId;
-    const got = await Promise.all(
-      ids.map(
-        (id) => ctx.api.get("/job", { id: String(id) }).catch(() => null)
-      )
-    );
-    let drawn = null;
-    got.forEach((v, i) => {
-      if (!v) return;
-      if (ids[i] === at2) {
-        if (!jobSeq.isLatest(openMine) || openId !== at2) return;
-        drawn = v;
-      }
-      patchJob(v);
-    });
-    if (drawn) setOpen(drawn);
-    else paintList();
-    askNamedSessions();
-  }
-  async function loadItems(offset = 0) {
-    const mine = itemsSeq.next();
-    try {
-      const v = await ctx.api.get("/items", {
-        view: "to-apply",
-        limit: String(PAGE),
-        offset: String(offset)
-      });
-      if (!itemsSeq.isLatest(mine)) return;
-      const got = v.items ?? [];
-      items = offset ? [...items, ...got] : got;
-      itemsTotal = v.total;
-      itemsLoaded = true;
-      groups = v.groups ?? [];
-      const keep = new Set(items.map((i) => i.key));
-      const gone = handle.selectedIds().filter((k) => !keep.has(k));
-      if (gone.length && offset === 0 && itemsTotal <= items.length) {
-        handle.deselect(gone);
-      }
-      paintList();
-      openWanted();
-    } catch {
-    }
-  }
-  const loadSessions = coalesced(fetchSessions);
-  let sessionsNamed = /* @__PURE__ */ new Set();
-  function namedSessions() {
-    const ids = [
-      runner()?.id ?? "",
-      open?.job.session ?? "",
-      ...jobs.map((j) => j.session)
-    ];
-    return [...new Set(ids.filter(Boolean))].sort();
-  }
-  function askNamedSessions() {
-    const missing = namedSessions().some(
-      (id) => !sessionsNamed.has(id) && !sessions.some((s) => s.id === id)
-    );
-    if (missing) mark((d) => d.sessions = true);
-  }
-  async function fetchSessions() {
-    try {
-      const named = namedSessions();
-      sessionsNamed = new Set(named);
-      const v = await ctx.api.get(
-        "/sessions",
-        named.length ? { session: named.join(",") } : void 0
-      );
-      sessions = v.sessions ?? [];
-      paintList();
-      if (reviewView) drawReview();
-      if (active) ctx.setPrimary(primary());
-    } catch {
-    }
-  }
-  async function loadSummary() {
-    try {
-      const s = await ctx.api.get("/summary");
-      builtAt = Date.parse(s.built_at) || 0;
-      intervalMs = s.sync_interval_ms;
-      syncing = s.syncing;
-      paintObs();
-      drawOverview();
-    } catch {
-    }
-  }
-  async function loadJob(id) {
-    const mine = jobSeq.next();
-    try {
-      const v = await ctx.api.get("/job", { id: String(id) });
-      if (!jobSeq.isLatest(mine) || openId !== id) return;
-      setOpen(v);
-      askNamedSessions();
-    } catch (err) {
-      if (!jobSeq.isLatest(mine) || openId !== id) return;
-      open = null;
-      readEl.replaceChildren(
-        h4(
-          "div",
-          { class: "cb-read-empty" },
-          h4("p", { class: "cb-read-empty-section kit-label" }, "run"),
-          h4("p", { class: "cb-read-empty-prompt" }, message(err))
-        )
-      );
-      feed();
-    }
-  }
-  function setOpen(v) {
-    const first = open?.job.id !== v.job.id;
-    open = v;
-    if (isFinished(v.job) && v.job.state !== "cancelled")
-      collapsed.delete(DONE);
-    patchJob(v);
-    for (const id of [...editors.keys()]) {
-      if (!(v.needs_you ?? []).some((c) => c.id === id && c.state === "open"))
-        editors.delete(id);
-    }
-    if (first) stepsShown = STEPS_PAGE;
-    paintList();
-    if (mode !== "run") return;
-    drawOpen();
-    if (first) readEl.scrollTop = 0;
-    feed();
-  }
-  async function act(path, body, ok) {
-    if (busy) return;
-    busy = true;
-    note = "";
-    const mine = jobSeq.next();
-    try {
-      const r = await ctx.api.post(path, body);
-      ok?.();
-      const jv = r;
-      if (jv && typeof jv === "object" && "job" in jv && jv.job) {
-        if (jobSeq.isLatest(mine) && openId === jv.job.id) setOpen(jv);
-        else patchJob(jv);
-      } else if (openId !== null) {
-        const id = openId;
-        mark((d) => d.jobs.add(id));
-      }
-    } catch (err) {
-      note = message(err);
-      drawOpen();
-    } finally {
-      busy = false;
-    }
-  }
-  function openFromHead(g) {
-    if (reviewGroup === g.id && ctx.route.current().section === "review") {
-      if (!opening) void openGroup(g);
-    } else ctx.route.go("review", "", `group=${encodeURIComponent(g.id)}`);
-  }
-  function openWanted() {
-    if (!wantGroup || !active || mode !== "review" || !itemsLoaded) return;
-    const id = wantGroup;
-    wantGroup = "";
-    const g = groups.find((x) => x.id === id);
-    if (g && waitingCount(g)) {
-      void openGroup(g);
-      return;
-    }
-    reviewGroup = id;
-    reviewView = null;
-    refusal = "";
-    reviewNote = "Nothing in this group is waiting.";
-    drawReview();
-    feed();
-  }
-  async function openGroup(g, follow = false) {
-    reviewGroup = g.id;
-    if (!follow) reviewView = null;
-    reviewNote = "";
-    refusal = "";
-    note = "";
-    if (!follow) {
-      if (collapsed.has(g.id)) collapsed.delete(g.id);
-      paintList();
-      focusHead(g.id);
-    }
-    const mine = planSeq.next();
-    const choice = reviewKeys(
-      groups.map((x) => ({
-        ticked: tickedIn(x),
-        waiting: x.id === g.id ? waiting(g).map((it) => it.key) : []
-      })),
-      groups.findIndex((x) => x.id === g.id)
-    );
-    let keys = choice.keys;
-    const nTicked = choice.groups;
-    if (!groups.some((x) => tickedIn(x).length > 0)) {
-      if (itemsTotal > items.length) {
-        try {
-          keys = await groupKeys2(g.id);
-        } catch (err) {
-          if (!planSeq.isLatest(mine)) return;
-          reviewNote = message(err);
-          drawReview();
-          return;
-        }
-      }
-    }
-    if (!planSeq.isLatest(mine)) return;
-    if (follow && sameKeys(keys, reviewKeys2)) return;
-    reviewKeys2 = keys;
-    reviewTicked = nTicked;
-    if (!follow) drawReview();
-    if (!keys.length) return;
-    opening = true;
-    try {
-      const v = await ctx.api.post("/apply/plan", {
-        keys,
-        preview: true
-      });
-      if (!planSeq.isLatest(mine) || reviewGroup !== g.id) return;
-      reviewView = v;
-      afterSync = null;
-      syncError = "";
-    } catch (err) {
-      if (!planSeq.isLatest(mine) || reviewGroup !== g.id) return;
-      const msg = message(err);
-      if (err instanceof ApiError && err.status === 409 && msg.includes("sync first"))
-        refusal = msg;
-      else reviewNote = msg;
-    } finally {
-      if (planSeq.isLatest(mine)) opening = false;
-    }
-    if (!planSeq.isLatest(mine)) return;
-    drawReview();
-    feed();
-  }
-  async function groupKeys2(id) {
-    const h0 = held();
-    const keys = [];
-    for (let total = Infinity; keys.length < total; ) {
-      const v = await ctx.api.get("/items", {
-        view: "to-apply",
-        group: id,
-        limit: "500",
-        offset: String(keys.length)
-      });
-      const got = v.items ?? [];
-      total = v.total;
-      if (!got.length) break;
-      keys.push(...got.map((i) => i.key));
-    }
-    return keys.filter((k) => !h0.has(k));
-  }
-  function focusHead(id) {
-    const head = handle.el.querySelector(
-      `.cb-apply-part[data-part="${CSS.escape(id)}"]`
-    );
-    head?.scrollIntoView({ block: "nearest" });
-  }
-  function closeReview() {
-    planSeq.next();
-    if (followTimer) clearTimeout(followTimer);
-    followTimer = null;
-    reviewGroup = "";
-    reviewView = null;
-    reviewKeys2 = [];
-    reviewTicked = 0;
-    reviewNote = "";
-    opening = false;
-    markOpenGroup();
-  }
-  async function syncFirst() {
-    syncError = "";
-    afterSync = reviewGroup;
-    try {
-      const v = await ctx.api.post("/sync", {});
-      syncing = v.running;
-    } catch (err) {
-      afterSync = null;
-      syncError = message(err);
-    }
-    paintObs();
-    drawReview();
-    if (active) ctx.setPrimary(primary());
-  }
-  function onSync(e) {
-    if (e.state === "running") {
-      syncing = true;
-      syncError = "";
-    } else {
-      syncing = false;
-      syncError = e.state === "failed" ? e.error ?? "failed" : "";
-      mark((d) => d.summary = true);
-      if (e.state === "done" && afterSync !== null) {
-        const id = afterSync;
-        afterSync = null;
-        refusal = "";
-        const g = groups.find((x) => x.id === id);
-        if (g && reviewGroup === id) void openGroup(g);
-      } else if (e.state === "done" && refusal) {
-        refusal = "";
-      }
-    }
-    paintObs();
-    drawReview();
-    if (active) ctx.setPrimary(primary());
-  }
-  function runCheck() {
-    const v = reviewView;
-    if (!v || v !== drawnView || v.job.state !== "planned") return null;
-    const steps = v.job.steps ?? [];
-    const rt = runsThrough(steps, runnerAgent());
-    return { v, can: !!steps.length && rt.can && !busy, text: rt.text };
-  }
-  function runGroup() {
-    const rc = runCheck();
-    if (!rc?.can) return;
-    const j = rc.v.job;
-    const steps = j.steps ?? [];
-    const go2 = () => {
-      const now = runCheck();
-      if (!now?.can || now.v !== rc.v) return;
-      void saveAndRun(rc.v, needsSession(steps) ? runner()?.id ?? "" : "");
-    };
-    const permanent = steps.filter((s) => s.permanent);
-    if (!permanent.length) return go2();
-    const title = titleOf(j);
-    const keys = [...new Set(permanent.map((s) => s.key))];
-    const sh = sheet2({
-      title: `${title}?`,
-      body: h4(
-        "div",
-        { class: "cb-confirm", "data-testid": "confirm-permanent" },
-        h4(
-          "p",
-          { class: "cb-confirm-warn" },
-          "This cannot be undone. These run on GitHub as soon as you confirm:"
-        ),
-        h4(
-          "ul",
-          { class: "cb-confirm-list" },
-          ...keys.map((k) => h4("li", {}, keyWithoutKind(k)))
-        )
-      ),
-      actions: [
-        { label: "cancel", run: () => sh.close() },
-        {
-          label: title,
-          fill: true,
-          run() {
-            sh.close();
-            go2();
-          }
-        }
-      ]
-    });
-  }
-  async function saveAndRun(shown2, session) {
-    if (busy) return;
-    busy = true;
-    note = "";
-    drawReview();
-    try {
-      const saved = await ctx.api.post("/apply/plan", {
-        keys: reviewKeys2
-      });
-      const want = (shown2.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
-      const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
-      if (want.join("\n") !== got.join("\n")) {
-        reviewView = { ...saved, job: { ...saved.job } };
-        note = "What would run changed since you looked; nothing ran. Look again.";
-        busy = false;
-        drawReview();
-        return;
-      }
-      const v = await ctx.api.post("/apply/approve", {
-        plan_id: saved.job.id,
-        session
-      });
-      patchJob(v);
-      handle.deselect(reviewKeys2);
-      closeReview();
-      jobSeq.next();
-      openId = v.job.id;
-      open = v;
-      stepsShown = STEPS_PAGE;
-      ctx.route.go("run", String(v.job.id));
-    } catch (err) {
-      note = message(err);
-      drawReview();
-    } finally {
-      busy = false;
-      if (active) ctx.setPrimary(primary());
-    }
-  }
-  function refusalCard() {
-    const body = h4(
-      "div",
-      null,
-      h4("p", { "data-testid": "plan-refused" }, refusal)
-    );
-    if (syncing) {
-      body.append(
-        h4(
-          "p",
-          { class: "cb-apply-note", role: "status", "data-testid": "syncing" },
-          "syncing… the group opens again when the sync is done"
-        )
-      );
-    } else if (syncError) {
-      body.append(
-        h4(
-          "p",
-          {
-            class: "cb-apply-note",
-            role: "status",
-            "data-testid": "sync-failed"
-          },
-          `not synced: ${syncError}`
-        )
-      );
-    }
-    const el2 = card({
-      edge: "signal",
-      head: "not ready",
-      body,
-      actions: syncing ? void 0 : [{ label: "sync first", fill: true, run: () => void syncFirst() }]
-    });
-    el2.dataset.testid = "refusal";
-    return el2;
-  }
-  function paint(doc) {
-    const keep = focusSnapshot(readEl);
-    readEl.replaceChildren(h4("div", { class: "kit-doc" }, doc));
-    focusRestore(readEl, keep);
-  }
-  function drawOverview() {
-    if (!active) return;
-    if (mode === "review") {
-      if (reviewGroup) return;
-      const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
-      paint(
-        h4(
-          "article",
-          { class: "cb-apply-doc", "data-testid": "review-overview" },
-          h4(
-            "h1",
-            { class: "kit-h1" },
-            waitingN ? `${pluralize(waitingN, "decision")} waiting` : "Nothing decided is waiting"
-          ),
-          h4(
-            "p",
-            null,
-            "Click a group's name, or tick items in it, to review it here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them."
-          )
-        )
-      );
-      return;
-    }
-    if (openId !== null) return;
-    const o = order();
-    const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
-    paint(
-      h4(
-        "article",
-        { class: "cb-apply-doc", "data-testid": "run-overview" },
-        h4(
-          "h1",
-          { class: "kit-h1" },
-          o.running.length ? `${pluralize(o.running.length, "job")} running` : "Nothing is running"
-        ),
-        facts([
-          ["running", String(o.running.length)],
-          ["needs you", String(needs)],
-          ["done", String(o.done.length)]
-        ]),
-        h4(
-          "p",
-          null,
-          "A group's button in review starts a job here. A job's row opens it: each step as it runs, and anything that needs you."
-        )
-      )
-    );
-  }
-  function drawReview() {
-    drawnView = null;
-    if (!active || mode !== "review" || !reviewGroup) return;
-    const g = groups.find((x) => x.id === reviewGroup);
-    const v = reviewView;
-    const j = v?.job;
-    const doc = h4(
-      "article",
-      {
-        class: "cb-apply-doc cb-plan",
-        "data-testid": "review-group",
-        "data-group": reviewGroup
-      },
-      h4("p", { class: "kit-kick" }, reviewKicker(reviewTicked)),
-      h4(
-        "h1",
-        { class: "kit-h1" },
-        j && j.steps?.length ? titleOf(j) : g ? labelFor(g, reviewKeys2.length || waitingCount(g)) : reviewGroup
-      )
-    );
-    if (refusal) {
-      doc.append(refusalCard());
-      return paint(doc);
-    }
-    if (reviewNote) {
-      doc.append(
-        h4(
-          "p",
-          {
-            class: "cb-apply-note",
-            role: "status",
-            "data-testid": "plan-nothing"
-          },
-          reviewNote
-        )
-      );
-      return paint(doc);
-    }
-    if (!v || !j) return paint(doc);
-    const steps = j.steps ?? [];
-    const held2 = v.plan.held_back ?? [];
-    const waits = v.plan.waiting ?? [];
-    if (!steps.length && !held2.length && !waits.length) {
-      doc.append(
-        h4(
-          "p",
-          { "data-testid": "plan-empty" },
-          "Nothing in this group runs from this machine: no step is on it, and nothing outward."
-        )
-      );
-      return paint(doc);
-    }
-    if (steps.length) drawnView = v;
-    doc.append(runBlock(v));
-    const agent = runnerAgent() ?? "an agent";
-    const parts2 = (v.groups ?? []).map((x) => ({
-      action: x.action,
-      lane: x.lane,
-      undo: x.undo,
-      steps: x.steps ?? []
-    }));
-    const deletesBranches = steps.some((s) => s.action.startsWith("branch-"));
-    const shown2 = !steps.length ? [] : parts2.length ? parts2 : groupSteps(steps);
-    for (const p of shown2) {
-      const github = p.action === "branch-delete-remote";
-      const first = p.action === "worktree-remove" && deletesBranches;
-      const title = github ? "Delete on GitHub" : first ? "Remove worktrees first" : actionTitle(p.action);
-      const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
-      doc.append(
-        h4(
-          "h3",
-          { class: "kit-label cb-group-label" },
-          h4(
-            "span",
-            { class: `cb-lanename cb-lanename-${p.lane}` },
-            github ? "casebook · github" : laneLabel(p.lane, agent)
-          ),
-          ` · ${title} · ${p.steps.length}`,
-          ...tagEls(stepTags(p.steps), p.steps.length)
-        ),
-        h4(
-          "p",
-          { class: "cb-plan-where", "data-testid": "plan-where" },
-          where,
-          p.undo ? h4(
-            "span",
-            { class: "cb-plan-undo", "data-testid": "plan-undo" },
-            ` ${p.undo}`
-          ) : null
-        ),
-        h4(
-          "div",
-          {
-            class: "kit-table cb-plan-group",
-            "data-action": p.action,
-            "data-lane": p.lane
-          },
-          ...p.steps.map(
-            (s) => h4(
-              "div",
-              { class: "kit-tr cb-plan-step", "data-key": s.key },
-              h4("span", { class: "cb-step-k" }, keyWithoutKind(s.key)),
-              h4(
-                "code",
-                { class: "cb-cmd", "data-cmd": s.command },
-                s.command,
-                github && s.expected_tip ? h4(
-                  "span",
-                  { class: "cb-cmd-if" },
-                  ` (if still at ${s.expected_tip.slice(0, 7)})`
-                ) : null
-              ),
-              s.posts && s.comment ? h4("span", { class: "cb-publine" }, publicLine(s)) : null
-            )
-          )
-        )
-      );
-    }
-    drawWaits(doc, waits, steps);
-    drawHeld(doc, held2, steps);
-    paint(doc);
-  }
-  function drawWaits(doc, waits, steps) {
-    const byMachine = /* @__PURE__ */ new Map();
-    for (const w of waits)
-      byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
-    for (const [m, ws] of byMachine) {
-      doc.append(
-        h4(
-          "h3",
-          { class: "kit-label cb-group-label cb-wait-h" },
-          `Waits for ${m} · ${ws.length}`
-        ),
-        ...waitBlocks(ws, steps).flatMap((b) => [
-          h4("p", { class: "cb-plan-where" }, b.text),
-          h4(
-            "div",
-            {
-              class: "kit-table cb-plan-group cb-waits",
-              "data-testid": "plan-waits"
-            },
-            ...b.waits.map(
-              (w) => h4(
-                "div",
-                { class: "kit-tr cb-plan-step" },
-                h4("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
-                h4(
-                  "span",
-                  { class: "cb-cmd" },
-                  `on ${m}${w.path ? ` · ${w.path}` : ""}`
-                )
-              )
-            )
-          )
-        ])
-      );
-    }
-  }
-  function drawHeld(doc, held2, steps) {
-    if (!held2.length) return;
-    doc.append(
-      h4(
-        "h3",
-        { class: "kit-label cb-group-label cb-held-h" },
-        `Held · ${held2.length}`
-      ),
-      h4("p", { class: "cb-plan-where" }, heldText),
-      h4(
-        "div",
-        {
-          class: "kit-table cb-plan-group cb-held",
-          "data-testid": "plan-held"
-        },
-        ...held2.map((x) => {
-          const holds = x.holds ?? [];
-          const links = [];
-          for (const hd of holds) {
-            if (hd.by)
-              links.push(
-                h4(
-                  "a",
-                  { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
-                  keyWithoutKind(hd.by)
-                )
-              );
-            else if (hd.kind === "long-lived")
-              links.push(
-                h4(
-                  "a",
-                  { class: "cb-link", href: `#/decide/${pathEscape(x.key)}` },
-                  "decide again"
-                )
-              );
-          }
-          return h4(
-            "div",
-            { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
-            h4("span", { class: "cb-step-k" }, keyWithoutKind(x.key)),
-            h4(
-              "span",
-              { class: "cb-held-why" },
-              holds.map((hd) => hd.text).join(" · "),
-              ...links.flatMap((a) => [" · ", a]),
-              otherHalf(x.key, steps)
-            )
-          );
-        })
-      )
-    );
-  }
-  function tagEls(tags, of) {
-    return tags.map(
-      (t) => h4("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
-    );
-  }
-  function runBlock(v) {
-    const j = v.job;
-    const steps = j.steps ?? [];
-    const rc = runCheck();
-    const el2 = h4("div", { class: "cb-approve", "data-testid": "run-group" });
-    const [first, rest] = runsNow(v.plan).split("\n");
-    el2.append(
-      h4(
-        "p",
-        { class: "cb-approve-what" },
-        first,
-        rest ? h4("br") : null,
-        rest ?? null
-      )
-    );
-    const tags = stepTags(steps);
-    if (tags.length)
-      el2.append(h4("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
-    if (!steps.length) return el2;
-    const row = h4("div", { class: "cb-approve-row" });
-    if (rc?.text)
-      row.append(
-        h4(
-          "span",
-          {
-            class: rc.can || busy ? "cb-approve-lab" : "cb-approve-none",
-            "data-testid": rc.can || busy ? "runs-through" : "no-agent"
-          },
-          rc.text
-        )
-      );
-    row.append(
-      buttons2([
-        {
-          label: titleOf(j),
-          fill: true,
-          disabled: !rc?.can,
-          run: () => runGroup()
-        }
-      ])
-    );
-    el2.append(row);
-    if (note)
-      el2.append(h4("p", { class: "cb-apply-note", role: "status" }, note));
-    return el2;
-  }
-  function drawOpen() {
-    if (!open || !active || mode !== "run") return;
-    const j = open.job;
-    if (j.state === "planned" || j.state === "cancelled") {
-      paint(
-        h4(
-          "article",
-          { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-          h4("p", { class: "kit-kick" }, `job #${j.id}`),
-          h4("h1", { class: "kit-h1" }, titleOf(j)),
-          h4(
-            "p",
-            { class: "cb-approve-none", "data-testid": "never-ran" },
-            j.state === "planned" ? "This has not run: its decisions wait in review." : "This was replaced before it ran: nothing in it ran."
-          )
-        )
-      );
-      return;
-    }
-    paint(renderJob(ctx, open, jobHooks));
-  }
-  function pauseOrResume() {
-    if (!open || !isRunning(open.job)) return;
-    void act(open.job.paused ? "/jobs/resume" : "/jobs/pause", {
-      id: open.job.id
-    });
-  }
-  const jobHooks = {
-    agent: (j) => agentOf(j),
-    stepsShown: () => stepsShown,
-    showMore() {
-      stepsShown += STEPS_PAGE;
-      drawOpen();
-    },
-    note: () => note,
-    answer(card6, action, text, ok) {
-      void act(
-        "/jobs/answer",
-        { needs_you: card6.id, action, text },
-        ok
-      );
-    },
-    undo(step) {
-      void act("/jobs/undo", { step: step.id });
-    },
-    editing: (id) => editors.get(id),
-    edit(id, text) {
-      if (text === null) editors.delete(id);
-      else editors.set(id, text);
-    }
-  };
-  function primary() {
-    if (mode === "review") {
-      if (refusal)
-        return syncing ? null : { label: "Sync first", run: () => void syncFirst() };
-      return null;
-    }
-    if (open && openId !== null && isRunning(open.job)) {
-      return open.job.paused ? { label: "Resume", run: pauseOrResume } : { label: "Pause job", run: pauseOrResume };
-    }
-    return null;
-  }
-  function feed() {
-    if (!active) return;
-    if (mode === "run" && open && openId !== null)
-      ctx.setAttached({ job: String(openId) }, jobTitle(open.job));
-    else ctx.setAttached({});
-    ctx.setPrimary(primary());
-  }
-  const runKey = {
-    keys: "a",
-    label: "run the open group",
-    group: "page",
-    run() {
-      runGroup();
-    }
-  };
-  const pauseKey = {
-    keys: "p",
-    label: "pause or resume the open job",
-    group: "page",
-    run() {
-      pauseOrResume();
-    }
-  };
-  const reviewBindings = [runKey];
-  const runBindings = [pauseKey];
-  function closeJob() {
-    jobSeq.next();
-    openId = null;
-    open = null;
-    note = "";
-  }
-  ctx.onDockTarget(() => {
-    askNamedSessions();
-    if (reviewView) drawReview();
-    if (active) ctx.setPrimary(primary());
-  });
-  void loadJobs();
-  void loadItems();
-  void loadSessions();
-  void loadSummary();
-  const loadVocab = () => {
-    getVocab(ctx).then((v) => {
-      vocab2 = v;
-      paintList();
-      drawReview();
-    }).catch(() => setTimeout(loadVocab, 2e3));
-  };
-  loadVocab();
-  const jobOf = (type, data) => {
-    const d = data ?? {};
-    if (type === "job") return d.id ?? null;
-    return d.job_id ?? null;
-  };
-  return {
-    id: "apply",
-    list: handle.el,
-    read: readEl,
-    listKeys: () => ({ nav: handle, selects: mode === "review" }),
-    keys: () => mode === "review" ? reviewBindings : runBindings,
-    show(sub, query) {
-      active = true;
-      const was = mode;
-      mode = ctx.route.current().section === "run" ? "run" : "review";
-      if (was !== mode) note = "";
-      if (mode === "review") {
-        closeJob();
-        const group = new URLSearchParams(query ?? "").get("group") ?? "";
-        if (!group) {
-          closeReview();
-          paintList();
-        } else if (group !== reviewGroup) {
-          closeReview();
-          wantGroup = group;
-          paintList();
-          openWanted();
-        } else {
-          paintList();
-          drawReview();
-        }
-        feed();
-        return;
-      }
-      wantGroup = "";
-      const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, "")) : NaN;
-      if (!sub || !Number.isFinite(id)) {
-        closeJob();
-        paintList();
-        feed();
-      } else if (id !== openId) {
-        openId = id;
-        open = null;
-        note = "";
-        paintList();
-        feed();
-        void loadJob(id);
-      } else {
-        paintList();
-        if (open) setOpen(open);
-        else void loadJob(id);
-        feed();
-      }
-    },
-    hide() {
-      active = false;
-    },
-    onLive(type, data) {
-      if (type === "job" || type === "step" || type === "needs_you") {
-        const about = jobOf(type, data);
-        mark((d) => {
-          if (about === null) d.all = true;
-          else d.jobs.add(about);
-        });
-      } else if (type === "index" || type === "decided") {
-        mark((d) => {
-          d.items = true;
-          if (type === "index") d.summary = true;
-        });
-      } else if (type === "sessions") {
-        mark((d) => d.sessions = true);
-      } else if (type === "gap") {
-        mark((d) => {
-          d.all = d.items = d.sessions = d.summary = true;
-        });
-      } else if (type === "sync") {
-        onSync(data ?? {});
-      }
-    },
-    primary
-  };
-}
-function stepKeyLines(key) {
-  const at2 = key.indexOf("@");
-  if (at2 < 0) return [h4("span", { class: "cb-step-k" }, key)];
-  return [
-    h4("span", { class: "cb-step-repo" }, key.slice(0, at2)),
-    h4("span", { class: "cb-step-k" }, key.slice(at2 + 1))
-  ];
-}
-function renderJob(_ctx, v, hooks) {
-  const j = v.job;
-  const steps = j.steps ?? [];
-  const p = progress(j);
-  const agent = hooks.agent(j);
-  const open = (v.needs_you ?? []).filter((c) => c.state === "open");
-  const stepOf = (id) => steps.find((s) => s.id === id);
-  const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
-  const state = j.paused && isRunning(j) ? "paused" : j.state;
-  const doc = h4(
-    "article",
-    { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-    h4(
-      "p",
-      { class: "kit-kick" },
-      [lanes.join(" + "), `job #${j.id}`, state].filter(Boolean).join(" · ")
-    ),
-    h4("h1", { class: "kit-h1" }, jobTitle(j))
-  );
-  const pairs = [
-    ["done", `${p.verified} of ${p.total}`],
-    ["needs you", String(open.filter((c) => c.kind !== "paused").length)],
-    ["paused", String(p.paused)]
-  ];
-  if (p.skipped) pairs.push(["skipped", String(p.skipped)]);
-  if (p.failed) pairs.push(["failed", String(p.failed)]);
-  const restores = steps.filter((s) => s.restore).length;
-  if (restores) pairs.push(["restore records", String(restores)]);
-  doc.append(facts(pairs));
-  const cardsEl = h4("div", { class: "cb-needs", "data-testid": "needs-you" });
-  for (const c of open)
-    cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
-  doc.append(cardsEl);
-  const note = hooks.note();
-  if (note)
-    doc.append(h4("p", { class: "cb-apply-note", role: "status" }, note));
-  const next = nextSteps(steps);
-  const shown = steps.slice(0, hooks.stepsShown());
-  doc.append(
-    h4("h3", { class: "kit-label" }, "steps"),
-    h4(
-      "div",
-      { class: "kit-table cb-steps", "data-testid": "steps" },
-      ...shown.map((s) => {
-        const m = stepMark(s, next.has(s.id));
-        return h4(
-          "div",
-          {
-            class: "kit-tr cb-step",
-            "data-step": String(s.id),
-            "data-state": s.state,
-            "data-key": s.key
-          },
-          h4("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-          ...stepKeyLines(keyWithoutKind(s.key)),
-          h4(
-            "span",
-            { class: "cb-step-w" },
-            h4("span", { class: "cb-step-t" }, m.text),
-            s.undoable ? h4(
-              "button",
-              {
-                type: "button",
-                class: "kit-btn cb-undo",
-                onclick() {
-                  hooks.undo(s);
-                }
-              },
-              "undo"
-            ) : null
-          ),
-          m.why ? h4("span", { class: "cb-step-why" }, m.why) : null
-        );
-      }),
-      steps.length > shown.length ? h4(
-        "div",
-        { class: "kit-tr cb-steps-more" },
-        h4("span"),
-        h4(
-          "span",
-          { class: "cb-step-k" },
-          `… ${pluralize(steps.length - shown.length, "more step")}`
-        ),
-        h4(
-          "button",
-          {
-            type: "button",
-            class: "cb-link",
-            onclick() {
-              hooks.showMore();
-            }
-          },
-          "show more"
-        )
-      ) : null
-    )
-  );
-  return doc;
-}
-function needsCard(c, step, j, agent, hooks) {
-  const key = step ? keyWithoutKind(step.key) : "";
-  const verb = step ? actionVerb(step.action) : "run";
-  const answer = (action, text = "") => hooks.answer(c, action, text);
-  let el2;
-  switch (c.kind) {
-    case "text": {
-      const quote = h4("blockquote", { class: "cb-needs-text" }, c.text);
-      const body = h4(
-        "div",
-        null,
-        h4(
-          "p",
-          { class: "cb-needs-what" },
-          h4("code", null, key),
-          ` · ${verb} with comment`
-        ),
-        quote
-      );
-      const four = [
-        {
-          label: "post and close",
-          fill: true,
-          run: () => answer("post-and-close", c.text)
-        },
-        {
-          label: "edit text",
-          run() {
-            hooks.edit(c.id, c.text);
-            startEdit(c.text, true);
-          }
-        },
-        {
-          label: "close without comment",
-          run: () => answer("close-without-comment")
-        },
-        { label: "skip", run: () => answer("skip") }
-      ];
-      el2 = card({
-        edge: "signal",
-        head: c.question ? `needs you · ${c.question}` : "needs you",
-        body,
-        actions: four
-      });
-      const startEdit = (text, focus) => {
-        const field = h4("textarea", {
-          class: "cb-needs-edit",
-          "aria-label": "comment",
-          rows: 4
-        });
-        field.value = text;
-        field.addEventListener("input", () => hooks.edit(c.id, field.value));
-        quote.replaceWith(field);
-        el2.querySelector(".kit-btns")?.replaceWith(
-          buttons2([
-            {
-              label: "save text",
-              fill: true,
-              run: () => hooks.answer(
-                c,
-                "edit-text",
-                field.value,
-                () => hooks.edit(c.id, null)
-              )
-            },
-            {
-              label: "cancel",
-              run() {
-                hooks.edit(c.id, null);
-                field.replaceWith(quote);
-                el2.querySelector(".kit-btns")?.replaceWith(buttons2(four));
-              }
-            }
-          ])
-        );
-        if (focus) field.focus();
-      };
-      const draft = hooks.editing(c.id);
-      if (draft !== void 0) startEdit(draft, false);
-      break;
-    }
-    case "batch":
-      el2 = card({
-        edge: "signal",
-        head: "needs you · confirm the batch",
-        body: h4("p", null, c.question),
-        actions: [
-          { label: "confirm", fill: true, run: () => answer("confirm") },
-          { label: "skip batch", run: () => answer("skip-batch") }
-        ]
-      });
-      break;
-    case "failed": {
-      const bs = [];
-      if (j.session)
-        bs.push({
-          label: "hand to agent",
-          run: () => answer("hand-to-agent")
-        });
-      bs.push({ label: "skip", run: () => answer("skip") });
-      el2 = card({
-        edge: "signal",
-        head: `needs you · ${key || "a step"} failed`,
-        body: h4(
-          "div",
-          null,
-          h4("p", null, c.question),
-          step ? h4("code", { class: "cb-cmd" }, step.command) : null
-        ),
-        actions: bs
-      });
-      break;
-    }
-    case "paused":
-      el2 = card({
-        edge: "agent",
-        head: `${agent} paused`,
-        body: h4(
-          "p",
-          null,
-          key ? h4("code", null, key) : null,
-          key ? ": " : "",
-          c.question
-        ),
-        actions: [
-          {
-            label: `${verb} anyway`,
-            danger: dangerVerb(verb),
-            run: () => answer("resume")
-          },
-          { label: "skip", run: () => answer("skip") }
-        ]
-      });
-      break;
-    default:
-      el2 = card({
-        edge: "signal",
-        head: `needs you · ${c.kind}`,
-        body: c.question
-      });
-  }
-  el2.classList.add("cb-needs-card");
-  el2.dataset.card = String(c.id);
-  el2.dataset.kind = c.kind;
-  return el2;
-}
-
-// decide-list.ts
-import {
-  list as list2,
-  createSelection,
-  h as h11,
-  ApiError as ApiError4
-} from "/_kit/kit.js";
-
-// item.ts
-import { h as h5, facts as facts2, fold } from "/_kit/kit.js";
-
-// holds-text.ts
-function copyRow(c) {
-  const label = c.machine || "GitHub";
-  if (c.absent) return [label, "not there"];
-  const parts = [];
-  if (c.path) parts.push(c.path);
-  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
-  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
-  if (c.head) parts.push("checked out in the clone");
-  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
-  return [label, parts.join(" · ")];
-}
-function choiceTags(kind, disposition) {
-  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
-    return ["permanent"];
-  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
-    return ["github-undo"];
-  return [];
-}
-
-// item.ts
-var BODY_CAP = 600;
-function fmtDate(s) {
-  if (!s) return "—";
-  const d = new Date(s);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  });
-}
-function fmtShortDate(s) {
-  if (!s)
-    return "def";
-  const d = new Date(s);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${mm}-${dd}`;
-}
-function renderEvidence(evs) {
-  const section = h5("section", { class: "cb-evidence" });
-  section.append(h5("h3", { class: "kit-label" }, "evidence"));
-  if (evs.length === 0) {
-    section.append(h5("p", { class: "cb-empty" }, "no evidence"));
-    return section;
-  }
-  for (const ev of evs) {
-    const authorEl = ev.author ? h5("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
-    const time = h5(
-      "span",
-      { class: "cb-muted" },
-      ` · ${fmtShortDate(ev.created_at)}`
-    );
-    const item = h5(
-      "div",
-      { class: "cb-evidence-item" },
-      h5(
-        "p",
-        { class: "cb-evidence-meta" },
-        ...authorEl ? [authorEl] : [],
-        ev.text,
-        time
-      )
-    );
-    section.append(item);
-  }
-  return section;
-}
-function renderHistory(events, decisions, ownKey) {
-  const section = h5("section", { class: "cb-history" });
-  section.append(h5("h3", { class: "kit-label" }, "history"));
-  if (events.length === 0 && decisions.length === 0) {
-    section.append(h5("p", { class: "cb-empty" }, "no history"));
-    return section;
-  }
-  for (const entry of decisions) {
-    const display = stripOwnKey(entry.Subject, ownKey);
-    section.append(
-      h5(
-        "div",
-        { class: "cb-history-item cb-history-decision" },
-        h5("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
-        h5("span", { class: "cb-history-msg" }, display)
-      )
-    );
-  }
-  for (const ev of events) {
-    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
-    section.append(
-      h5(
-        "div",
-        { class: "cb-history-item" },
-        h5("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
-        h5("span", { class: "cb-history-msg" }, label)
-      )
-    );
-  }
-  return section;
-}
-function renderDecideRow(ctx, detail, hooks) {
-  const it = detail.item;
-  const section = h5("section", { class: "cb-decide", role: "group" });
-  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  const tag = (kind, text) => h5("span", { class: `cb-tag cb-tag-${kind}` }, text);
-  const cards = renderChoices(ctx, it.kind, {
-    recommended: pending?.disposition,
-    chosen: it.decision?.disposition,
-    note: it.decision?.note,
-    onPick(d, until, note) {
-      hooks.decide?.(d, until, note);
-    },
-    onCards(grid) {
-      const tagged = [];
-      for (const card6 of grid.querySelectorAll(
-        ".cb-choice[data-d]"
-      )) {
-        const kinds = choiceTags(it.kind, card6.dataset.d ?? "");
-        if (!kinds.length) continue;
-        tagged.push(
-          h5(
-            "span",
-            { class: "cb-choice-tagged" },
-            card6.querySelector(".cb-choice-label")?.textContent ?? "",
-            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
-          )
-        );
-      }
-      if (tagged.length) tagsLine.replaceChildren(...tagged);
-      tagsLine.hidden = !tagged.length;
-      hooks.cardsReady?.();
-    }
-  });
-  const tagsLine = h5("p", { class: "cb-choice-tags", hidden: true });
-  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
-  cards.querySelector(".cb-choices")?.after(tagsLine);
-  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
-    tag(
-      "posts",
-      `posts a public comment${it.public ? " · on a public repo" : ""}`
-    )
-  );
-  section.append(cards);
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    section.setAttribute("aria-label", kv?.question ?? "");
-  });
-  return section;
-}
-function renderRec(ctx, detail, hooks) {
-  const it = detail.item;
-  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  if (!p) return null;
-  const who = h5("p", { class: "cb-rec-who" });
-  const label = h5("p", { class: "cb-rec-label" }, p.disposition);
-  const el2 = h5(
-    "section",
-    { class: "cb-rec" },
-    who,
-    label,
-    p.note ? h5("p", { class: "cb-rec-note" }, p.note) : null,
-    p.until ? h5("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
-  );
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    const rec = asNotNow(p.disposition);
-    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
-    who.textContent = recommendsWho(
-      vocab2,
-      p.source,
-      hooks.sourceName?.(p.source) ?? ""
-    );
-  });
-  return el2;
-}
-function renderHolds(detail) {
-  const holds = detail.item.holds ?? [];
-  if (!holds.length) return null;
-  return h5(
-    "section",
-    { class: "cb-hold" },
-    h5("p", { class: "cb-hold-who" }, "in the way"),
-    ...holds.flatMap((hd) => [
-      h5(
-        "p",
-        { class: "cb-hold-line" },
-        hd.text,
-        hd.by ? h5(
-          "a",
-          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
-          keyWithoutKind(hd.by)
-        ) : null
-      ),
-      hd.fix ? h5("p", { class: "cb-hold-sub" }, hd.fix) : null
-    ])
-  );
-}
-function renderWhere(detail) {
-  const copies = detail.item.copies ?? [];
-  if (!copies.length) return null;
-  return h5(
-    "section",
-    { class: "cb-where" },
-    h5("h3", { class: "kit-label" }, "where it is"),
-    ...copies.map((c) => {
-      const [label, text] = copyRow(c);
-      return h5(
-        "div",
-        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
-        h5("span", { class: "cb-wm" }, label),
-        h5("span", null, text)
-      );
-    })
-  );
-}
-function cameBack(vocab2, it) {
-  const status = vocab2.came_back?.[it.status ?? ""];
-  if (status) return it.due_reason || status;
-  return it.new_activity ? it.due_reason ?? "" : "";
-}
-function renderItem(ctx, detail, hooks = {}) {
-  const it = detail.item;
-  const el2 = h5("article", { class: "cb-item", dataset: { key: it.key } });
-  const displayKey = keyWithoutKind(it.key);
-  const keyEl = it.url ? h5("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
-  const kicker = h5("p", { class: "cb-kicker kit-kick" });
-  const parts = [it.kind, keyEl, it.relation].filter(
-    (part) => !!part
-  );
-  parts.forEach((part, i) => {
-    if (i > 0) kicker.append(" · ");
-    kicker.append(part);
-  });
-  el2.append(kicker);
-  const title = it.title ?? keyWithoutKind(it.key);
-  el2.append(h5("h1", { class: "cb-title kit-h1", title }, title));
-  const factPairs = [];
-  if (it.status)
-    factPairs.push([
-      "status",
-      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
-    ]);
-  if (it.repo) factPairs.push(["repo", it.repo]);
-  if (it.author)
-    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
-  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
-  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
-  if (it.labels && it.labels.length > 0)
-    factPairs.push(["labels", it.labels.join(", ")]);
-  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
-  const factsEl = facts2(factPairs);
-  factsEl.title = factsEl.textContent ?? "";
-  el2.append(factsEl);
-  void getVocab(ctx).then((vocab2) => {
-    const why = cameBack(vocab2, it);
-    if (!why) return;
-    const line = vocab2.came_back_fact.replaceAll("{reason}", why);
-    factsEl.prepend(h5("span", { class: "cb-came-back", title: line }, line));
-    factsEl.title = factsEl.textContent ?? "";
-  });
-  el2.append(renderDecideRow(ctx, detail, hooks));
-  const looking = lookingLine(it.looking);
-  const reading = h5(
-    "div",
-    { class: "cb-reading" },
-    h5("p", { class: "cb-looking", hidden: !looking }, looking),
-    renderHolds(detail),
-    renderWhere(detail),
-    renderRec(ctx, detail, hooks)
-  );
-  if (it.body) {
-    const excerpt = it.body.slice(0, BODY_CAP);
-    const rest = it.body.slice(BODY_CAP);
-    reading.append(
-      h5(
-        "section",
-        { class: "cb-body" },
-        h5("p", null, excerpt),
-        rest ? fold("read more", h5("p", null, rest)) : null
-      )
-    );
-  }
-  reading.append(
-    h5(
-      "div",
-      { class: "cb-trail" },
-      renderEvidence(detail.evidence ?? []),
-      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
-    )
-  );
-  el2.append(reading);
-  return h5("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
-}
-
-// proposals.ts
-import { sheet as sheet3, h as h6 } from "/_kit/kit.js";
-function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
-  let submitting = false;
-  let sh = null;
-  const errEl = h6("p", { class: "cb-sheet-err" });
-  errEl.hidden = true;
-  async function doDiscard() {
-    if (submitting) return;
-    submitting = true;
-    errEl.hidden = true;
-    try {
-      const r = await ctx.api.post("/proposals/withdraw", body);
-      sh?.close();
-      onDone(r.withdrawn);
-    } catch (err) {
-      errEl.textContent = err instanceof Error ? err.message : "discard failed, try again";
-      errEl.hidden = false;
-      submitting = false;
-    }
-  }
-  sh = sheet3({
-    title: vocab2.discard_title,
-    body: h6(
-      "div",
-      { class: "cb-sheet-body cb-discard-confirm" },
-      h6("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
-      errEl
-    ),
-    actions: [
-      {
-        label: vocab2.discard_button,
-        fill: true,
-        run() {
-          void doDiscard();
-        }
-      },
-      {
-        label: vocab2.discard_cancel,
-        run() {
-          sh?.close();
-        }
-      }
-    ],
-    onClose() {
-      sh = null;
-    }
-  });
-}
+// list-pane.ts
+import { list, h as h7 } from "/_kit/kit.js";
 
 // filters.ts
-import { h as h8, ApiError as ApiError2, buttons as buttons3, card as card2 } from "/_kit/kit.js";
+import { h as h6, ApiError, buttons as buttons2, card } from "/_kit/kit.js";
 
 // conditions.ts
-import { h as h7 } from "/_kit/kit.js";
+import { h as h5 } from "/_kit/kit.js";
 
 // rules-text.ts
 function trackRecord(r) {
@@ -4290,13 +2456,13 @@ function newCondition(f) {
   return { field: f.name, op, value: first };
 }
 function select(cls, label, options, labelOf, value, onPick) {
-  const el2 = h7(
+  const el2 = h5(
     "select",
     { class: cls, "aria-label": label },
-    ...options.map((o) => h7("option", { value: o }, labelOf(o)))
+    ...options.map((o) => h5("option", { value: o }, labelOf(o)))
   );
   if (!options.includes(value)) {
-    el2.prepend(h7("option", { value }, labelOf(value)));
+    el2.prepend(h5("option", { value }, labelOf(value)));
   }
   el2.value = value;
   el2.addEventListener("change", () => onPick(el2.value));
@@ -4308,12 +2474,12 @@ function conditionEditor(ctx, rule, onChange) {
   let fields = [];
   let ops = [];
   const fieldOf = (name) => fields.find((f) => f.name === name);
-  const el2 = h7("div", {
+  const el2 = h5("div", {
     class: "kit-table cb-conds",
     "data-testid": "conditions"
   });
-  const rowsEl = h7("div", { class: "cb-cond-rows" });
-  const general = h7("div", { class: "cb-cond-err", hidden: true });
+  const rowsEl = h5("div", { class: "cb-cond-rows" });
+  const general = h5("div", { class: "cb-cond-err", hidden: true });
   el2.append(rowsEl, general);
   const changed = () => {
     if (editable && fields.length) fillMenu();
@@ -4321,7 +2487,7 @@ function conditionEditor(ctx, rule, onChange) {
   };
   function pickControl(c, f) {
     const multi = f.type === ENUM;
-    const wrap = h7("div", {
+    const wrap = h5("div", {
       class: "cb-cond-v cb-cond-picks",
       role: "group",
       "aria-label": `${fieldLabel(f)} value`,
@@ -4338,7 +2504,7 @@ function conditionEditor(ctx, rule, onChange) {
     };
     for (const v of choices(f)) {
       wrap.append(
-        h7(
+        h5(
           "button",
           {
             type: "button",
@@ -4367,12 +2533,12 @@ function conditionEditor(ctx, rule, onChange) {
     const c = conds[i];
     if (!editable || !f) {
       const shown = c.op === "in" || c.op === "not-in" ? pickedValues(c).values.map((v) => valueLabel(f, v)).join(" or ") : f?.type === DURATION ? durationWords(c.op, c.value) : valueLabel(f, c.value);
-      return h7("span", { class: "cb-cond-v", "data-value": c.value }, shown);
+      return h5("span", { class: "cb-cond-v", "data-value": c.value }, shown);
     }
     if (picks(f)) return pickControl(c, f);
     if (typed(f)) return typedControl(c, f);
     if (f.type === DURATION) return durationControl(c);
-    const input = h7("input", {
+    const input = h5("input", {
       class: "cb-cond-v",
       type: "text",
       value: c.value,
@@ -4387,8 +2553,8 @@ function conditionEditor(ctx, rule, onChange) {
     return input;
   }
   function typedControl(c, f) {
-    const chips = h7("span", { class: "cb-cond-typed-chips" });
-    const input = h7("input", {
+    const chips = h5("span", { class: "cb-cond-typed-chips" });
+    const input = h5("input", {
       class: "cb-cond-typed-in",
       type: "text",
       placeholder: "search or type",
@@ -4396,16 +2562,16 @@ function conditionEditor(ctx, rule, onChange) {
       autocomplete: "off",
       "aria-label": `${fieldLabel(f)} value`
     });
-    const list3 = h7("div", {
+    const list2 = h5("div", {
       class: "cb-cond-sugg",
       hidden: true,
       role: "listbox"
     });
-    const wrap = h7(
+    const wrap = h5(
       "div",
       { class: "cb-cond-v cb-cond-typed", "data-value": c.value },
       chips,
-      h7("span", { class: "cb-cond-typed-box" }, input, list3)
+      h5("span", { class: "cb-cond-typed-box" }, input, list2)
     );
     let at2 = 0;
     let shown = [];
@@ -4426,14 +2592,14 @@ function conditionEditor(ctx, rule, onChange) {
     function paint() {
       chips.replaceChildren(
         ...values().values.map(
-          (v) => h7(
+          (v) => h5(
             "span",
             {
               class: "kit-chip cb-cond-pick on cb-cond-typed-chip",
               "data-value": v
             },
             v,
-            h7(
+            h5(
               "button",
               {
                 type: "button",
@@ -4450,11 +2616,11 @@ function conditionEditor(ctx, rule, onChange) {
       );
     }
     function mark() {
-      list3.querySelectorAll(".cb-cond-sugg-row").forEach((r, i) => {
+      list2.querySelectorAll(".cb-cond-sugg-row").forEach((r, i) => {
         r.classList.toggle("on", i === at2);
       });
     }
-    const option = (value, count2, hint, pat) => h7(
+    const option = (value, count2, hint, pat) => h5(
       "div",
       {
         class: pat ? "cb-cond-sugg-row cb-cond-sugg-pat" : "cb-cond-sugg-row",
@@ -4467,13 +2633,13 @@ function conditionEditor(ctx, rule, onChange) {
           add2(value);
         }
       },
-      h7(
+      h5(
         "span",
         { class: "cb-cond-sugg-v" },
         value,
-        hint ? h7("span", { class: "cb-cond-sugg-hint" }, ` · ${hint}`) : null
+        hint ? h5("span", { class: "cb-cond-sugg-hint" }, ` · ${hint}`) : null
       ),
-      h7("span", { class: "cb-cond-sugg-n" }, String(count2))
+      h5("span", { class: "cb-cond-sugg-n" }, String(count2))
     );
     async function suggest() {
       const typedQ = input.value.trim();
@@ -4490,8 +2656,8 @@ function conditionEditor(ctx, rule, onChange) {
       shown = [...pats.map((p) => p.value), ...hits.map((x) => x.value)];
       at2 = 0;
       const noun = NOUNS[f.name] ?? "values";
-      list3.replaceChildren(
-        h7(
+      list2.replaceChildren(
+        h5(
           "div",
           { class: "cb-cond-sugg-head" },
           `${hits.length} ${noun}${q ? ` matching “${typedQ}”` : ""}`
@@ -4499,13 +2665,13 @@ function conditionEditor(ctx, rule, onChange) {
         ...pats.map((p) => option(p.value, p.count, p.hint, true)),
         ...hits.map((x) => option(x.value, x.count, "", false))
       );
-      list3.hidden = document.activeElement !== input || shown.length === 0;
+      list2.hidden = document.activeElement !== input || shown.length === 0;
       mark();
     }
     input.addEventListener("focus", () => void suggest());
     input.addEventListener("input", () => void suggest());
     input.addEventListener("blur", () => {
-      list3.hidden = true;
+      list2.hidden = true;
     });
     input.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
@@ -4518,12 +2684,12 @@ function conditionEditor(ctx, rule, onChange) {
         e.preventDefault();
         const q = input.value.trim();
         add2(
-          !list3.hidden && shown[at2] && shown[at2] !== q && !shown.includes(q) ? shown[at2] : q
+          !list2.hidden && shown[at2] && shown[at2] !== q && !shown.includes(q) ? shown[at2] : q
         );
-      } else if (e.key === "Escape" && !list3.hidden) {
+      } else if (e.key === "Escape" && !list2.hidden) {
         e.preventDefault();
         e.stopPropagation();
-        list3.hidden = true;
+        list2.hidden = true;
       } else if (e.key === "Backspace" && input.value === "" && values().values.length) {
         set(values().values.slice(0, -1));
       }
@@ -4534,7 +2700,7 @@ function conditionEditor(ctx, rule, onChange) {
   function durationControl(c) {
     if (c.op === "before" || c.op === "on-or-after") return dateControl(c);
     const m = /^(\d+)([hdw])$/.exec(c.value.trim());
-    const num = h7("input", {
+    const num = h5("input", {
       class: "cb-cond-num",
       type: "number",
       min: "1",
@@ -4543,14 +2709,14 @@ function conditionEditor(ctx, rule, onChange) {
       placeholder: "2",
       "aria-label": "how many"
     });
-    const unit = h7(
+    const unit = h5(
       "select",
       { class: "cb-cond-unit", "aria-label": "unit" },
       ...[
         ["h", "hours"],
         ["d", "days"],
         ["w", "weeks"]
-      ].map(([v, l]) => h7("option", { value: v }, l))
+      ].map(([v, l]) => h5("option", { value: v }, l))
     );
     unit.value = m ? m[2] : "d";
     const set = () => {
@@ -4561,23 +2727,23 @@ function conditionEditor(ctx, rule, onChange) {
     };
     num.addEventListener("input", set);
     unit.addEventListener("change", set);
-    const wrap = h7(
+    const wrap = h5(
       "span",
       { class: "cb-cond-v cb-cond-dur", "data-value": c.value },
       num,
       unit,
-      c.op === "older-than" ? h7("span", { class: "cb-cond-ago" }, "ago") : null
+      c.op === "older-than" ? h5("span", { class: "cb-cond-ago" }, "ago") : null
     );
     return wrap;
   }
   function dateControl(c) {
-    const day = h7("input", {
+    const day = h5("input", {
       class: "cb-cond-date",
       type: "date",
       value: /^\d{4}-\d{2}-\d{2}$/.test(c.value) ? c.value : "",
       "aria-label": "date"
     });
-    const wrap = h7(
+    const wrap = h5(
       "span",
       { class: "cb-cond-v cb-cond-dur", "data-value": c.value },
       day
@@ -4592,7 +2758,7 @@ function conditionEditor(ctx, rule, onChange) {
   function opControl(c, f) {
     const readOp = c.op === "in" ? "is" : c.op === "not-in" ? "is-not" : c.op;
     if (!editable || !f) {
-      return h7(
+      return h5(
         "span",
         { class: "cb-cond-o", "data-value": c.op },
         opLabel(ops, readOp)
@@ -4643,7 +2809,7 @@ function conditionEditor(ctx, rule, onChange) {
   function row(i) {
     const c = conds[i];
     const f = fieldOf(c.field);
-    const remove = editable ? h7(
+    const remove = editable ? h5(
       "button",
       {
         type: "button",
@@ -4657,13 +2823,13 @@ function conditionEditor(ctx, rule, onChange) {
       },
       "×"
     ) : null;
-    return h7(
+    return h5(
       "div",
       { class: "cb-cond", "data-index": i },
-      h7(
+      h5(
         "div",
         { class: "kit-tr cb-cond-row" + (editable ? " cb-cond-edit" : "") },
-        h7(
+        h5(
           "span",
           { class: "cb-cond-f", "data-name": c.field },
           f ? fieldLabel(f) : c.field
@@ -4672,7 +2838,7 @@ function conditionEditor(ctx, rule, onChange) {
         valueControl(i, f),
         remove
       ),
-      h7("div", { class: "cb-cond-err", hidden: true })
+      h5("div", { class: "cb-cond-err", hidden: true })
     );
   }
   function render() {
@@ -4680,7 +2846,7 @@ function conditionEditor(ctx, rule, onChange) {
     const e = errors.get(el2);
     if (e) setConditionError(el2, e.index, e.message);
   }
-  const search = h7("input", {
+  const search = h5("input", {
     class: "cb-cond-search",
     type: "text",
     placeholder: "find a field",
@@ -4688,18 +2854,18 @@ function conditionEditor(ctx, rule, onChange) {
     "aria-label": "find a field",
     autocomplete: "off"
   });
-  const options = h7("div", {
+  const options = h5("div", {
     class: "cb-cond-menu-list",
     role: "listbox",
     "aria-label": "fields"
   });
-  const menu = h7(
+  const menu = h5(
     "div",
     { class: "cb-cond-menu", hidden: true },
     search,
     options
   );
-  const add = h7(
+  const add = h5(
     "button",
     {
       type: "button",
@@ -4712,7 +2878,7 @@ function conditionEditor(ctx, rule, onChange) {
     },
     "+ condition"
   );
-  const addWrap = h7("div", { class: "cb-cond-add-wrap" }, add, menu);
+  const addWrap = h5("div", { class: "cb-cond-add-wrap" }, add, menu);
   addWrap.addEventListener("focusout", (e) => {
     if (!menu.hidden && !addWrap.contains(e.relatedTarget))
       setMenu(false);
@@ -4778,7 +2944,7 @@ function conditionEditor(ctx, rule, onChange) {
       const applies = fieldApplies(f, types);
       const taken = used.has(f.name) || !applies;
       const where = fieldTypes(f, kind) || "any type";
-      const chip = h7(
+      const chip = h5(
         "button",
         {
           type: "button",
@@ -4797,11 +2963,11 @@ function conditionEditor(ctx, rule, onChange) {
     }
     options.replaceChildren(
       ...[...groups].map(
-        ([where, chips]) => h7(
+        ([where, chips]) => h5(
           "div",
           { class: "cb-cond-group" },
-          h7("span", { class: "cb-cond-group-l" }, where),
-          h7("span", { class: "cb-cond-group-c" }, ...chips)
+          h5("span", { class: "cb-cond-group-l" }, where),
+          h5("span", { class: "cb-cond-group-c" }, ...chips)
         )
       )
     );
@@ -4809,16 +2975,16 @@ function conditionEditor(ctx, rule, onChange) {
   search.addEventListener("input", () => fillMenu());
   search.addEventListener("keydown", (e) => {
     if (e.isComposing) return;
-    const list3 = offered();
-    const at2 = list3.findIndex((r) => r.classList.contains("on"));
+    const list2 = offered();
+    const at2 = list2.findIndex((r) => r.classList.contains("on"));
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      if (!list3.length) return;
+      if (!list2.length) return;
       const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive(list3[(at2 + step + list3.length) % list3.length]);
+      setActive(list2[(at2 + step + list2.length) % list2.length]);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const f = fieldOf(list3[at2]?.dataset.field ?? "");
+      const f = fieldOf(list2[at2]?.dataset.field ?? "");
       if (f) addCondition(f);
     }
   });
@@ -4886,17 +3052,17 @@ function filterLabel(rows, ids) {
 }
 
 // filters.ts
-function message2(err) {
+function message(err) {
   return err instanceof Error ? err.message : String(err);
 }
 function makeFilterBar(_ctx, hooks) {
   let rows = [];
   let selected = [];
-  const chipsEl = h8("div", {
+  const chipsEl = h6("div", {
     class: "kit-chips cb-filter-chips",
     "data-group": "filters"
   });
-  const addBtn = h8(
+  const addBtn = h6(
     "button",
     {
       type: "button",
@@ -4907,18 +3073,18 @@ function makeFilterBar(_ctx, hooks) {
     },
     "+ filter"
   );
-  const errEl = h8("p", { class: "cb-filter-err", hidden: true });
-  const el2 = h8(
+  const errEl = h6("p", { class: "cb-filter-err", hidden: true });
+  const el2 = h6(
     "div",
     { class: "cb-filters", "aria-label": "saved filters" },
-    h8("span", { class: "cb-bar-label" }, "filters"),
+    h6("span", { class: "cb-bar-label" }, "filters"),
     chipsEl,
     errEl
   );
   function chip(row) {
     const id = row.filter.id;
     const on = selected.includes(id);
-    const b = h8(
+    const b = h6(
       "button",
       {
         type: "button",
@@ -4956,7 +3122,7 @@ function makeFilterBar(_ctx, hooks) {
 }
 function renderFilter(ctx, row, hooks) {
   const f = row.filter;
-  const note = h8("p", { class: "cb-rule-note", role: "status" });
+  const note = h6("p", { class: "cb-rule-note", role: "status" });
   const bs = [{ label: "edit", run: () => hooks.onEdit() }];
   if (!row.invalid)
     bs.push({ label: "make a rule", run: () => hooks.onMakeRule() });
@@ -4965,40 +3131,40 @@ function renderFilter(ctx, row, hooks) {
     run: () => {
       note.textContent = "";
       void ctx.api.post("/filters/delete", { id: f.id }).then(() => hooks.onDeleted()).catch((err) => {
-        note.textContent = message2(err);
+        note.textContent = message(err);
       });
     }
   });
-  return h8(
+  return h6(
     "div",
     { class: "kit-doc" },
-    h8(
+    h6(
       "article",
       { class: "cb-rule cb-filter-doc", "data-filter": f.id },
-      h8("p", { class: "kit-kick" }, "filter"),
-      h8("h1", { class: "kit-h1" }, f.name || f.id),
-      row.invalid ? card2({
+      h6("p", { class: "kit-kick" }, "filter"),
+      h6("h1", { class: "kit-h1" }, f.name || f.id),
+      row.invalid ? card({
         edge: "signal",
         head: "not valid",
-        body: h8(
+        body: h6(
           "div",
           null,
-          h8("p", { class: "cb-invalid-msg" }, row.invalid),
-          h8(
+          h6("p", { class: "cb-invalid-msg" }, row.invalid),
+          h6(
             "p",
             { class: "cb-invalid-help" },
             "This filter selects nothing until it is valid. Edit it to fix it."
           )
         )
       }) : null,
-      h8("h3", { class: "kit-label" }, "items that match all of"),
+      h6("h3", { class: "kit-label" }, "items that match all of"),
       conditionEditor(
         ctx,
         { match: f.match, status: "active", editable: false },
         () => {
         }
       ),
-      h8("div", { class: "cb-rule-actions" }, buttons3(bs), note)
+      h6("div", { class: "cb-rule-actions" }, buttons2(bs), note)
     )
   );
 }
@@ -5015,7 +3181,7 @@ function filterEditor(ctx, row, hooks) {
   if (row?.invalid) {
     setConditionError(editor, conditionErrorIndex(row.invalid), row.invalid);
   }
-  const name = h8("input", {
+  const name = h6("input", {
     class: "cb-filter-name",
     type: "text",
     placeholder: "name",
@@ -5028,7 +3194,7 @@ function filterEditor(ctx, row, hooks) {
     }
   });
   if (row) name.value = row.filter.name;
-  const nameErr = h8("p", { class: "cb-filter-name-err", hidden: true });
+  const nameErr = h6("p", { class: "cb-filter-name-err", hidden: true });
   function showNameError(msg) {
     nameErr.hidden = msg === null;
     nameErr.textContent = msg ?? "";
@@ -5038,7 +3204,7 @@ function filterEditor(ctx, row, hooks) {
       if (!row?.invalid || match.length) setConditionError(editor, -1, null);
       return;
     }
-    const msg = message2(err);
+    const msg = message(err);
     setConditionError(editor, conditionErrorIndex(msg), msg);
   }
   async function save() {
@@ -5052,8 +3218,8 @@ function filterEditor(ctx, row, hooks) {
       );
       hooks.onSaved(id);
     } catch (err) {
-      const msg = message2(err);
-      if (err instanceof ApiError2 && err.status === 409) {
+      const msg = message(err);
+      if (err instanceof ApiError && err.status === 409) {
         showNameError(msg);
         return;
       }
@@ -5065,22 +3231,22 @@ function filterEditor(ctx, row, hooks) {
       setConditionError(editor, i, msg);
     }
   }
-  const el2 = h8(
+  const el2 = h6(
     "div",
     { class: "kit-doc" },
-    h8(
+    h6(
       "article",
       { class: "cb-filter-edit", "data-testid": "filter-editor" },
-      h8(
+      h6(
         "h1",
         { class: "kit-h1 cb-filter-title" },
         row ? `edit ${row.filter.name || row.filter.id}` : "new filter"
       ),
-      h8(
+      h6(
         "div",
         { class: "cb-filter-acts" },
         name,
-        h8(
+        h6(
           "button",
           {
             type: "button",
@@ -5091,7 +3257,7 @@ function filterEditor(ctx, row, hooks) {
           },
           "save"
         ),
-        h8(
+        h6(
           "button",
           {
             type: "button",
@@ -5110,8 +3276,2754 @@ function filterEditor(ctx, row, hooks) {
   return { el: el2, showError };
 }
 
+// list-pane-text.ts
+function paneQuery(query) {
+  const p = new URLSearchParams(query);
+  return {
+    filters: (p.get("filters") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    q: p.get("q") ?? ""
+  };
+}
+function paneParams(q) {
+  const out = {};
+  if (q.filters.length) out["filters"] = q.filters.join(",");
+  if (q.q) out["q"] = q.q;
+  return out;
+}
+function withPane(query, q) {
+  const parts = query.split("&").filter((x) => x && !/^(filters|q)(=|$)/.test(x));
+  if (q.filters.length) parts.push(`filters=${q.filters.join(",")}`);
+  if (q.q) parts.push(`q=${encodeURIComponent(q.q)}`);
+  return parts.join("&");
+}
+function paneLines(r) {
+  const i = r.key.indexOf(":");
+  const key = i < 0 ? r.key : `${r.key.slice(0, i)} · ${r.key.slice(i + 1)}`;
+  return { one: r.title || key, two: r.stands, hover: r.key };
+}
+
+// list-pane.ts
+var SEARCH_MS = 200;
+function setHashQuery(query) {
+  const path = location.hash.split("?")[0] || "#/";
+  history.replaceState(
+    null,
+    "",
+    location.pathname + location.search + path + (query ? `?${query}` : "")
+  );
+}
+function makePane(ctx, tab, selection2, hooks) {
+  let q = { filters: [], q: "" };
+  let timer = null;
+  const moreBtn = h7("button", {
+    type: "button",
+    class: "cb-foot-more",
+    hidden: true,
+    onclick() {
+      hooks.onMore();
+    }
+  });
+  const obsText = h7("span", { "data-testid": "observations" });
+  const obsEl = h7(
+    "div",
+    { class: "cb-apply-obs", hidden: true },
+    h7("i", { class: "cb-apply-obs-dot", "aria-hidden": "true" }),
+    obsText
+  );
+  const foot = h7("div", { class: "cb-pane-foot" }, obsEl, moreBtn);
+  const handle = list({
+    label: "",
+    selection: selection2,
+    openOnMove: false,
+    search: {
+      placeholder: "search by key or title",
+      onInput(text) {
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          q = { ...q, q: text };
+          hooks.onQuery({ ...q });
+        }, SEARCH_MS);
+      }
+    },
+    row(it) {
+      const r = hooks.row(it);
+      const l = paneLines(r);
+      return {
+        id: r.id,
+        key: l.one,
+        title: l.two,
+        selectable: r.selectable ?? true
+      };
+    },
+    onOpen(it) {
+      hooks.onOpen(it);
+    },
+    foot
+  });
+  const el2 = handle.el;
+  el2.classList.add("cb-pane", `cb-pane-${tab}`);
+  el2.dataset.tab = tab;
+  const filterBar = makeFilterBar(ctx, {
+    onSelect(ids, clicked) {
+      q = { ...q, filters: ids };
+      hooks.onQuery({ ...q }, clicked);
+    },
+    onOpen(row) {
+      hooks.onFilterOpen(row);
+    },
+    onNew() {
+      hooks.onFilterNew();
+    }
+  });
+  const ownRow = h7("div", { class: "cb-own" });
+  const tools = h7("div", { class: "cb-pane-tools" });
+  const lh = el2.querySelector(".kit-lh");
+  const search = el2.querySelector(".kit-search");
+  if (lh) {
+    lh.classList.add("cb-pane-top");
+    lh.replaceChildren(
+      filterBar.el,
+      ...search ? [search] : [],
+      ownRow,
+      tools
+    );
+  }
+  const storeKey = `casebook.sidebar.${tab}`;
+  const hideBtn = h7(
+    "button",
+    {
+      type: "button",
+      class: "cb-list-hide",
+      title: "hide the list",
+      onclick() {
+        setSidebar(false);
+      }
+    },
+    "«"
+  );
+  const showBtn = h7(
+    "button",
+    { type: "button", class: "cb-list-show", title: "show the list" },
+    "»"
+  );
+  const railLabel = h7("span", { class: "cb-list-rail-label" });
+  const rail = h7(
+    "div",
+    {
+      class: "cb-list-rail",
+      onclick() {
+        setSidebar(true);
+      }
+    },
+    showBtn,
+    railLabel
+  );
+  el2.append(hideBtn, rail);
+  function setSidebar(open) {
+    el2.classList.toggle("cb-list-closed", !open);
+    try {
+      localStorage.setItem(storeKey, open ? "open" : "closed");
+    } catch {
+    }
+  }
+  try {
+    el2.classList.toggle(
+      "cb-list-closed",
+      localStorage.getItem(storeKey) === "closed"
+    );
+  } catch {
+  }
+  void getVocab(ctx).then((v) => {
+    hideBtn.title = v.hide_list;
+    showBtn.title = v.show_list;
+  }).catch(() => {
+  });
+  let heads = [];
+  function head(g, open) {
+    const toggle = () => hooks.onToggle(g.id);
+    const box = g.box ? h7("span", {
+      class: "cb-group-box",
+      role: "checkbox",
+      "aria-checked": "false",
+      "aria-label": g.label,
+      onclick() {
+        hooks.onTickGroup(g.id);
+      }
+    }) : h7("span", { class: "cb-group-nobox" });
+    const tickedN = h7("span", { class: "cb-group-ticked-n" });
+    const ticked = h7(
+      "span",
+      { class: "cb-group-ticked", hidden: true },
+      tickedN,
+      h7(
+        "button",
+        {
+          type: "button",
+          class: "cb-group-untick",
+          onclick() {
+            selection2.deselect(hooks.tickedIn(g.id));
+          }
+        },
+        "untick"
+      )
+    );
+    const named = [g.label, g.tag].filter(Boolean).join(" · ");
+    const top = h7(
+      "div",
+      { class: "cb-group-top" },
+      h7(
+        "button",
+        {
+          type: "button",
+          class: "cb-group-caret",
+          "aria-expanded": String(open),
+          "aria-label": g.label,
+          onclick: toggle
+        },
+        open ? "▼" : "▶"
+      ),
+      box,
+      h7(
+        "span",
+        { class: "cb-group-name", title: named, onclick: toggle },
+        h7("span", { class: "cb-group-label" }, g.label),
+        g.tag ? h7("span", { class: "cb-group-tag" }, g.tag) : null
+      ),
+      ticked,
+      h7("span", { class: "cb-group-n" }, String(g.n)),
+      g.more ?? null
+    );
+    const data = { group: g.id, ...g.data ?? {} };
+    if (tab !== "decide") data["part"] = g.id;
+    const hd = h7(
+      "div",
+      {
+        class: "cb-group" + (tab !== "decide" ? " cb-apply-part" : "") + (open ? "" : " collapsed"),
+        role: "presentation",
+        dataset: data
+      },
+      top
+    );
+    heads.push({
+      paint() {
+        const n = hooks.tickedIn(g.id).length;
+        box.setAttribute(
+          "aria-checked",
+          n === 0 ? "false" : n >= g.n ? "true" : "mixed"
+        );
+        ticked.hidden = n === 0;
+        tickedN.textContent = `${n} ticked · `;
+      }
+    });
+    return hd;
+  }
+  function setRows(items, groups, opened) {
+    const listedIds = new Set(groups.map((g) => g.id));
+    const shown = items.filter((it) => {
+      const g = hooks.groupOf(it);
+      return !listedIds.has(g) || opened.has(g);
+    });
+    handle.setItems(shown);
+    const body = el2.querySelector(".kit-rows");
+    const rowEls = el2.querySelectorAll(".kit-rows > .kit-row");
+    shown.forEach((it, i) => {
+      const rowEl = rowEls[i];
+      if (!rowEl) return;
+      const r = hooks.row(it);
+      const l = paneLines(r);
+      rowEl.dataset.key = r.key;
+      rowEl.dataset.group = hooks.groupOf(it);
+      rowEl.title = l.hover;
+      const one = rowEl.querySelector(".kit-kicker");
+      if (one) one.title = l.one;
+      const two = rowEl.querySelector(".kit-title");
+      if (two) {
+        two.title = l.two;
+        two.className = `kit-title cb-tone-${r.tone ?? "muted"}`;
+      }
+    });
+    heads = [];
+    if (!body) return shown;
+    const listed = new Set(groups.map((g) => g.id));
+    let last = null;
+    shown.forEach((it, i) => {
+      if (listed.has(hooks.groupOf(it))) return;
+      rowEls[i]?.classList.add("cb-loose");
+      if (!shown.slice(0, i).some((x) => listed.has(hooks.groupOf(x))))
+        last = rowEls[i] ?? last;
+    });
+    for (const g of groups) {
+      const hd = head(g, opened.has(g.id));
+      const first = shown.findIndex((it) => hooks.groupOf(it) === g.id);
+      if (first >= 0) {
+        rowEls[first]?.before(hd);
+        let end = first;
+        while (end + 1 < shown.length && hooks.groupOf(shown[end + 1]) === g.id)
+          end++;
+        last = rowEls[end] ?? hd;
+      } else {
+        if (last) last.after(hd);
+        else body.prepend(hd);
+        last = hd;
+      }
+    }
+    paintHeads();
+    return shown;
+  }
+  function paintHeads() {
+    for (const hd of heads) hd.paint();
+  }
+  return {
+    el: el2,
+    handle,
+    ownRow,
+    tools,
+    setFilters(rows, selected) {
+      q = { ...q, filters: [...selected] };
+      filterBar.paint(rows, selected);
+    },
+    setFilterError(msg) {
+      filterBar.setError(msg);
+    },
+    setSearch(text) {
+      q = { ...q, q: text };
+      handle.setSearch(text);
+    },
+    query: () => ({ filters: [...q.filters], q: q.q }),
+    setRows,
+    paintHeads,
+    setMore(left) {
+      moreBtn.hidden = left <= 0;
+      moreBtn.textContent = `show ${left} more`;
+    },
+    setObs(text, state) {
+      obsText.textContent = text;
+      obsEl.dataset.state = state;
+      obsEl.hidden = !text;
+    },
+    setRail(text) {
+      railLabel.textContent = text;
+    }
+  };
+}
+
+// obs.ts
+function makeObs(ctx, set) {
+  let builtAt = 0;
+  let intervalMs = 0;
+  let syncing = false;
+  function paint() {
+    const o = builtAt ? observations(builtAt, intervalMs, Date.now()) : { text: "", stale: false };
+    set(
+      syncing ? "syncing observations…" : o.text,
+      syncing ? "syncing" : o.stale ? "stale" : "fresh"
+    );
+  }
+  async function load() {
+    try {
+      const s = await ctx.api.get("/summary");
+      builtAt = Date.parse(s.built_at) || 0;
+      intervalMs = s.sync_interval_ms;
+      syncing = s.syncing;
+      paint();
+    } catch {
+    }
+  }
+  setInterval(paint, 1e3);
+  return {
+    load,
+    onLive(type, data) {
+      if (type === "index" || type === "gap") void load();
+      else if (type === "sync") {
+        syncing = (data ?? {}).state === "running";
+        if (!syncing) void load();
+        paint();
+      }
+    }
+  };
+}
+
+// ran.ts
+import { h as h8, facts, buttons as buttons3, card as card2 } from "/_kit/kit.js";
+var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
+function stepKeyLines(key) {
+  const at2 = key.indexOf("@");
+  if (at2 < 0) return [h8("span", { class: "cb-step-k" }, key)];
+  return [
+    h8("span", { class: "cb-step-repo" }, key.slice(0, at2)),
+    h8("span", { class: "cb-step-k" }, key.slice(at2 + 1))
+  ];
+}
+function renderJob(_ctx, v, hooks) {
+  const j = v.job;
+  const steps = j.steps ?? [];
+  const p = progress(j);
+  const agent = hooks.agent(j);
+  const open = (v.needs_you ?? []).filter((c) => c.state === "open");
+  const stepOf = (id) => steps.find((s) => s.id === id);
+  const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
+  const state = j.paused && isRunning(j) ? "paused" : j.state;
+  const doc = h8(
+    "article",
+    { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
+    h8(
+      "p",
+      { class: "kit-kick" },
+      [lanes.join(" + "), `job #${j.id}`, state].filter(Boolean).join(" · ")
+    ),
+    h8("h1", { class: "kit-h1" }, jobTitle(j))
+  );
+  const pairs = [
+    ["done", `${p.verified} of ${p.total}`],
+    ["needs you", String(open.filter((c) => c.kind !== "paused").length)],
+    ["paused", String(p.paused)]
+  ];
+  if (p.skipped) pairs.push(["skipped", String(p.skipped)]);
+  if (p.failed) pairs.push(["failed", String(p.failed)]);
+  const restores = steps.filter((s) => s.restore).length;
+  if (restores) pairs.push(["restore records", String(restores)]);
+  doc.append(facts(pairs));
+  const cardsEl = h8("div", { class: "cb-needs", "data-testid": "needs-you" });
+  for (const c of open)
+    cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
+  doc.append(cardsEl);
+  const note = hooks.note();
+  if (note)
+    doc.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
+  const next = nextSteps(steps);
+  const shown = steps.slice(0, hooks.stepsShown());
+  doc.append(
+    h8("h3", { class: "kit-label" }, "steps"),
+    h8(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "steps" },
+      ...shown.map((s) => stepRow(s, next.has(s.id), hooks)),
+      steps.length > shown.length ? h8(
+        "div",
+        { class: "kit-tr cb-steps-more" },
+        h8("span"),
+        h8(
+          "span",
+          { class: "cb-step-k" },
+          `… ${pluralize(steps.length - shown.length, "more step")}`
+        ),
+        h8(
+          "button",
+          {
+            type: "button",
+            class: "cb-link",
+            onclick() {
+              hooks.showMore();
+            }
+          },
+          "show more"
+        )
+      ) : null
+    )
+  );
+  return doc;
+}
+function needsCard(c, step, j, agent, hooks) {
+  const key = step ? keyWithoutKind(step.key) : "";
+  const verb = step ? resumeVerb(step.action) : "run";
+  const answer = (action, text = "") => hooks.answer(c, action, text);
+  let el2;
+  switch (c.kind) {
+    case "text": {
+      const quote = h8("blockquote", { class: "cb-needs-text" }, c.text);
+      const body = h8(
+        "div",
+        null,
+        h8(
+          "p",
+          { class: "cb-needs-what" },
+          h8("code", null, key),
+          ` · ${verb} with comment`
+        ),
+        quote
+      );
+      const four = [
+        {
+          label: "post and close",
+          fill: true,
+          run: () => answer("post-and-close", c.text)
+        },
+        {
+          label: "edit text",
+          run() {
+            hooks.edit(c.id, c.text);
+            startEdit(c.text, true);
+          }
+        },
+        {
+          label: "close without comment",
+          run: () => answer("close-without-comment")
+        },
+        { label: "skip", run: () => answer("skip") }
+      ];
+      el2 = card2({
+        edge: "signal",
+        head: c.question ? `needs you · ${c.question}` : "needs you",
+        body,
+        actions: four
+      });
+      const startEdit = (text, focus) => {
+        const field = h8("textarea", {
+          class: "cb-needs-edit",
+          "aria-label": "comment",
+          rows: 4
+        });
+        field.value = text;
+        field.addEventListener("input", () => hooks.edit(c.id, field.value));
+        quote.replaceWith(field);
+        el2.querySelector(".kit-btns")?.replaceWith(
+          buttons3([
+            {
+              label: "save text",
+              fill: true,
+              run: () => hooks.answer(
+                c,
+                "edit-text",
+                field.value,
+                () => hooks.edit(c.id, null)
+              )
+            },
+            {
+              label: "cancel",
+              run() {
+                hooks.edit(c.id, null);
+                field.replaceWith(quote);
+                el2.querySelector(".kit-btns")?.replaceWith(buttons3(four));
+              }
+            }
+          ])
+        );
+        if (focus) field.focus();
+      };
+      const draft = hooks.editing(c.id);
+      if (draft !== void 0) startEdit(draft, false);
+      break;
+    }
+    case "batch":
+      el2 = card2({
+        edge: "signal",
+        head: "needs you · confirm the batch",
+        body: h8("p", null, c.question),
+        actions: [
+          { label: "confirm", fill: true, run: () => answer("confirm") },
+          { label: "skip batch", run: () => answer("skip-batch") }
+        ]
+      });
+      break;
+    case "failed": {
+      const bs = [];
+      if (j.session)
+        bs.push({
+          label: "hand to agent",
+          run: () => answer("hand-to-agent")
+        });
+      bs.push({ label: "skip", run: () => answer("skip") });
+      el2 = card2({
+        edge: "signal",
+        head: `needs you · ${key || "a step"} failed`,
+        body: h8(
+          "div",
+          null,
+          h8("p", null, c.question),
+          step ? h8(
+            "code",
+            { class: "cb-cmd", title: step.command },
+            stepLine(step)
+          ) : null
+        ),
+        actions: bs
+      });
+      break;
+    }
+    case "paused":
+      el2 = card2({
+        edge: "agent",
+        head: `${agent} paused`,
+        body: h8(
+          "p",
+          null,
+          key ? h8("code", null, key) : null,
+          key ? ": " : "",
+          c.question
+        ),
+        actions: [
+          {
+            label: `${verb} anyway`,
+            danger: dangerVerb(verb),
+            run: () => answer("resume")
+          },
+          { label: "skip", run: () => answer("skip") }
+        ]
+      });
+      break;
+    default:
+      el2 = card2({
+        edge: "signal",
+        head: `needs you · ${c.kind}`,
+        body: c.question
+      });
+  }
+  el2.classList.add("cb-needs-card");
+  el2.dataset.card = String(c.id);
+  el2.dataset.kind = c.kind;
+  return el2;
+}
+function stepRow(s, next, hooks, o = {}) {
+  const m = stepMark(s, next);
+  const text = o.what ? `${o.what} · ${m.text}` : m.text;
+  const key = keyWithoutKind(s.key);
+  return h8(
+    "div",
+    {
+      class: "kit-tr cb-step" + (o.here ? " cb-here" : ""),
+      "data-step": String(s.id),
+      "data-state": s.state,
+      "data-key": s.key
+    },
+    h8("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
+    ...o.line ? [h8("span", { class: "cb-step-k", title: key }, key)] : stepKeyLines(key),
+    h8(
+      "span",
+      { class: "cb-step-w" },
+      h8("span", { class: "cb-step-t" }, text),
+      o.job ? h8(
+        "a",
+        { class: "cb-link cb-step-job", href: `#/run/${s.job_id}` },
+        `job #${s.job_id}`
+      ) : null,
+      o.here ? h8("span", { class: "cb-step-here" }, "this item") : null,
+      s.undoable && !o.readOnly ? h8(
+        "button",
+        {
+          type: "button",
+          class: "kit-btn cb-undo",
+          onclick() {
+            hooks.undo(s);
+          }
+        },
+        "undo"
+      ) : null
+    ),
+    m.why ? h8("span", { class: "cb-step-why", title: m.why }, m.why) : null
+  );
+}
+function ranHead(detail) {
+  const it = detail.item;
+  const key = keyWithoutKind(it.key);
+  const status = detail.done_how ? `${it.status}: ${detail.done_how}` : it.status ?? "";
+  return midHead({
+    kick: [it.kind, key, it.relation].filter(Boolean).join(" · "),
+    title: it.title || key,
+    ctx: [status, it.repo].filter(Boolean).join(" · "),
+    acts: []
+  });
+}
+function renderRan(ctx, detail, job, cards, hooks) {
+  const key = detail.item.key;
+  const steps = detail.steps ?? [];
+  const doc = h8(
+    "article",
+    { class: "cb-apply-doc cb-ran", "data-key": key },
+    ...ranHead(detail)
+  );
+  doc.append(
+    h8("h3", { class: "kit-label" }, "what ran on this item"),
+    h8(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "what-ran" },
+      ...steps.map(
+        (s) => stepRow(s, false, hooks, {
+          what: actionVerb(s.action),
+          job: true,
+          line: true
+        })
+      )
+    )
+  );
+  const mine = new Set(steps.map((s) => s.id));
+  const open = cards.filter((c) => c.state === "open" && mine.has(c.step_id));
+  if (open.length) {
+    const cardsEl = h8("div", { class: "cb-needs", "data-testid": "needs-you" });
+    for (const c of open) {
+      const s = steps.find((x) => x.id === c.step_id);
+      const j2 = job && job.job.id === c.job_id ? job.job : null;
+      cardsEl.append(
+        needsCard(
+          c,
+          s,
+          j2 ?? {
+            id: c.job_id,
+            machine: "",
+            session: "",
+            state: "",
+            paused: false,
+            created_at: "",
+            steps: []
+          },
+          j2 ? hooks.agent(j2) : "agent",
+          hooks
+        )
+      );
+    }
+    doc.append(cardsEl);
+  }
+  const note = hooks.note();
+  if (note)
+    doc.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
+  if (!job) return doc;
+  const j = job.job;
+  const all = j.steps ?? [];
+  const around = aroundSteps(all, key, 3);
+  const next = nextSteps(all);
+  doc.append(
+    h8(
+      "h3",
+      { class: "kit-label cb-its-job" },
+      "its job · ",
+      h8("a", { class: "cb-link", href: `#/run/${j.id}` }, `job #${j.id}`),
+      ` · ${jobTitle(j)}`
+    ),
+    h8(
+      "div",
+      { class: "kit-table cb-steps", "data-testid": "its-job" },
+      ...around.steps.map(
+        (s) => (
+          // The other items' steps are read-only: what they are and how
+          // they stand. The job's page acts on the whole job.
+          stepRow(s, next.has(s.id), hooks, {
+            here: s.key === key,
+            line: true,
+            readOnly: s.key !== key
+          })
+        )
+      ),
+      around.hidden ? h8(
+        "div",
+        { class: "kit-tr cb-steps-more" },
+        h8("span"),
+        h8(
+          "a",
+          { class: "cb-link cb-step-k", href: `#/run/${j.id}` },
+          `all ${all.length} steps →`
+        )
+      ) : null
+    )
+  );
+  return doc;
+}
+
+// apply.ts
+var PAGE = 200;
+var STEPS_PAGE = 200;
+var NEEDS_YOU = "needs-you";
+var RUNNING = "running";
+function message2(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+function focusKey(el2) {
+  const host = el2.closest(
+    "[data-card],[data-step],[data-session],[data-testid]"
+  );
+  const hostKey = host ? ["card", "step", "session", "testid"].map((a) => host.getAttribute(`data-${a}`) ?? "").join("/") : "";
+  const own = el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement ? el2.className : el2.textContent ?? "";
+  return `${hostKey}|${el2.tagName}|${own}`;
+}
+function focusSnapshot(root) {
+  const a = document.activeElement;
+  if (!a || a === document.body || !root.contains(a)) return null;
+  const field = a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement ? a : null;
+  return {
+    key: focusKey(a),
+    start: field ? field.selectionStart : null,
+    end: field ? field.selectionEnd : null
+  };
+}
+function focusRestore(root, snap) {
+  if (!snap) return;
+  const els = root.querySelectorAll(
+    "button, textarea, input, a[href], [tabindex]"
+  );
+  for (const el2 of els) {
+    if (focusKey(el2) !== snap.key) continue;
+    el2.focus({ preventScroll: true });
+    if ((el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement) && snap.start !== null) {
+      el2.setSelectionRange(snap.start, snap.end ?? snap.start);
+    }
+    return;
+  }
+}
+function makeApply(ctx) {
+  const readEl = h9("div", { class: "kit-read cb-apply-read" });
+  let mode = "review";
+  let jobs = [];
+  let cards = [];
+  let sessions = [];
+  let items = [];
+  let itemsTotal = 0;
+  let itemsLoaded = false;
+  let groups = [];
+  let vocab2 = null;
+  const flipped = /* @__PURE__ */ new Set();
+  const startsOpen = (id) => id === RUNNING || id === NEEDS_YOU;
+  const collapsed = {
+    has: (id) => startsOpen(id) === flipped.has(id),
+    delete(id) {
+      if (!this.has(id)) return false;
+      if (flipped.has(id)) flipped.delete(id);
+      else flipped.add(id);
+      return true;
+    },
+    add(id) {
+      if (this.has(id)) return;
+      if (flipped.has(id)) flipped.delete(id);
+      else flipped.add(id);
+    }
+  };
+  let active = false;
+  let wantGroup = "";
+  let reviewOpen = false;
+  let followTimer = null;
+  const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
+  let reviewKeys = [];
+  let reviewView = null;
+  let drawnView = null;
+  let reviewPending = false;
+  let runPending = false;
+  let reviewNote = "";
+  let refusal = "";
+  let openId = null;
+  let open = null;
+  let stepsShown = STEPS_PAGE;
+  let note = "";
+  let busy = false;
+  let painting = false;
+  let syncing = false;
+  let syncError = "";
+  let afterSync = false;
+  const editors = /* @__PURE__ */ new Map();
+  const itemsSeq = makeSeq();
+  const listSeq = makeSeq();
+  const jobSeq = makeSeq();
+  const planSeq = makeSeq();
+  const runner = () => ctx.dockTarget();
+  const harnessOf = (id) => sessions.find((s) => s.id === id)?.harness || "";
+  const runnerAgent = () => {
+    const t = runner();
+    if (!t) return null;
+    return harnessOf(t.id) || ctx.agentName() || "agent";
+  };
+  const agentOf = (job) => harnessOf(job.session) || ctx.agentName() || "agent";
+  let reviewQ = { filters: [], q: "" };
+  let runQ = { filters: [], q: "" };
+  let filterRows = [];
+  const groupOfKey = /* @__PURE__ */ new Map();
+  const reviewSel = createSelection();
+  const runSel = createSelection();
+  const gen = { review: 0, run: 0 };
+  reviewSel.onChange(() => gen.review++);
+  runSel.onChange(() => gen.run++);
+  const held = () => startedKeys(jobs);
+  const order = () => runOrder(jobs);
+  const kindOfGroup = (g) => g.id.slice(g.id.indexOf("|") + 1);
+  const groupName = (g) => kindVocab(kindOfGroup(g))?.nouns ?? "";
+  const choiceVocabOf = (g) => kindVocab(kindOfGroup(g))?.choices?.find(
+    (c) => c.disposition === g.disposition
+  );
+  const choiceOf = (g) => choiceVocabOf(g)?.label ?? "";
+  const doneOf = (g) => choiceVocabOf(g)?.done ?? "";
+  const titleOf = (j) => planTitle(j, (kind) => {
+    const kv = kindVocab(kind);
+    return kv ? [kv.noun, kv.nouns] : [kind, `${kind}s`];
+  });
+  const kindVocab = (kind) => vocab2?.kinds?.find((k) => k.kind === kind);
+  function labelFor(g, n) {
+    const kv = kindVocab(kindOfGroup(g));
+    if (!kv || !g.many) return g.label;
+    return applyLabel(g.many, kv.noun, kv.nouns, n);
+  }
+  const waiting = (g) => items.filter((it) => it.group === g.id && !held().has(it.key));
+  function waitingCount(g) {
+    const loaded = new Set(items.map((i) => i.key));
+    let n = items.filter(
+      (it) => it.group === g.id && held().has(it.key)
+    ).length;
+    if (itemsTotal > items.length) n += heldOutside(jobs, g.id, loaded);
+    return Math.max(0, g.total - n);
+  }
+  const tickedIn = (id) => reviewSel.ids().filter((k) => groupOfKey.get(k) === id);
+  const tickedKeys = () => groups.flatMap((g) => tickedIn(g.id).sort());
+  let runItems = [];
+  let runTotal = 0;
+  let runGroups = [];
+  const runGroupOfKey = /* @__PURE__ */ new Map();
+  const runItemOf = /* @__PURE__ */ new Map();
+  const noteRun = (it) => {
+    runGroupOfKey.set(it.key, it.group);
+    runItemOf.set(it.key, it);
+  };
+  const noteReview = (it) => {
+    groupOfKey.set(it.key, it.group);
+  };
+  const runSeq = makeSeq();
+  let ranKey = "";
+  let ranDetail = null;
+  let ranJob = null;
+  const ranSeq = makeSeq();
+  const runItemQuery = () => ranKey ? `item=${encodeURIComponent(ranKey)}` : "";
+  const reviewPane = makePane(
+    ctx,
+    "review",
+    reviewSel,
+    {
+      row(it) {
+        const g = groups.find((x) => x.id === it.group);
+        const st = reviewLine(it, g ? doneOf(g) : "");
+        return {
+          id: it.key,
+          key: it.key,
+          title: it.title || void 0,
+          stands: st.text,
+          tone: st.tone
+        };
+      },
+      groupOf: (it) => it.group,
+      onOpen() {
+        if (!painting) reviewPane.handle.toggle();
+      },
+      onQuery(q) {
+        reviewQ = q;
+        setHashQuery(withPane("", reviewQ));
+        void loadItems(0, true);
+      },
+      onToggle(id) {
+        if (collapsed.has(id)) collapsed.delete(id);
+        else collapsed.add(id);
+        paintList();
+      },
+      onTickGroup(id) {
+        void tickGroup(id);
+      },
+      tickedIn,
+      onMore() {
+        void loadItems(items.length);
+      },
+      onFilterOpen(row) {
+        ctx.route.go("decide", "", `filters=${row.filter.id}`);
+      },
+      onFilterNew() {
+        ctx.route.go("decide", "", "new=filter");
+      }
+    }
+  );
+  const runPane = makePane(ctx, "run", runSel, {
+    row(it) {
+      const st = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
+      return {
+        id: it.key,
+        key: it.key,
+        title: it.title || void 0,
+        stands: st.text,
+        tone: st.tone
+      };
+    },
+    groupOf: (it) => it.group,
+    onOpen(it) {
+      if (painting) return;
+      ctx.route.go(
+        "run",
+        "",
+        withPane(`item=${encodeURIComponent(it.key)}`, runQ)
+      );
+    },
+    onQuery(q) {
+      runQ = q;
+      setHashQuery(withPane(runItemQuery(), runQ));
+      void loadRun(0, true);
+    },
+    onToggle(id) {
+      if (collapsed.has(id)) collapsed.delete(id);
+      else collapsed.add(id);
+      paintList();
+    },
+    onTickGroup(id) {
+      void tickRunGroup(id);
+    },
+    tickedIn: (id) => runSel.ids().filter((k) => runGroupOfKey.get(k) === id),
+    onMore() {
+      void loadRun(runItems.length);
+    },
+    onFilterOpen(row) {
+      ctx.route.go("decide", "", `filters=${row.filter.id}`);
+    },
+    onFilterNew() {
+      ctx.route.go("decide", "", "new=filter");
+    }
+  });
+  reviewPane.el.classList.add("cb-apply-list");
+  runPane.el.classList.add("cb-apply-list");
+  const listEl = h9(
+    "div",
+    { class: "kit-list cb-panes" },
+    reviewPane.el,
+    runPane.el
+  );
+  function showPane() {
+    reviewPane.el.hidden = mode !== "review";
+    runPane.el.hidden = mode !== "run";
+  }
+  showPane();
+  let runTickedOn = false;
+  runSel.onChange(() => {
+    runPane.paintHeads();
+    runTickedOn = runSel.ids().length > 0;
+    if (mode !== "run") return;
+    if (runTickedOn) drawRunTicked();
+    else if (openId !== null) drawOpen();
+    else if (ranKey) drawRan();
+    else drawOverview();
+  });
+  reviewSel.onChange(() => {
+    reviewPane.paintHeads();
+    if (mode !== "review") return;
+    if (!sameKeys(tickedKeys(), reviewKeys)) freezeMid();
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = setTimeout(() => {
+      followTimer = null;
+      if (mode === "review") void openTicked();
+    }, 250);
+  });
+  const cardsFor = (jobId) => openCardsByJob(cards.filter((c) => c.kind !== "paused")).get(jobId) ?? 0;
+  function paintList() {
+    ctx.bar.setCount("run", order().running.length);
+    const gs = groups.map((g) => ({ g, n: waitingCount(g) })).filter((x) => x.n > 0).map(({ g, n }) => ({
+      id: g.id,
+      label: groupName(g) || g.label,
+      tag: choiceOf(g),
+      n,
+      box: true
+    }));
+    painting = true;
+    try {
+      reviewPane.setRows(
+        items.filter((it) => !held().has(it.key)),
+        gs,
+        new Set(gs.filter((g) => !collapsed.has(g.id)).map((g) => g.id))
+      );
+      reviewPane.setMore(Math.min(PAGE, itemsTotal - items.length));
+      const rgs = runGroups.map((g) => ({
+        id: g.id,
+        label: g.label,
+        n: g.total,
+        box: true
+      }));
+      const shownRun = runPane.setRows(
+        runItems,
+        rgs,
+        new Set(rgs.filter((g) => !collapsed.has(g.id)).map((g) => g.id))
+      );
+      runPane.setMore(Math.min(PAGE, runTotal - runItems.length));
+      paintRunning();
+      const openAt = mode === "run" && ranKey ? shownRun.findIndex((it) => it.key === ranKey) : -1;
+      if (openAt >= 0) runPane.handle.open(openAt);
+    } finally {
+      painting = false;
+    }
+    drawOverview();
+  }
+  function paintRunning() {
+    const running = order().running;
+    runPane.ownRow.replaceChildren(
+      ...running.length ? [
+        h9("span", { class: "cb-bar-label" }, "running"),
+        ...running.map((j) => {
+          const p = progress(j);
+          const text = `job #${j.id} · ${titleOf(j)} · ${p.finished} of ${p.total}`;
+          return h9(
+            "button",
+            {
+              type: "button",
+              class: "kit-chip cb-run-job",
+              "data-job": String(j.id),
+              title: text,
+              onclick() {
+                ctx.route.go("run", String(j.id));
+              }
+            },
+            text
+          );
+        })
+      ] : []
+    );
+  }
+  const obs = makeObs(ctx, (text, state) => {
+    reviewPane.setObs(text, state);
+    runPane.setObs(text, state);
+  });
+  const dirty = {
+    all: false,
+    items: false,
+    sessions: false,
+    summary: false,
+    run: false,
+    jobs: /* @__PURE__ */ new Set()
+  };
+  let flushing = false;
+  let queued = false;
+  function mark(f) {
+    f(dirty);
+    if (flushing) {
+      queued = true;
+      return;
+    }
+    flushing = true;
+    setTimeout(() => void flush(), 40);
+  }
+  async function flush() {
+    try {
+      do {
+        queued = false;
+        const d = {
+          all: dirty.all,
+          items: dirty.items,
+          sessions: dirty.sessions,
+          summary: dirty.summary,
+          run: dirty.run,
+          jobs: [...dirty.jobs]
+        };
+        dirty.all = dirty.items = dirty.sessions = dirty.summary = dirty.run = false;
+        dirty.jobs.clear();
+        const some = d.all && openId !== null ? [openId] : d.all ? [] : d.jobs;
+        await Promise.all([
+          d.all ? loadJobs() : null,
+          some.length ? loadSome(some) : null,
+          d.items ? loadItems() : null,
+          d.sessions ? loadSessions() : null,
+          d.summary ? loadSummary() : null,
+          d.run ? loadRun(0) : null,
+          d.run && ranKey ? loadRan(ranKey) : null
+        ]);
+      } while (queued);
+    } finally {
+      flushing = false;
+    }
+  }
+  function patchJob(v) {
+    const i = jobs.findIndex((j) => j.id === v.job.id);
+    if (i >= 0) jobs[i] = v.job;
+    else jobs = [...jobs, v.job];
+    cards = [
+      ...cards.filter((c) => c.job_id !== v.job.id),
+      ...(v.needs_you ?? []).filter((c) => c.state === "open")
+    ];
+  }
+  async function loadJobs() {
+    const mine = listSeq.next();
+    try {
+      const [j, c] = await Promise.all([
+        ctx.api.get("/jobs"),
+        ctx.api.get("/needs-you")
+      ]);
+      if (!listSeq.isLatest(mine)) return;
+      jobs = j.jobs ?? [];
+      cards = c.cards ?? [];
+      if (open) patchJob(open);
+      paintList();
+      askNamedSessions();
+    } catch {
+    }
+  }
+  async function loadSome(ids) {
+    const openMine = openId !== null && ids.includes(openId) ? jobSeq.next() : 0;
+    const at2 = openId;
+    const got = await Promise.all(
+      ids.map(
+        (id) => ctx.api.get("/job", { id: String(id) }).catch(() => null)
+      )
+    );
+    let drawn = null;
+    got.forEach((v, i) => {
+      if (!v) return;
+      if (ids[i] === at2) {
+        if (!jobSeq.isLatest(openMine) || openId !== at2) return;
+        drawn = v;
+      }
+      patchJob(v);
+    });
+    if (drawn) setOpen(drawn);
+    else paintList();
+    askNamedSessions();
+  }
+  async function loadItems(offset = 0, narrowed = false) {
+    const mine = itemsSeq.next();
+    if (offset === 0) gen.review++;
+    if (offset === 0) {
+      reviewPending = true;
+      if (mode === "review" && reviewOpen) freezeMid();
+    }
+    try {
+      const v = await ctx.api.get("/items", {
+        view: "to-apply",
+        ...paneParams(reviewQ),
+        limit: String(PAGE),
+        offset: String(offset)
+      });
+      if (!itemsSeq.isLatest(mine)) return;
+      reviewPane.setFilterError(null);
+      const got = v.items ?? [];
+      items = offset ? [...items, ...got] : got;
+      itemsTotal = v.total;
+      itemsLoaded = true;
+      groups = v.groups ?? [];
+      for (const it of got) groupOfKey.set(it.key, it.group);
+      if (offset === 0 && reviewSel.ids().length) {
+        const shown = itemsTotal <= items.length ? items.map((it) => it.key) : await viewKeys("to-apply", reviewQ, noteReview);
+        if (!itemsSeq.isLatest(mine)) return;
+        const gone = untickHidden(reviewSel.ids(), new Set(shown));
+        if (gone.length) reviewSel.deselect(gone);
+      }
+      reviewPending = false;
+      paintList();
+      if (offset === 0) drawReview();
+      applyWanted();
+    } catch (err) {
+      if (!itemsSeq.isLatest(mine)) return;
+      reviewPending = false;
+      drawReview();
+      if (err instanceof ApiError2 && err.status === 400 && narrowed) {
+        reviewPane.setFilterError(err.message);
+        items = [];
+        itemsTotal = 0;
+        groups = [];
+        reviewSel.clear();
+        closeReview();
+        paintList();
+        if (active && mode === "review") {
+          drawOverview();
+          feed();
+        }
+      }
+    }
+  }
+  const loadSessions = coalesced(fetchSessions);
+  let sessionsNamed = /* @__PURE__ */ new Set();
+  function namedSessions() {
+    const ids = [
+      runner()?.id ?? "",
+      open?.job.session ?? "",
+      ...jobs.map((j) => j.session)
+    ];
+    return [...new Set(ids.filter(Boolean))].sort();
+  }
+  function askNamedSessions() {
+    const missing = namedSessions().some(
+      (id) => !sessionsNamed.has(id) && !sessions.some((s) => s.id === id)
+    );
+    if (missing) mark((d) => d.sessions = true);
+  }
+  async function fetchSessions() {
+    try {
+      const named = namedSessions();
+      sessionsNamed = new Set(named);
+      const v = await ctx.api.get(
+        "/sessions",
+        named.length ? { session: named.join(",") } : void 0
+      );
+      sessions = v.sessions ?? [];
+      paintList();
+      if (reviewView) drawReview();
+      if (active) ctx.setPrimary(primary());
+    } catch {
+    }
+  }
+  async function loadSummary() {
+    try {
+      const s = await ctx.api.get("/summary");
+      syncing = s.syncing;
+      drawOverview();
+    } catch {
+    }
+  }
+  async function loadJob(id) {
+    const mine = jobSeq.next();
+    try {
+      const v = await ctx.api.get("/job", { id: String(id) });
+      if (!jobSeq.isLatest(mine) || openId !== id) return;
+      setOpen(v);
+      askNamedSessions();
+    } catch (err) {
+      if (!jobSeq.isLatest(mine) || openId !== id) return;
+      open = null;
+      readEl.replaceChildren(
+        h9(
+          "div",
+          { class: "cb-read-empty" },
+          h9("p", { class: "cb-read-empty-section kit-label" }, "run"),
+          h9("p", { class: "cb-read-empty-prompt" }, message2(err))
+        )
+      );
+      feed();
+    }
+  }
+  function setOpen(v) {
+    const first = open?.job.id !== v.job.id;
+    open = v;
+    patchJob(v);
+    for (const id of [...editors.keys()]) {
+      if (!(v.needs_you ?? []).some((c) => c.id === id && c.state === "open"))
+        editors.delete(id);
+    }
+    if (first) stepsShown = STEPS_PAGE;
+    paintList();
+    if (mode !== "run") return;
+    drawOpen();
+    if (first) readEl.scrollTop = 0;
+    feed();
+  }
+  async function act(path, body, ok) {
+    if (busy) return;
+    busy = true;
+    note = "";
+    const mine = jobSeq.next();
+    try {
+      const r = await ctx.api.post(path, body);
+      ok?.();
+      const jv = r;
+      if (jv && typeof jv === "object" && "job" in jv && jv.job) {
+        if (jobSeq.isLatest(mine) && openId === jv.job.id) setOpen(jv);
+        else patchJob(jv);
+      } else if (openId !== null) {
+        const id = openId;
+        mark((d) => d.jobs.add(id));
+      }
+      if (ranKey) mark((d) => d.run = true);
+    } catch (err) {
+      note = message2(err);
+      drawOpen();
+      drawRan();
+    } finally {
+      busy = false;
+    }
+  }
+  async function tickGroup(id, only = false) {
+    const g = groups.find((x) => x.id === id);
+    if (!g) return;
+    const ticked = tickedIn(id);
+    const total = waitingCount(g);
+    if (!only && total > 0 && ticked.length >= total) {
+      reviewSel.deselect(ticked);
+      return;
+    }
+    let keys = waiting(g).map((it) => it.key);
+    if (keys.length < total) {
+      const was = gen.review;
+      try {
+        keys = await groupKeys2(id);
+      } catch {
+        return;
+      }
+      if (was !== gen.review) return;
+    }
+    reviewSel.all(keys);
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+    }
+  }
+  function applyWanted() {
+    if (!wantGroup || !active || mode !== "review" || !itemsLoaded) return;
+    const id = wantGroup;
+    wantGroup = "";
+    reviewSel.clear();
+    void tickGroup(id, true);
+  }
+  async function openTicked(force = false) {
+    const keys = tickedKeys();
+    if (!keys.length) {
+      closeReview();
+      drawOverview();
+      feed();
+      return;
+    }
+    if (!force && reviewOpen && sameKeys(keys, reviewKeys)) {
+      drawReview();
+      return;
+    }
+    const mine = planSeq.next();
+    reviewOpen = true;
+    reviewKeys = keys;
+    reviewNote = "";
+    refusal = "";
+    note = "";
+    if (!reviewView) drawReview();
+    try {
+      const v = await ctx.api.post("/apply/plan", {
+        keys,
+        preview: true
+      });
+      if (!planSeq.isLatest(mine)) return;
+      reviewView = v;
+      afterSync = false;
+      syncError = "";
+    } catch (err) {
+      if (!planSeq.isLatest(mine)) return;
+      reviewView = null;
+      const msg = message2(err);
+      if (err instanceof ApiError2 && err.status === 409 && msg.includes("sync first"))
+        refusal = msg;
+      else reviewNote = msg;
+    }
+    if (!planSeq.isLatest(mine)) return;
+    drawReview();
+    feed();
+  }
+  async function viewKeys(view, q, note2, group = "") {
+    const keys = [];
+    for (let total = Infinity; keys.length < total; ) {
+      const v = await ctx.api.get("/items", {
+        view,
+        ...paneParams(q),
+        ...group ? { group } : {},
+        limit: "500",
+        offset: String(keys.length)
+      });
+      const got = v.items ?? [];
+      total = v.total;
+      if (!got.length) break;
+      for (const it of got) note2(it);
+      keys.push(...got.map((i) => i.key));
+    }
+    return keys;
+  }
+  async function groupKeys2(id) {
+    const h0 = held();
+    const keys = await viewKeys("to-apply", reviewQ, noteReview, id);
+    return keys.filter((k) => !h0.has(k));
+  }
+  async function loadRun(offset = 0, narrowed = false) {
+    const mine = runSeq.next();
+    if (offset === 0) {
+      gen.run++;
+      runPending = true;
+      if (mode === "run" && runTickedOn) freezeMid();
+    }
+    try {
+      const v = await ctx.api.get("/items", {
+        view: "run",
+        ...paneParams(runQ),
+        limit: String(
+          offset ? PAGE : Math.min(500, Math.max(PAGE, runItems.length))
+        ),
+        offset: String(offset)
+      });
+      if (!runSeq.isLatest(mine)) return;
+      runPane.setFilterError(null);
+      const got = v.items ?? [];
+      runItems = offset ? [...runItems, ...got] : got;
+      runTotal = v.total;
+      runGroups = v.groups ?? [];
+      for (const it of got) noteRun(it);
+      if (offset === 0 && runSel.ids().length) {
+        const shown = runTotal <= runItems.length ? runItems.map((it) => it.key) : await viewKeys("run", runQ, noteRun);
+        if (!runSeq.isLatest(mine)) return;
+        const gone = untickHidden(runSel.ids(), new Set(shown));
+        if (gone.length) runSel.deselect(gone);
+      }
+      if (offset === 0) runPending = false;
+      paintList();
+      if (offset === 0 && runTickedOn) drawRunTicked();
+    } catch (err) {
+      if (!runSeq.isLatest(mine)) return;
+      runPending = false;
+      if (runTickedOn) drawRunTicked();
+      if (err instanceof ApiError2 && err.status === 400 && narrowed) {
+        runPane.setFilterError(err.message);
+        runItems = [];
+        runTotal = 0;
+        runGroups = [];
+        runSel.clear();
+        paintList();
+      }
+    }
+  }
+  async function tickRunGroup(id) {
+    const g = runGroups.find((x) => x.id === id);
+    if (!g) return;
+    const ticked = runSel.ids().filter((k) => runGroupOfKey.get(k) === id);
+    if (g.total > 0 && ticked.length >= g.total) {
+      runSel.deselect(ticked);
+      return;
+    }
+    let keys = runItems.filter((it) => it.group === id).map((it) => it.key);
+    if (keys.length < g.total) {
+      const was = gen.run;
+      try {
+        keys = await viewKeys("run", runQ, noteRun, id);
+      } catch {
+        return;
+      }
+      if (was !== gen.run) return;
+    }
+    runSel.all(keys);
+    if (collapsed.has(id)) {
+      collapsed.delete(id);
+      paintList();
+    }
+  }
+  async function loadRan(key) {
+    const mine = ranSeq.next();
+    try {
+      const d = await ctx.api.get("/item", { key });
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      const steps = d.ran_steps ?? [];
+      const jobId = d.ran?.job ?? 0;
+      const jv = jobId ? await ctx.api.get("/job", { id: String(jobId) }).catch(() => null) : null;
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      if (jv) patchJob(jv);
+      ranDetail = { ...d, steps };
+      ranJob = jv;
+      drawRan();
+      paintList();
+    } catch (err) {
+      if (!ranSeq.isLatest(mine) || ranKey !== key) return;
+      ranDetail = null;
+      paint(
+        h9(
+          "article",
+          { class: "cb-apply-doc" },
+          h9("p", { class: "cb-apply-note", role: "status" }, message2(err))
+        )
+      );
+    }
+  }
+  const runTicked = () => runSel.ids().map((k) => runItemOf.get(k)).filter((x) => !!x?.ran);
+  function bulkNow() {
+    const marks = runTicked().map((it) => it.ran).filter((m) => !!m);
+    const b = runBulk(marks, cards);
+    const sent = b.hand.every(
+      (x) => !!jobs.find((j) => j.id === x.job_id)?.session
+    );
+    return { ...b, hand: sent ? b.hand : [] };
+  }
+  function drawRunTicked() {
+    if (!active || mode !== "run") return;
+    const its = runTicked();
+    const marks = its.map((it) => it.ran).filter((m) => !!m);
+    const can = bulkNow();
+    const gs = [...new Set(its.map((it) => it.group))];
+    const where = gs.length === 1 ? runGroups.find((g) => g.id === gs[0])?.label ?? gs[0] : `${gs.length} groups`;
+    const btn = (label, run) => h9(
+      "button",
+      {
+        type: "button",
+        class: "kit-btn",
+        disabled: busy || runPending,
+        onclick: run
+      },
+      label
+    );
+    const acts = [];
+    if (can.skip.length) acts.push(btn("skip", () => void answerAll("skip")));
+    if (can.undo.length) acts.push(btn("undo", () => void undoAll()));
+    if (can.hand.length)
+      acts.push(btn("hand to agent", () => void answerAll("hand-to-agent")));
+    const shown = its.slice(0, 20);
+    paint(
+      h9(
+        "article",
+        { class: "cb-apply-doc cb-ticked", "data-testid": "run-ticked" },
+        ...midHead({ ...tickedRunWords(marks, where), acts }),
+        note ? h9("p", { class: "cb-apply-note", role: "status" }, note) : null,
+        midRows(
+          shown.map((it) => {
+            const l = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
+            return { key: it.key, stands: l.text, tone: l.tone };
+          }),
+          its.length - shown.length
+        )
+      )
+    );
+  }
+  async function answerAll(action) {
+    if (busy || runPending) return;
+    const b = bulkNow();
+    const steps = action === "skip" ? b.skip : b.hand;
+    if (!steps.length) return;
+    busy = true;
+    note = "";
+    const done = [];
+    try {
+      for (const st of steps) {
+        const c = cards.find(
+          (x) => x.state === "open" && x.step_id === st.id && (x.kind === "failed" || action === "skip" && x.kind === "paused")
+        );
+        if (!c) continue;
+        await ctx.api.post("/jobs/answer", {
+          needs_you: c.id,
+          action,
+          text: ""
+        });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message2(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
+  async function undoAll() {
+    if (busy || runPending) return;
+    const steps = bulkNow().undo;
+    if (!steps.length) return;
+    busy = true;
+    note = "";
+    const done = [];
+    try {
+      for (const st of steps) {
+        await ctx.api.post("/jobs/undo", { step: st.id });
+        done.push(st.key);
+      }
+    } catch (err) {
+      note = message2(err);
+    } finally {
+      busy = false;
+      mark((d) => {
+        d.all = true;
+        d.run = true;
+      });
+    }
+    if (done.length) runSel.deselect(done);
+    else drawRunTicked();
+  }
+  function drawRan() {
+    if (!active || mode !== "run" || !ranKey || openId !== null || !ranDetail)
+      return;
+    if (runTickedOn) return;
+    paint(renderRan(ctx, ranDetail, ranJob, cards, jobHooks));
+  }
+  function closeReview() {
+    planSeq.next();
+    if (followTimer) clearTimeout(followTimer);
+    followTimer = null;
+    reviewOpen = false;
+    reviewView = null;
+    reviewKeys = [];
+    reviewNote = "";
+  }
+  async function syncFirst() {
+    syncError = "";
+    afterSync = true;
+    try {
+      const v = await ctx.api.post("/sync", {});
+      syncing = v.running;
+    } catch (err) {
+      afterSync = false;
+      syncError = message2(err);
+    }
+    drawReview();
+    if (active) ctx.setPrimary(primary());
+  }
+  function onSync(e) {
+    if (e.state === "running") {
+      syncing = true;
+      syncError = "";
+    } else {
+      syncing = false;
+      syncError = e.state === "failed" ? e.error ?? "failed" : "";
+      mark((d) => d.summary = true);
+      if (e.state === "done" && afterSync) {
+        afterSync = false;
+        refusal = "";
+        if (reviewOpen) void openTicked(true);
+      } else if (e.state === "done" && refusal) {
+        refusal = "";
+      }
+    }
+    drawReview();
+    if (active) ctx.setPrimary(primary());
+  }
+  function runCheck() {
+    const v = reviewView;
+    if (!v || v !== drawnView || v.job.state !== "planned") return null;
+    const steps = v.job.steps ?? [];
+    const rt = runsThrough(steps, runnerAgent());
+    const now = !reviewPending && sameKeys(tickedKeys(), reviewKeys);
+    return {
+      v,
+      can: !!steps.length && rt.can && !busy && now,
+      text: rt.text
+    };
+  }
+  function runGroup() {
+    const rc = runCheck();
+    if (!rc?.can) return;
+    const j = rc.v.job;
+    const steps = j.steps ?? [];
+    const go2 = () => {
+      const now = runCheck();
+      if (!now?.can || now.v !== rc.v) return;
+      void saveAndRun(rc.v, needsSession(steps) ? runner()?.id ?? "" : "");
+    };
+    const permanent = steps.filter((s) => s.permanent);
+    if (!permanent.length) return go2();
+    const title = titleOf(j);
+    const keys = [...new Set(permanent.map((s) => s.key))];
+    const sh = sheet({
+      title: `${title}?`,
+      body: h9(
+        "div",
+        { class: "cb-confirm", "data-testid": "confirm-permanent" },
+        h9(
+          "p",
+          { class: "cb-confirm-warn" },
+          "This cannot be undone. These run on GitHub as soon as you confirm:"
+        ),
+        h9(
+          "ul",
+          { class: "cb-confirm-list" },
+          ...keys.map((k) => h9("li", {}, keyWithoutKind(k)))
+        )
+      ),
+      actions: [
+        { label: "cancel", run: () => sh.close() },
+        {
+          label: title,
+          fill: true,
+          run() {
+            sh.close();
+            go2();
+          }
+        }
+      ]
+    });
+  }
+  async function saveAndRun(shown, session) {
+    if (busy) return;
+    const keys = tickedKeys();
+    if (reviewPending || !sameKeys(keys, reviewKeys)) return;
+    busy = true;
+    note = "";
+    drawReview();
+    try {
+      const saved = await ctx.api.post("/apply/plan", { keys });
+      const want = (shown.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
+      const got = (saved.job.steps ?? []).map((x) => `${x.key} ${x.command}`);
+      if (want.join("\n") !== got.join("\n")) {
+        reviewView = { ...saved, job: { ...saved.job } };
+        note = "What would run changed since you looked; nothing ran. Look again.";
+        busy = false;
+        drawReview();
+        return;
+      }
+      const v = await ctx.api.post("/apply/approve", {
+        plan_id: saved.job.id,
+        session,
+        keys
+      });
+      patchJob(v);
+      reviewSel.deselect(keys);
+      closeReview();
+      jobSeq.next();
+      openId = v.job.id;
+      open = v;
+      stepsShown = STEPS_PAGE;
+      ctx.route.go("run", String(v.job.id));
+    } catch (err) {
+      note = message2(err);
+      drawReview();
+    } finally {
+      busy = false;
+      if (active) ctx.setPrimary(primary());
+    }
+  }
+  function refusalCard() {
+    const body = h9(
+      "div",
+      null,
+      h9("p", { "data-testid": "plan-refused" }, refusal)
+    );
+    if (syncing) {
+      body.append(
+        h9(
+          "p",
+          { class: "cb-apply-note", role: "status", "data-testid": "syncing" },
+          "syncing… the group opens again when the sync is done"
+        )
+      );
+    } else if (syncError) {
+      body.append(
+        h9(
+          "p",
+          {
+            class: "cb-apply-note",
+            role: "status",
+            "data-testid": "sync-failed"
+          },
+          `not synced: ${syncError}`
+        )
+      );
+    }
+    const el2 = card3({
+      edge: "signal",
+      head: "not ready",
+      body,
+      actions: syncing ? void 0 : [{ label: "sync first", fill: true, run: () => void syncFirst() }]
+    });
+    el2.dataset.testid = "refusal";
+    return el2;
+  }
+  function freezeMid() {
+    drawnView = null;
+    for (const b of readEl.querySelectorAll("button"))
+      b.disabled = true;
+  }
+  function paint(doc) {
+    const keep = focusSnapshot(readEl);
+    readEl.replaceChildren(h9("div", { class: "kit-doc" }, doc));
+    focusRestore(readEl, keep);
+  }
+  function drawOverview() {
+    if (!active) return;
+    if (mode === "review") {
+      if (reviewOpen) return;
+      const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
+      paint(
+        h9(
+          "article",
+          { class: "cb-apply-doc", "data-testid": "review-overview" },
+          h9(
+            "h1",
+            { class: "kit-h1" },
+            waitingN ? `${pluralize(waitingN, "decision")} waiting` : "nothing decided is waiting"
+          ),
+          h9(
+            "p",
+            null,
+            "Tick items, or a whole group, to review them here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them."
+          )
+        )
+      );
+      return;
+    }
+    if (runTickedOn) return drawRunTicked();
+    if (openId !== null || ranKey) return;
+    const o = order();
+    const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
+    paint(
+      h9(
+        "article",
+        { class: "cb-apply-doc", "data-testid": "run-overview" },
+        h9(
+          "h1",
+          { class: "kit-h1" },
+          o.running.length ? `${pluralize(o.running.length, "job")} running` : "nothing is running"
+        ),
+        facts2([
+          ["running", String(o.running.length)],
+          ["needs you", String(needs)],
+          ["done", String(o.done.length)]
+        ]),
+        h9(
+          "p",
+          null,
+          "Running a plan in review starts a job: its items show here by what happened to them. An item opens what ran on it and its job; a running job's line opens the job."
+        )
+      )
+    );
+  }
+  function drawReview() {
+    drawnView = null;
+    if (!active || mode !== "review" || !reviewOpen) return;
+    const ids = new Set(reviewKeys.map((k) => groupOfKey.get(k) ?? ""));
+    const gs = groups.filter((g) => ids.has(g.id));
+    const v = reviewView;
+    const j = v?.job;
+    const runs = !!v && !!j?.steps?.length && !refusal && !reviewNote;
+    if (runs) drawnView = v;
+    const [first] = v ? runsNow(v.plan).split("\n") : [""];
+    const doc = h9(
+      "article",
+      {
+        class: "cb-apply-doc cb-plan",
+        "data-testid": "review-group",
+        "data-group": gs.map((g) => g.id).join(",")
+      },
+      ...midHead({
+        kick: reviewKick(
+          reviewKeys.length,
+          gs.map((g) => groupName(g) || g.label)
+        ),
+        title: j && j.steps?.length ? titleOf(j) : gs.length === 1 ? labelFor(gs[0], reviewKeys.length) : pluralize(reviewKeys.length, "item"),
+        ctx: refusal || reviewNote ? "" : first ?? "",
+        acts: runs && v ? [runActs(v)] : []
+      })
+    );
+    if (refusal) {
+      doc.append(refusalCard());
+      return paint(doc);
+    }
+    if (reviewNote) {
+      doc.append(
+        h9(
+          "p",
+          {
+            class: "cb-apply-note",
+            role: "status",
+            "data-testid": "plan-nothing"
+          },
+          reviewNote
+        )
+      );
+      return paint(doc);
+    }
+    if (!v || !j) return paint(doc);
+    const steps = j.steps ?? [];
+    const held2 = v.plan.held_back ?? [];
+    const waits = v.plan.waiting ?? [];
+    if (!steps.length && !held2.length && !waits.length) {
+      doc.append(
+        h9(
+          "p",
+          { "data-testid": "plan-empty" },
+          "Nothing in this group runs from this machine: no step is on it, and nothing outward."
+        )
+      );
+      return paint(doc);
+    }
+    doc.append(planLines(v));
+    const agent = runnerAgent() ?? "an agent";
+    const parts = (v.groups ?? []).map((x) => ({
+      action: x.action,
+      lane: x.lane,
+      undo: x.undo,
+      steps: x.steps ?? []
+    }));
+    const deletesBranches = steps.some((s) => s.action.startsWith("branch-"));
+    const shown = !steps.length ? [] : parts.length ? parts : groupSteps(steps);
+    for (const p of shown) {
+      const github = p.action === "branch-delete-remote";
+      const first2 = p.action === "worktree-remove" && deletesBranches;
+      const title = github ? "delete on GitHub" : first2 ? "remove worktrees first" : actionTitle(p.action);
+      const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first2 ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
+      doc.append(
+        h9(
+          "h3",
+          { class: "kit-label cb-group-label" },
+          h9(
+            "span",
+            { class: `cb-lanename cb-lanename-${p.lane}` },
+            github ? "casebook · github" : laneLabel(p.lane, agent)
+          ),
+          ` · ${title} · ${p.steps.length}`,
+          ...tagEls(stepTags(p.steps), p.steps.length)
+        ),
+        h9(
+          "p",
+          { class: "cb-plan-where", "data-testid": "plan-where" },
+          where,
+          p.undo ? h9(
+            "span",
+            { class: "cb-plan-undo", "data-testid": "plan-undo" },
+            ` ${p.undo}`
+          ) : null
+        ),
+        h9(
+          "div",
+          {
+            class: "kit-table cb-plan-group",
+            "data-action": p.action,
+            "data-lane": p.lane
+          },
+          ...p.steps.flatMap((s) => [
+            h9(
+              "div",
+              { class: "kit-tr cb-plan-step", "data-key": s.key },
+              h9(
+                "span",
+                { class: "cb-step-k", title: s.key },
+                keyWithoutKind(s.key)
+              ),
+              h9(
+                "code",
+                { class: "cb-cmd", "data-cmd": s.command, title: s.command },
+                stepLine(s)
+              )
+            ),
+            // A post's comment: whole, on a fixed line of its own under its
+            // step (two lines at most, "…" past them, whole on hover).
+            s.posts && s.comment ? h9(
+              "div",
+              {
+                class: "kit-tr cb-plan-pub",
+                "data-key": s.key,
+                title: publicLine(s)
+              },
+              h9("span", { class: "cb-publine" }, publicLine(s))
+            ) : null
+          ])
+        )
+      );
+    }
+    drawWaits(doc, waits, steps);
+    drawHeld(doc, held2, steps);
+    paint(doc);
+  }
+  function drawWaits(doc, waits, steps) {
+    const byMachine = /* @__PURE__ */ new Map();
+    for (const w of waits)
+      byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
+    for (const [m, ws] of byMachine) {
+      doc.append(
+        h9(
+          "h3",
+          { class: "kit-label cb-group-label cb-wait-h" },
+          `waits for ${m} · ${ws.length}`
+        ),
+        ...waitBlocks(ws, steps).flatMap((b) => [
+          h9("p", { class: "cb-plan-where" }, b.text),
+          h9(
+            "div",
+            {
+              class: "kit-table cb-plan-group cb-waits",
+              "data-testid": "plan-waits"
+            },
+            ...b.waits.map(
+              (w) => h9(
+                "div",
+                { class: "kit-tr cb-plan-step" },
+                h9("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
+                h9(
+                  "span",
+                  { class: "cb-cmd" },
+                  `on ${m}${w.path ? ` · ${w.path}` : ""}`
+                )
+              )
+            )
+          )
+        ])
+      );
+    }
+  }
+  function drawHeld(doc, held2, steps) {
+    if (!held2.length) return;
+    doc.append(
+      h9(
+        "h3",
+        { class: "kit-label cb-group-label cb-held-h" },
+        `held · ${held2.length}`
+      ),
+      h9("p", { class: "cb-plan-where" }, heldText),
+      h9(
+        "div",
+        {
+          class: "kit-table cb-plan-group cb-held",
+          "data-testid": "plan-held"
+        },
+        ...held2.map((x) => {
+          const holds = x.holds ?? [];
+          const links = [];
+          for (const hd of holds) {
+            if (hd.by)
+              links.push(
+                h9(
+                  "a",
+                  { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+                  keyWithoutKind(hd.by)
+                )
+              );
+            else if (hd.kind === "long-lived")
+              links.push(
+                h9(
+                  "a",
+                  { class: "cb-link", href: `#/decide/${pathEscape(x.key)}` },
+                  "decide again"
+                )
+              );
+          }
+          return h9(
+            "div",
+            { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
+            h9(
+              "span",
+              { class: "cb-step-k", title: x.key },
+              keyWithoutKind(x.key)
+            ),
+            h9(
+              "span",
+              {
+                class: "cb-held-why",
+                title: holds.map((hd) => hd.text).join(" · ")
+              },
+              holds.map((hd) => hd.text).join(" · "),
+              ...links.flatMap((a) => [" · ", a]),
+              otherHalf(x.key, steps)
+            )
+          );
+        })
+      )
+    );
+  }
+  function tagEls(tags, of) {
+    return tags.map(
+      (t) => h9("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
+    );
+  }
+  function runActs(v) {
+    const rc = runCheck();
+    return h9(
+      "div",
+      { class: "cb-run-acts", "data-testid": "run-group" },
+      buttons4([
+        {
+          label: titleOf(v.job),
+          fill: true,
+          disabled: !rc?.can,
+          run: () => runGroup()
+        }
+      ]),
+      rc?.text ? h9(
+        "span",
+        {
+          class: rc.can || busy ? "cb-approve-lab" : "cb-approve-none",
+          "data-testid": rc.can || busy ? "runs-through" : "no-agent",
+          title: rc.text
+        },
+        rc.text
+      ) : null
+    );
+  }
+  function planLines(v) {
+    const steps = v.job.steps ?? [];
+    const el2 = h9("div", { class: "cb-approve" });
+    const [, rest] = runsNow(v.plan).split("\n");
+    if (rest) el2.append(h9("p", { class: "cb-approve-what" }, rest));
+    const tags = stepTags(steps);
+    if (tags.length)
+      el2.append(h9("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
+    if (note)
+      el2.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
+    return el2;
+  }
+  function drawOpen() {
+    if (!open || !active || mode !== "run") return;
+    if (runTickedOn) return;
+    const j = open.job;
+    if (j.state === "planned" || j.state === "cancelled") {
+      paint(
+        h9(
+          "article",
+          { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
+          h9("p", { class: "kit-kick" }, `job #${j.id}`),
+          h9("h1", { class: "kit-h1" }, titleOf(j)),
+          h9(
+            "p",
+            { class: "cb-approve-none", "data-testid": "never-ran" },
+            j.state === "planned" ? "This has not run: its decisions wait in review." : "This was replaced before it ran: nothing in it ran."
+          )
+        )
+      );
+      return;
+    }
+    paint(renderJob(ctx, open, jobHooks));
+  }
+  function pauseOrResume() {
+    if (!open || !isRunning(open.job)) return;
+    void act(open.job.paused ? "/jobs/resume" : "/jobs/pause", {
+      id: open.job.id
+    });
+  }
+  const jobHooks = {
+    agent: (j) => agentOf(j),
+    stepsShown: () => stepsShown,
+    showMore() {
+      stepsShown += STEPS_PAGE;
+      drawOpen();
+    },
+    note: () => note,
+    answer(card7, action, text, ok) {
+      void act(
+        "/jobs/answer",
+        { needs_you: card7.id, action, text },
+        ok
+      );
+    },
+    undo(step) {
+      void act("/jobs/undo", { step: step.id });
+    },
+    editing: (id) => editors.get(id),
+    edit(id, text) {
+      if (text === null) editors.delete(id);
+      else editors.set(id, text);
+    }
+  };
+  function primary() {
+    if (mode === "review") {
+      if (refusal)
+        return syncing ? null : { label: "sync first", run: () => void syncFirst() };
+      return null;
+    }
+    if (open && openId !== null && isRunning(open.job)) {
+      return open.job.paused ? { label: "resume", run: pauseOrResume } : { label: "pause job", run: pauseOrResume };
+    }
+    return null;
+  }
+  function feed() {
+    if (!active) return;
+    if (mode === "run" && open && openId !== null)
+      ctx.setAttached({ job: String(openId) }, jobTitle(open.job));
+    else if (mode === "run" && ranKey) ctx.setAttached({ open: ranKey });
+    else ctx.setAttached({});
+    ctx.setPrimary(primary());
+  }
+  const runKey = {
+    keys: "a",
+    label: "run the open group",
+    group: "page",
+    run() {
+      runGroup();
+    }
+  };
+  const pauseKey = {
+    keys: "p",
+    label: "pause or resume the open job",
+    group: "page",
+    run() {
+      pauseOrResume();
+    }
+  };
+  const reviewBindings = [runKey];
+  const runBindings = [pauseKey];
+  function closeJob() {
+    jobSeq.next();
+    openId = null;
+    open = null;
+    note = "";
+  }
+  ctx.onDockTarget(() => {
+    askNamedSessions();
+    if (reviewView) drawReview();
+    if (active) ctx.setPrimary(primary());
+  });
+  async function loadFilters() {
+    try {
+      const v = await ctx.api.get("/filters");
+      filterRows = v.filters ?? [];
+      reviewPane.setFilters(filterRows, reviewQ.filters);
+      runPane.setFilters(filterRows, runQ.filters);
+    } catch {
+    }
+  }
+  void obs.load();
+  void loadFilters();
+  void loadJobs();
+  void loadItems();
+  void loadRun();
+  void loadSessions();
+  void loadSummary();
+  const loadVocab = () => {
+    getVocab(ctx).then((v) => {
+      vocab2 = v;
+      paintList();
+      drawReview();
+    }).catch(() => setTimeout(loadVocab, 2e3));
+  };
+  loadVocab();
+  const jobOf = (type, data) => {
+    const d = data ?? {};
+    if (type === "job") return d.id ?? null;
+    return d.job_id ?? null;
+  };
+  return {
+    id: "apply",
+    list: listEl,
+    read: readEl,
+    listKeys: () => mode === "review" ? { nav: reviewPane.handle, selects: true } : { nav: runPane.handle, selects: true },
+    keys: () => mode === "review" ? reviewBindings : runBindings,
+    show(sub, query) {
+      active = true;
+      const was = mode;
+      mode = ctx.route.current().section === "run" ? "run" : "review";
+      if (was !== mode) {
+        note = "";
+        (was === "review" ? reviewSel : runSel).clear();
+      }
+      showPane();
+      if (mode === "review") {
+        closeJob();
+        const pq2 = paneQuery(query ?? "");
+        if (pq2.q !== reviewQ.q || pq2.filters.join(",") !== reviewQ.filters.join(",")) {
+          reviewQ = pq2;
+          reviewPane.setFilters(filterRows, pq2.filters);
+          reviewPane.setSearch(pq2.q);
+          void loadItems(0, true);
+        }
+        const group = new URLSearchParams(query ?? "").get("group") ?? "";
+        if (group) {
+          wantGroup = group;
+          setHashQuery(withPane("", reviewQ));
+          applyWanted();
+        }
+        paintList();
+        if (reviewOpen) drawReview();
+        else if (reviewSel.ids().length) void openTicked();
+        feed();
+        return;
+      }
+      wantGroup = "";
+      const pq = paneQuery(query ?? "");
+      if (pq.q !== runQ.q || pq.filters.join(",") !== runQ.filters.join(",")) {
+        runQ = pq;
+        runPane.setFilters(filterRows, pq.filters);
+        runPane.setSearch(pq.q);
+        void loadRun(0, true);
+      }
+      const item = new URLSearchParams(query ?? "").get("item") ?? "";
+      const id = sub ? Number(decodeURIComponent(sub).replace(/^#/, "")) : NaN;
+      if (item || sub) runTickedOn = false;
+      if (sub && Number.isFinite(id)) ranKey = "";
+      if ((!sub || !Number.isFinite(id)) && item) {
+        closeJob();
+        if (item !== ranKey) {
+          ranKey = item;
+          ranDetail = null;
+          ranJob = null;
+          paint(h9("article", { class: "cb-apply-doc cb-ran" }));
+        }
+        paintList();
+        drawRan();
+        void loadRan(item);
+        feed();
+      } else if (!sub || !Number.isFinite(id)) {
+        closeJob();
+        ranKey = "";
+        paintList();
+        feed();
+      } else if (id !== openId) {
+        openId = id;
+        open = null;
+        note = "";
+        paintList();
+        feed();
+        void loadJob(id);
+      } else {
+        paintList();
+        if (open) setOpen(open);
+        else void loadJob(id);
+        feed();
+      }
+    },
+    hide() {
+      (mode === "review" ? reviewSel : runSel).clear();
+      active = false;
+    },
+    onLive(type, data) {
+      if (type === "job" || type === "step" || type === "needs_you") {
+        const about = jobOf(type, data);
+        mark((d) => {
+          if (about === null) d.all = true;
+          else d.jobs.add(about);
+          d.run = true;
+        });
+      } else if (type === "index" || type === "decided") {
+        mark((d) => {
+          d.items = true;
+          d.run = true;
+          if (type === "index") d.summary = true;
+        });
+      } else if (type === "sessions") {
+        mark((d) => d.sessions = true);
+      } else if (type === "gap") {
+        mark((d) => {
+          d.all = d.items = d.sessions = d.summary = d.run = true;
+        });
+      } else if (type === "filters") {
+        void loadFilters().then(() => {
+          if (reviewQ.filters.length) mark((d) => d.items = true);
+          if (runQ.filters.length) mark((d) => d.run = true);
+        });
+      }
+      obs.onLive(type, data);
+      if (type === "sync") {
+        onSync(data ?? {});
+      }
+    },
+    primary
+  };
+}
+
+// decide-list.ts
+import {
+  createSelection as createSelection2,
+  h as h14,
+  ApiError as ApiError4
+} from "/_kit/kit.js";
+
+// item.ts
+import { h as h10, facts as facts3, fold } from "/_kit/kit.js";
+
+// holds-text.ts
+function copyRow(c) {
+  const label = c.machine || "GitHub";
+  if (c.absent) return [label, "not there"];
+  const parts = [];
+  if (c.path) parts.push(c.path);
+  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
+  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
+  if (c.head) parts.push("checked out in the clone");
+  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
+  return [label, parts.join(" · ")];
+}
+function choiceTags(kind, disposition) {
+  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
+    return ["permanent"];
+  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
+    return ["github-undo"];
+  return [];
+}
+
+// item.ts
+var BODY_CAP = 600;
+function fmtDate(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+function fmtShortDate(s) {
+  if (!s)
+    return "def";
+  const d = new Date(s);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}-${dd}`;
+}
+function renderEvidence(evs) {
+  const section = h10("section", { class: "cb-evidence" });
+  section.append(h10("h3", { class: "kit-label" }, "evidence"));
+  if (evs.length === 0) {
+    section.append(h10("p", { class: "cb-empty" }, "no evidence"));
+    return section;
+  }
+  for (const ev of evs) {
+    const authorEl = ev.author ? h10("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
+    const time = h10(
+      "span",
+      { class: "cb-muted" },
+      ` · ${fmtShortDate(ev.created_at)}`
+    );
+    const item = h10(
+      "div",
+      { class: "cb-evidence-item" },
+      h10(
+        "p",
+        { class: "cb-evidence-meta" },
+        ...authorEl ? [authorEl] : [],
+        ev.text,
+        time
+      )
+    );
+    section.append(item);
+  }
+  return section;
+}
+function renderHistory(events, decisions, ownKey) {
+  const section = h10("section", { class: "cb-history" });
+  section.append(h10("h3", { class: "kit-label" }, "history"));
+  if (events.length === 0 && decisions.length === 0) {
+    section.append(h10("p", { class: "cb-empty" }, "no history"));
+    return section;
+  }
+  for (const entry of decisions) {
+    const display = stripOwnKey(entry.Subject, ownKey);
+    section.append(
+      h10(
+        "div",
+        { class: "cb-history-item cb-history-decision" },
+        h10("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
+        h10("span", { class: "cb-history-msg" }, display)
+      )
+    );
+  }
+  for (const ev of events) {
+    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
+    section.append(
+      h10(
+        "div",
+        { class: "cb-history-item" },
+        h10("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
+        h10("span", { class: "cb-history-msg" }, label)
+      )
+    );
+  }
+  return section;
+}
+function renderDecideRow(ctx, detail, hooks) {
+  const it = detail.item;
+  const section = h10("section", { class: "cb-decide", role: "group" });
+  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  const tag = (kind, text) => h10("span", { class: `cb-tag cb-tag-${kind}` }, text);
+  const cards = renderChoices(ctx, it.kind, {
+    recommended: pending?.disposition,
+    chosen: it.decision?.disposition,
+    note: it.decision?.note,
+    onPick(d, until, note) {
+      hooks.decide?.(d, until, note);
+    },
+    onCards(grid) {
+      const tagged = [];
+      for (const card7 of grid.querySelectorAll(
+        ".cb-choice[data-d]"
+      )) {
+        const kinds = choiceTags(it.kind, card7.dataset.d ?? "");
+        if (!kinds.length) continue;
+        tagged.push(
+          h10(
+            "span",
+            { class: "cb-choice-tagged" },
+            card7.querySelector(".cb-choice-label")?.textContent ?? "",
+            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
+          )
+        );
+      }
+      if (tagged.length) tagsLine.replaceChildren(...tagged);
+      tagsLine.hidden = !tagged.length;
+      hooks.cardsReady?.();
+    }
+  });
+  const tagsLine = h10("p", { class: "cb-choice-tags", hidden: true });
+  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
+  cards.querySelector(".cb-choices")?.after(tagsLine);
+  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
+    tag(
+      "posts",
+      `posts a public comment${it.public ? " · on a public repo" : ""}`
+    )
+  );
+  section.append(cards);
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    section.setAttribute("aria-label", kv?.question ?? "");
+  });
+  return section;
+}
+function renderRec(ctx, detail, hooks) {
+  const it = detail.item;
+  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  if (!p) return null;
+  const who = h10("p", { class: "cb-rec-who" });
+  const label = h10("p", { class: "cb-rec-label" }, p.disposition);
+  const el2 = h10(
+    "section",
+    { class: "cb-rec" },
+    who,
+    label,
+    p.note ? h10("p", { class: "cb-rec-note" }, p.note) : null,
+    p.until ? h10("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
+  );
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    const rec = asNotNow(p.disposition);
+    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
+    who.textContent = recommendsWho(
+      vocab2,
+      p.source,
+      hooks.sourceName?.(p.source) ?? ""
+    );
+  });
+  return el2;
+}
+function renderHolds(detail) {
+  const holds = detail.item.holds ?? [];
+  if (!holds.length) return null;
+  return h10(
+    "section",
+    { class: "cb-hold" },
+    h10("p", { class: "cb-hold-who" }, "in the way"),
+    ...holds.flatMap((hd) => [
+      h10(
+        "p",
+        { class: "cb-hold-line" },
+        hd.text,
+        hd.by ? h10(
+          "a",
+          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+          keyWithoutKind(hd.by)
+        ) : null
+      ),
+      hd.fix ? h10("p", { class: "cb-hold-sub" }, hd.fix) : null
+    ])
+  );
+}
+function renderWhere(detail) {
+  const copies = detail.item.copies ?? [];
+  if (!copies.length) return null;
+  return h10(
+    "section",
+    { class: "cb-where" },
+    h10("h3", { class: "kit-label" }, "where it is"),
+    ...copies.map((c) => {
+      const [label, text] = copyRow(c);
+      return h10(
+        "div",
+        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
+        h10("span", { class: "cb-wm" }, label),
+        h10("span", null, text)
+      );
+    })
+  );
+}
+function cameBack(vocab2, it) {
+  const status = vocab2.came_back?.[it.status ?? ""];
+  if (status) return it.due_reason || status;
+  return it.new_activity ? it.due_reason ?? "" : "";
+}
+function itemHead(detail, ctx) {
+  const it = detail.item;
+  const displayKey = keyWithoutKind(it.key);
+  const keyEl = it.url ? h10("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
+  const kicker = h10("p", { class: "cb-kicker kit-kick" });
+  const parts = [it.kind, keyEl, it.relation].filter(
+    (part) => !!part
+  );
+  parts.forEach((part, i) => {
+    if (i > 0) kicker.append(" · ");
+    kicker.append(part);
+  });
+  const title = it.title ?? keyWithoutKind(it.key);
+  const titleEl = h10("h1", { class: "cb-title kit-h1", title }, title);
+  const factPairs = [];
+  if (it.status)
+    factPairs.push([
+      "status",
+      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
+    ]);
+  if (it.repo) factPairs.push(["repo", it.repo]);
+  if (it.author)
+    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
+  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
+  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
+  if (it.labels && it.labels.length > 0)
+    factPairs.push(["labels", it.labels.join(", ")]);
+  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
+  const factsEl = facts3(factPairs);
+  factsEl.title = factsEl.textContent ?? "";
+  if (ctx)
+    void getVocab(ctx).then((vocab2) => {
+      const why = cameBack(vocab2, it);
+      if (!why) return;
+      const line = vocab2.came_back_fact.replaceAll("{reason}", why);
+      factsEl.prepend(h10("span", { class: "cb-came-back", title: line }, line));
+      factsEl.title = factsEl.textContent ?? "";
+    });
+  return [kicker, titleEl, factsEl];
+}
+function renderItem(ctx, detail, hooks = {}) {
+  const it = detail.item;
+  const el2 = h10(
+    "article",
+    { class: "cb-item", dataset: { key: it.key } },
+    ...itemHead(detail, ctx)
+  );
+  el2.append(renderDecideRow(ctx, detail, hooks));
+  const looking = lookingLine(it.looking);
+  const reading = h10(
+    "div",
+    { class: "cb-reading" },
+    h10("p", { class: "cb-looking", hidden: !looking }, looking),
+    renderHolds(detail),
+    renderWhere(detail),
+    renderRec(ctx, detail, hooks)
+  );
+  if (it.body) {
+    const excerpt = it.body.slice(0, BODY_CAP);
+    const rest = it.body.slice(BODY_CAP);
+    reading.append(
+      h10(
+        "section",
+        { class: "cb-body" },
+        h10("p", null, excerpt),
+        rest ? fold("read more", h10("p", null, rest)) : null
+      )
+    );
+  }
+  reading.append(
+    h10(
+      "div",
+      { class: "cb-trail" },
+      renderEvidence(detail.evidence ?? []),
+      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
+    )
+  );
+  el2.append(reading);
+  return h10("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
+}
+
+// proposals.ts
+import { sheet as sheet2, h as h11 } from "/_kit/kit.js";
+function openDiscardSheet(ctx, vocab2, n, view, body, onDone) {
+  let submitting = false;
+  let sh = null;
+  const errEl = h11("p", { class: "cb-sheet-err" });
+  errEl.hidden = true;
+  async function doDiscard() {
+    if (submitting) return;
+    submitting = true;
+    errEl.hidden = true;
+    try {
+      const r = await ctx.api.post("/proposals/withdraw", body);
+      sh?.close();
+      onDone(r.withdrawn);
+    } catch (err) {
+      errEl.textContent = err instanceof Error ? err.message : "discard failed, try again";
+      errEl.hidden = false;
+      submitting = false;
+    }
+  }
+  sh = sheet2({
+    title: vocab2.discard_title,
+    body: h11(
+      "div",
+      { class: "cb-sheet-body cb-discard-confirm" },
+      h11("p", { class: "cb-discard-says" }, discardConfirm(vocab2, n, view)),
+      errEl
+    ),
+    actions: [
+      {
+        label: vocab2.discard_button,
+        fill: true,
+        run() {
+          void doDiscard();
+        }
+      },
+      {
+        label: vocab2.discard_cancel,
+        run() {
+          sh?.close();
+        }
+      }
+    ],
+    onClose() {
+      sh = null;
+    }
+  });
+}
+
 // rule-editor.ts
-import { h as h9, ApiError as ApiError3 } from "/_kit/kit.js";
+import { h as h12, ApiError as ApiError3 } from "/_kit/kit.js";
 
 // menu-nav.ts
 function menuNav(menu, selector, opener, close) {
@@ -5125,32 +6037,32 @@ function menuNav(menu, selector, opener, close) {
   });
   menu.addEventListener("keydown", (e) => {
     if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
-    const list3 = items();
-    if (!list3.length) return;
-    const at2 = list3.indexOf(document.activeElement);
+    const list2 = items();
+    if (!list2.length) return;
+    const at2 = list2.indexOf(document.activeElement);
     let next = -1;
     switch (e.key) {
       case "ArrowDown":
       case "ArrowRight":
-        next = at2 < 0 ? 0 : (at2 + 1) % list3.length;
+        next = at2 < 0 ? 0 : (at2 + 1) % list2.length;
         break;
       case "ArrowUp":
       case "ArrowLeft":
-        next = at2 < 0 ? list3.length - 1 : (at2 - 1 + list3.length) % list3.length;
+        next = at2 < 0 ? list2.length - 1 : (at2 - 1 + list2.length) % list2.length;
         break;
       case "Home":
         next = 0;
         break;
       case "End":
-        next = list3.length - 1;
+        next = list2.length - 1;
         break;
       default:
         return;
     }
     e.preventDefault();
     e.stopPropagation();
-    rove(list3[next]);
-    list3[next].focus();
+    rove(list2[next]);
+    list2[next].focus();
   });
   menu.addEventListener("focusout", (e) => {
     if (menu.hidden) return;
@@ -5178,7 +6090,7 @@ function dispositionLabel(vocab2, types, d) {
 function ruleMenu(row, hooks) {
   const id = row.rule.id;
   const off = row.rule.status !== "active";
-  const more = h9("button", {
+  const more = h12("button", {
     type: "button",
     class: "cb-filter-more cb-rule-more",
     "aria-label": `${row.rule.name || id}: edit, turn ${off ? "on" : "off"}`,
@@ -5190,7 +6102,7 @@ function ruleMenu(row, hooks) {
     }
   });
   more.textContent = "⋯";
-  const item = (label, run) => h9(
+  const item = (label, run) => h12(
     "button",
     {
       type: "button",
@@ -5205,7 +6117,7 @@ function ruleMenu(row, hooks) {
     },
     label
   );
-  const menu = h9(
+  const menu = h12(
     "div",
     { class: "cb-filter-menu", role: "menu", hidden: true },
     item("edit", () => hooks.onEdit()),
@@ -5234,7 +6146,7 @@ function ruleMenu(row, hooks) {
     }
   }
   menuNav(menu, ".cb-filter-menu-item", more, () => setMenu(false));
-  const wrap = h9(
+  const wrap = h12(
     "span",
     { class: "cb-filter-item cb-rule-menu", "data-id": id },
     more,
@@ -5249,11 +6161,11 @@ async function toggleRule(ctx, row) {
   });
 }
 function makeRuleRow(_ctx, hooks) {
-  const chipsEl = h9("div", {
+  const chipsEl = h12("div", {
     class: "kit-chips cb-filter-chips",
     "data-group": "rules"
   });
-  const addBtn = h9(
+  const addBtn = h12(
     "button",
     {
       type: "button",
@@ -5265,17 +6177,17 @@ function makeRuleRow(_ctx, hooks) {
     },
     "+ rule"
   );
-  const el2 = h9(
+  const el2 = h12(
     "div",
     { class: "cb-filters cb-rule-row", "aria-label": "rules" },
-    h9("span", { class: "cb-bar-label" }, "rules"),
+    h12("span", { class: "cb-bar-label" }, "rules"),
     chipsEl
   );
   function chip(row, selected) {
     const id = row.rule.id;
     const on = selected === id;
     const off = row.rule.status !== "active";
-    const b = h9(
+    const b = h12(
       "button",
       {
         type: "button",
@@ -5310,24 +6222,24 @@ function ruleEditor(ctx, row, seed, hooks) {
   let offered = [];
   let kinds = null;
   let seq = 0;
-  const dispEl = h9("span", {
+  const dispEl = h12("span", {
     class: "cb-cond-picks cb-rule-disps",
     role: "group",
     "aria-label": "what it proposes"
   });
-  const note = h9("input", {
+  const note = h12("input", {
     class: "cb-filter-name cb-rule-propose-note",
     type: "text",
     placeholder: "note, e.g. landed {how}; nothing unpushed",
     "aria-label": "note"
   });
   note.value = row?.rule.propose.note ?? "";
-  const proposeErr = h9("p", { class: "cb-filter-name-err", hidden: true });
+  const proposeErr = h12("p", { class: "cb-filter-name-err", hidden: true });
   function paintDisps() {
     const types = kinds ?? typesOf(match, KINDS);
     dispEl.replaceChildren(
       ...offered.map(
-        (d) => h9(
+        (d) => h12(
           "button",
           {
             type: "button",
@@ -5346,7 +6258,7 @@ function ruleEditor(ctx, row, seed, hooks) {
     );
     if (!offered.length) {
       dispEl.append(
-        h9(
+        h12(
           "span",
           { class: "cb-rule-hint" },
           "add a condition to see what it can propose"
@@ -5388,7 +6300,7 @@ function ruleEditor(ctx, row, seed, hooks) {
   if (row?.invalid) {
     setConditionError(editor, conditionErrorIndex(row.invalid), row.invalid);
   }
-  const name = h9("input", {
+  const name = h12("input", {
     class: "cb-filter-name",
     type: "text",
     placeholder: "name",
@@ -5401,7 +6313,7 @@ function ruleEditor(ctx, row, seed, hooks) {
     }
   });
   name.value = row?.rule.name ?? seed?.name ?? "";
-  const nameErr = h9("p", { class: "cb-filter-name-err", hidden: true });
+  const nameErr = h12("p", { class: "cb-filter-name-err", hidden: true });
   const showNameError = (msg) => {
     nameErr.hidden = msg === null;
     nameErr.textContent = msg ?? "";
@@ -5455,22 +6367,22 @@ function ruleEditor(ctx, row, seed, hooks) {
       setConditionError(editor, i, msg);
     }
   }
-  const el2 = h9(
+  const el2 = h12(
     "div",
     { class: "kit-doc" },
-    h9(
+    h12(
       "article",
       { class: "cb-filter-edit", "data-testid": "rule-editor" },
-      h9(
+      h12(
         "h1",
         { class: "kit-h1 cb-filter-title" },
         row ? `edit ${row.rule.name || row.rule.id}` : "new rule"
       ),
-      h9(
+      h12(
         "div",
         { class: "cb-filter-acts" },
         name,
-        h9(
+        h12(
           "button",
           {
             type: "button",
@@ -5481,7 +6393,7 @@ function ruleEditor(ctx, row, seed, hooks) {
           },
           "save"
         ),
-        h9(
+        h12(
           "button",
           {
             type: "button",
@@ -5494,15 +6406,15 @@ function ruleEditor(ctx, row, seed, hooks) {
         )
       ),
       nameErr,
-      h9(
+      h12(
         "div",
         { class: "cb-rule-propose" },
-        h9("span", { class: "cb-rule-propose-l" }, "propose"),
+        h12("span", { class: "cb-rule-propose-l" }, "propose"),
         dispEl,
         note
       ),
       proposeErr,
-      h9(
+      h12(
         "p",
         { class: "cb-rule-hint" },
         "Saving turns it on: matching items get this recommendation now and after every sync. Nothing is decided until you accept it."
@@ -5525,7 +6437,7 @@ function ruleEditor(ctx, row, seed, hooks) {
 }
 
 // rules.ts
-import { h as h10, facts as facts3, buttons as buttons4, card as card3, sheet as sheet4 } from "/_kit/kit.js";
+import { h as h13, facts as facts4, buttons as buttons5, card as card4, sheet as sheet3 } from "/_kit/kit.js";
 var PREVIEW_DEBOUNCE_MS = 300;
 var PAGE2 = 200;
 function message4(err) {
@@ -5540,24 +6452,24 @@ function renderRule(ctx, detail, hooks) {
   let shown = preview.page ?? [];
   let grouped = false;
   let seq = 0;
-  const doc = h10("article", {
+  const doc = h13("article", {
     class: "cb-rule",
     "data-rule": id,
     "data-status": rule.status
   });
   doc.toggleAttribute("data-invalid", !!detail.invalid);
-  const el2 = h10("div", { class: "kit-doc" }, doc);
-  let factsEl = h10("div");
-  const heading = h10("h3", { class: "kit-label cb-matches-label" });
-  const groupChips = h10("span", { class: "cb-matches-view" });
-  const matchesEl = h10("div", {
+  const el2 = h13("div", { class: "kit-doc" }, doc);
+  let factsEl = h13("div");
+  const heading = h13("h3", { class: "kit-label cb-matches-label" });
+  const groupChips = h13("span", { class: "cb-matches-view" });
+  const matchesEl = h13("div", {
     class: "kit-table cb-matches",
     "data-testid": "matches"
   });
-  const note = h10("p", { class: "cb-rule-note", role: "status" });
+  const note = h13("p", { class: "cb-rule-note", role: "status" });
   function drawFacts() {
     const who = authorOf(rule.created_by);
-    const byEl = h10("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
+    const byEl = h13("b", who.agent ? { class: "cb-by-agent" } : null, who.name);
     const rows = [
       [
         "status",
@@ -5569,33 +6481,33 @@ function renderRule(ctx, detail, hooks) {
     ];
     const rec = trackRecord(detail.record);
     if (rec) rows.push(["record", rec]);
-    const next = facts3(rows);
+    const next = facts4(rows);
     factsEl.replaceWith(next);
     factsEl = next;
   }
-  const invalidEl = detail.invalid ? card3({
+  const invalidEl = detail.invalid ? card4({
     edge: "signal",
     head: "not valid",
-    body: h10(
+    body: h13(
       "div",
       null,
-      h10("p", { class: "cb-invalid-msg" }, detail.invalid),
-      h10(
+      h13("p", { class: "cb-invalid-msg" }, detail.invalid),
+      h13(
         "p",
         { class: "cb-invalid-help" },
         "casebook recommends nothing from this rule until it is valid. Edit it to fix it."
       )
     )
-  }) : h10("div");
+  }) : h13("div");
   const p = rule.propose;
-  const tr = (label, value) => h10(
+  const tr = (label, value) => h13(
     "div",
     { class: "kit-tr" },
-    h10("span", { class: "cb-cond-f" }, label),
-    h10("span"),
+    h13("span", { class: "cb-cond-f" }, label),
+    h13("span"),
     value
   );
-  const dispEl = h10(
+  const dispEl = h13(
     "span",
     {
       class: "cb-cond-v cb-disp-ro" + (DANGER_DISPS.has(p.disposition) ? " cb-danger" : ""),
@@ -5611,15 +6523,15 @@ function renderRule(ctx, detail, hooks) {
     );
   }).catch(() => {
   });
-  const proposeEl = h10(
+  const proposeEl = h13(
     "div",
     { class: "kit-table cb-propose", "data-testid": "propose" },
     tr("decision", dispEl),
-    p.until ? tr("until", h10("span", { class: "cb-cond-v" }, p.until)) : null,
-    p.note ? tr("note", h10("span", { class: "cb-cond-v" }, p.note)) : null
+    p.until ? tr("until", h13("span", { class: "cb-cond-v" }, p.until)) : null,
+    p.note ? tr("note", h13("span", { class: "cb-cond-v" }, p.note)) : null
   );
   function box(on, label, run) {
-    return h10("span", {
+    return h13("span", {
       class: "kit-box",
       role: "checkbox",
       tabindex: 0,
@@ -5639,21 +6551,21 @@ function renderRule(ctx, detail, hooks) {
   }
   function matchRow(m) {
     const why = m.reason === "matched" ? m.title || m.status : m.reason.toLowerCase();
-    return h10(
+    return h13(
       "div",
       { class: "cb-mr on", "data-key": m.key, title: m.title || m.key },
       box(true, `exclude ${m.key}`, () => untick(m.key)),
-      h10("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
-      h10("span", { class: "cb-mr-w" }, why)
+      h13("span", { class: "cb-mr-k" }, keyWithoutKind(m.key)),
+      h13("span", { class: "cb-mr-w" }, why)
     );
   }
   function excludedRow(x) {
-    return h10(
+    return h13(
       "div",
       { class: "cb-mr x", "data-key": x.key },
       box(false, `include ${x.key}`, () => void include(x.key)),
-      h10("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
-      h10(
+      h13("span", { class: "cb-mr-k" }, keyWithoutKind(x.key)),
+      h13(
         "span",
         { class: "cb-mr-w" },
         x.reason ? `excluded · ${x.reason}` : "excluded"
@@ -5661,12 +6573,12 @@ function renderRule(ctx, detail, hooks) {
     );
   }
   function waitRow(text) {
-    return h10(
+    return h13(
       "div",
       { class: "cb-mr cb-mr-wait" },
-      h10("span"),
-      h10("span", { class: "cb-mr-k" }, text),
-      h10("span")
+      h13("span"),
+      h13("span", { class: "cb-mr-k" }, text),
+      h13("span")
     );
   }
   function drawMatches() {
@@ -5679,11 +6591,11 @@ function renderRule(ctx, detail, hooks) {
         for (const m of mine) rest.splice(rest.indexOf(m), 1);
         const why = reasonSummary(g.reasons);
         out.push(
-          h10(
+          h13(
             "div",
             { class: "cb-mgroup", "data-repo": g.repo },
-            h10("span", { class: "cb-mgroup-repo" }, g.repo),
-            h10(
+            h13("span", { class: "cb-mgroup-repo" }, g.repo),
+            h13(
               "span",
               { class: "cb-mr-w" },
               String(g.count) + (why ? ` · ${why}` : "")
@@ -5700,12 +6612,12 @@ function renderRule(ctx, detail, hooks) {
     const more = preview.total - shown.length;
     if (more > 0) {
       out.push(
-        h10(
+        h13(
           "div",
           { class: "cb-mr cb-mr-more" },
-          h10("span"),
-          h10("span", { class: "cb-mr-k" }, `… ${more} more`),
-          h10(
+          h13("span"),
+          h13("span", { class: "cb-mr-k" }, `… ${more} more`),
+          h13(
             "button",
             {
               type: "button",
@@ -5723,7 +6635,7 @@ function renderRule(ctx, detail, hooks) {
     matchesEl.replaceChildren(...out);
   }
   function drawGroupChips() {
-    const chip = (label, on) => h10(
+    const chip = (label, on) => h13(
       "button",
       {
         type: "button",
@@ -5768,13 +6680,13 @@ function renderRule(ctx, detail, hooks) {
     hooks.onChanged?.();
   }
   function untick(key) {
-    const reason = h10("input", {
+    const reason = h13("input", {
       class: "kit-note",
       type: "text",
       placeholder: "reason (optional)",
       "aria-label": "reason"
     });
-    const err = h10("p", { class: "cb-sheet-err", hidden: true });
+    const err = h13("p", { class: "cb-sheet-err", hidden: true });
     let sending = false;
     const go2 = async () => {
       if (sending) return;
@@ -5799,20 +6711,20 @@ function renderRule(ctx, detail, hooks) {
         void go2();
       }
     });
-    const sh = sheet4({
+    const sh = sheet3({
       title: `exclude ${keyWithoutKind(key)}`,
-      body: h10(
+      body: h13(
         "div",
         { class: "cb-sheet-body" },
-        h10(
+        h13(
           "p",
           { class: "cb-sheet-preview" },
           "This rule skips it from now on. It stays listed here, unticked."
         ),
-        h10(
+        h13(
           "div",
           { class: "cb-sheet-row" },
-          h10("label", { class: "cb-sheet-label" }, "reason"),
+          h13("label", { class: "cb-sheet-label" }, "reason"),
           reason
         ),
         err
@@ -5848,27 +6760,27 @@ function renderRule(ctx, detail, hooks) {
       }
     }
   ];
-  const actionsEl = h10("div", { class: "cb-rule-actions" }, buttons4(bs), note);
+  const actionsEl = h13("div", { class: "cb-rule-actions" }, buttons5(bs), note);
   doc.replaceChildren(
-    h10("p", { class: "kit-kick" }, `rule · ${off ? "off" : "on"}`),
-    h10("h1", { class: "kit-h1" }, rule.name || id),
+    h13("p", { class: "kit-kick" }, `rule · ${off ? "off" : "on"}`),
+    h13("h1", { class: "kit-h1" }, rule.name || id),
     factsEl,
-    h10(
+    h13(
       "p",
       null,
       off ? "Off: it recommends nothing until you turn it on." : "On: undecided items that match get this recommendation, now and after every sync. Nothing is decided until you accept it."
     ),
     invalidEl,
-    h10("h3", { class: "kit-label" }, "when an undecided item matches all of"),
+    h13("h3", { class: "kit-label" }, "when an undecided item matches all of"),
     conditionEditor(
       ctx,
       { match: rule.match, status: rule.status, editable: false },
       () => {
       }
     ),
-    h10("h3", { class: "kit-label" }, "recommend"),
+    h13("h3", { class: "kit-label" }, "recommend"),
     proposeEl,
-    h10("div", { class: "cb-matches-head" }, heading, groupChips),
+    h13("div", { class: "cb-matches-head" }, heading, groupChips),
     matchesEl,
     actionsEl
   );
@@ -5882,12 +6794,11 @@ function renderRule(ctx, detail, hooks) {
 var STRIP_MS = 6e3;
 var SUGGEST_RULES = "Please suggest rules for the items in the attached list: look at what they have in common and draft rules (casebook_rule_save) that would recommend a decision for many of them at once. Recommend nothing item by item.";
 var PAGE_SIZE = 200;
-var selection = createSelection();
+var selection = createSelection2();
 function emptyFilters() {
   return { filters: [], rule: null, q: "" };
 }
 var LEFT_OPEN = "left-open";
-var SIDEBAR = "casebook.sidebar";
 var GROUPING = "casebook.grouping";
 function storedFlat() {
   try {
@@ -5902,33 +6813,11 @@ function storeFlat(flat) {
   } catch {
   }
 }
-function getUrlQ() {
-  return new URLSearchParams(location.search).get("q") ?? "";
-}
-function setUrlQ(q) {
-  const p = new URLSearchParams(location.search);
-  if (q) {
-    p.set("q", q);
-  } else {
-    p.delete("q");
-  }
-  const qs = p.toString();
-  const newUrl = location.pathname + (qs ? "?" + qs : "") + location.hash;
-  history.replaceState(null, "", newUrl);
-}
-function ageOf(it) {
-  if (!it.created_at) return "";
-  const ms = Date.now() - new Date(it.created_at).getTime();
-  const days = Math.floor(ms / 864e5);
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
-}
 function isLeftOpen(it) {
   return it.status === "left-open";
 }
 function makeDecide(ctx) {
-  const readEl = h11("div", { class: "kit-read" });
+  const readEl = h14("div", { class: "kit-read" });
   let offset = 0;
   let totalItems = 0;
   let loadedItems = [];
@@ -5937,14 +6826,12 @@ function makeDecide(ctx) {
   let reloading = false;
   let loadingMore = false;
   let loads = 0;
-  let footEl = null;
-  let searchDebounceTimer = null;
   let totalItemsForView = 0;
   let groups = [];
   const opened = /* @__PURE__ */ new Set();
   const groupOfKey = /* @__PURE__ */ new Map();
   const proposalOfKey = /* @__PURE__ */ new Map();
-  const busyGroups = /* @__PURE__ */ new Set();
+  const itemOfKey = /* @__PURE__ */ new Map();
   let leftOpen = [];
   let leftOpenTotal = 0;
   let shown = [];
@@ -5955,7 +6842,7 @@ function makeDecide(ctx) {
   let lastUndo = [];
   let vocab2 = null;
   let syncingOpen = false;
-  const discardAllBtn = h11("button", {
+  const discardAllBtn = h14("button", {
     class: "kit-btn cb-discard-all",
     type: "button",
     hidden: true,
@@ -5964,13 +6851,13 @@ function makeDecide(ctx) {
     }
   });
   function renderReadEmpty() {
-    const prompt = h11(
+    const prompt = h14(
       "p",
       { class: "cb-read-empty-prompt" },
       "Select an item to see it here."
     );
     if (!vocab2)
-      return h11(
+      return h14(
         "div",
         { class: "cb-read-empty", "data-testid": "decide-summary" },
         prompt
@@ -5987,16 +6874,30 @@ function makeDecide(ctx) {
         "{n}",
         String(viewRecs)
       );
-    return h11(
+    const t = ctx.dockTarget();
+    const none = groups.some((g) => g.id === "none" && g.total > 0);
+    const suggest = t && none && !filtered() ? asked === askedKey(t.id) ? h14("span", { class: "cb-group-note" }, vocab2.asked) : h14(
+      "button",
+      {
+        type: "button",
+        class: "kit-btn cb-suggest-rules",
+        onclick() {
+          void askRules();
+        }
+      },
+      vocab2.suggest_rules
+    ) : null;
+    return h14(
       "div",
       { class: "cb-read-empty", "data-testid": "decide-summary" },
-      h11("p", { class: "cb-read-empty-count" }, head ?? ""),
-      h11(
+      h14("p", { class: "cb-read-empty-count" }, head ?? ""),
+      h14(
         "ul",
         { class: "cb-summary-lines" },
-        ...rest.map((l) => h11("li", null, l))
+        ...rest.map((l) => h14("li", null, l))
       ),
       discardAllBtn,
+      suggest,
       prompt
     );
   }
@@ -6028,6 +6929,7 @@ function makeDecide(ctx) {
     return l;
   }
   function showReadEmpty() {
+    tickedOn = false;
     currentOpenKey = null;
     shownDetail = null;
     const rr = filters.rule && draft === null ? ruleRows.find((r) => r.rule.id === filters.rule) : void 0;
@@ -6100,72 +7002,70 @@ function makeDecide(ctx) {
     );
   }
   readEl.replaceChildren(renderReadEmpty());
-  function buildFoot() {
-    const footRight = h11(
-      "div",
-      { class: "cb-foot-right" },
-      h11(
-        "button",
-        {
-          class: "cb-foot-more",
-          hidden: true,
-          // shown by updateFoot() when there are more items
-          onclick() {
-            void loadMore();
-          }
-        },
-        `show ${PAGE_SIZE} more`
-      )
-    );
-    footEl = h11("div", { class: "cb-foot" }, footRight);
-    return footEl;
-  }
-  const handle = list2({
-    label: "",
-    filters: [],
-    selection,
-    openOnMove: false,
-    search: {
-      placeholder: "search by key or title",
-      onInput(text) {
-        if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
-        searchDebounceTimer = setTimeout(() => {
-          searchDebounceTimer = null;
-          filters.q = text;
-          setUrlQ(text);
-          void reload();
-        }, 200);
-      }
-    },
+  const pane = makePane(ctx, "decide", selection, {
     row(it) {
-      const displayKey = it.kind ? keyWithoutKind(it.key) : it.key;
-      const kindKey = it.kind ? `${it.kind} · ${displayKey}` : displayKey;
-      const left = isLeftOpen(it);
-      const age = left ? leftOpenMeta(it.decision?.decided_at) : ageOf(it);
+      const st = standsLine(vocab2, it, flat);
       return {
         id: it.key,
-        key: kindKey,
-        // Fallback: use display key (without kind prefix) so titleless items
-        // like branch:schuettc/hail@feat/client show "schuettc/hail@feat/client".
-        title: it.title ?? keyWithoutKind(it.key),
-        meta: age,
-        // An item new activity brought back says so ("new activity since
-        // you left it open"), before any recommendation's reason; the flat
-        // list, with no group heads, names the recommendation too.
-        sub: rowSub(vocab2, it, flat),
+        key: it.key,
+        title: it.title || void 0,
+        stands: st.text,
+        tone: it.new_activity && st.tone === "muted" ? "signal" : st.tone,
         // A draft filter's preview is only to look at.
         selectable: draft === null
       };
     },
+    groupOf: (it) => isLeftOpen(it) ? LEFT_OPEN : flat ? "" : it.group,
     onOpen(it) {
       if (syncingOpen || draft !== null) return;
       ctx.route.go("item", it.key);
       void openDetail(it.key);
     },
-    foot: buildFoot()
+    onQuery(q, clicked) {
+      if (clicked !== void 0) {
+        if (draft !== null) closeFilterEditor(false);
+        shownFilter = q.filters.includes(clicked) ? clicked : null;
+        selectFilters(q.filters);
+        return;
+      }
+      filters.q = q.q;
+      if (ctx.route.current().section === "decide" && draft === null)
+        setHashQuery(listQuery());
+      void reload();
+    },
+    onToggle(id) {
+      if (opened.has(id)) opened.delete(id);
+      else opened.add(id);
+      if (id === LEFT_OPEN) {
+        setRows();
+        markOpenRow();
+      } else void reload();
+    },
+    onTickGroup(id) {
+      const g = groups.find((x) => x.id === id);
+      if (g && draft === null) void tickGroup(g);
+    },
+    tickedIn: (id) => selection.ids().filter((k) => groupOfKey.get(k) === id),
+    onMore() {
+      void loadMore();
+    },
+    onFilterOpen(row) {
+      if (draft !== null) closeFilterEditor(true);
+      shownFilter = row.filter.id;
+      if (filters.rule) selectRule(null);
+      else {
+        if (currentOpenKey) goList();
+        showReadEmpty();
+      }
+    },
+    onFilterNew() {
+      openFilterEditor(null);
+    }
   });
-  handle.el.classList.add("cb-decide-list");
-  const groupSwitch = h11(
+  const handle = pane.handle;
+  const obs = makeObs(ctx, (text, state) => pane.setObs(text, state));
+  void obs.load();
+  const groupSwitch = h14(
     "button",
     {
       type: "button",
@@ -6187,25 +7087,6 @@ function makeDecide(ctx) {
   }
   paintSwitch();
   let filterRows = [];
-  const filterBar = makeFilterBar(ctx, {
-    onSelect(ids, clicked) {
-      if (draft !== null) closeFilterEditor(false);
-      shownFilter = ids.includes(clicked) ? clicked : null;
-      selectFilters(ids);
-    },
-    onOpen(row) {
-      if (draft !== null) closeFilterEditor(true);
-      shownFilter = row.filter.id;
-      if (filters.rule) selectRule(null);
-      else {
-        if (currentOpenKey) goList();
-        showReadEmpty();
-      }
-    },
-    onNew() {
-      openFilterEditor(null);
-    }
-  });
   let ruleRows = [];
   const ruleRow = makeRuleRow(ctx, {
     onSelect(id) {
@@ -6233,7 +7114,7 @@ function makeDecide(ctx) {
   function selectRule(id) {
     filters.rule = id;
     if (id) filters.filters = [];
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     paintRules();
     showReadEmpty();
@@ -6246,7 +7127,7 @@ function makeDecide(ctx) {
   let draftHash = "";
   let draftTimer = null;
   let before = null;
-  const previewLine = h11("span", { class: "cb-preview-line", hidden: true });
+  const previewLine = h14("span", { class: "cb-preview-line", hidden: true });
   const rowsScroller = () => handle.el.querySelector(".kit-rows");
   function paintPreviewLine(text) {
     previewLine.hidden = text === null;
@@ -6323,8 +7204,8 @@ function makeDecide(ctx) {
     readEl.replaceChildren(editor.el);
     document.addEventListener("keydown", onEditorEsc);
     handle.el.classList.add("cb-previewing");
-    filterBar.paint(filterRows, []);
-    filterBar.setError(null);
+    pane.setFilters(filterRows, []);
+    pane.setFilterError(null);
     paintRules();
     paintAll();
     void reload();
@@ -6379,7 +7260,7 @@ function makeDecide(ctx) {
     return filters.filters.length > 0 || filters.rule !== null;
   }
   function paintFilters() {
-    filterBar.paint(filterRows, draft !== null ? [] : filters.filters);
+    pane.setFilters(filterRows, draft !== null ? [] : filters.filters);
   }
   async function loadFilters() {
     try {
@@ -6392,95 +7273,98 @@ function makeDecide(ctx) {
     }
   }
   function goList() {
-    ctx.route.go(
-      "decide",
-      "",
-      decideQuery({
-        flat,
-        filters: filters.filters,
-        rule: filters.rule ?? ""
-      })
-    );
+    ctx.route.go("decide", "", listQuery());
+  }
+  function listQuery() {
+    return decideQuery({
+      flat,
+      filters: filters.filters,
+      rule: filters.rule ?? "",
+      q: filters.q
+    });
   }
   function selectFilters(ids) {
     filters.filters = ids;
     if (ids.length) filters.rule = null;
     paintRules();
     showReadEmpty();
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     goList();
     void reload();
   }
-  handle.el.querySelector('.kit-chips[data-group="view"]')?.after(
-    filterBar.el,
-    ruleRow.el,
-    h11("div", { class: "cb-list-tools" }, groupSwitch, previewLine)
-  );
+  pane.ownRow.append(ruleRow.el);
+  pane.tools.append(groupSwitch, previewLine);
   void loadFilters();
   void loadRules();
-  const hideBtn = h11(
-    "button",
-    {
-      type: "button",
-      class: "cb-list-hide",
-      onclick() {
-        setSidebar(false);
-      }
-    },
-    "«"
-  );
-  const showBtn = h11(
-    "button",
-    { type: "button", class: "cb-list-show" },
-    "»"
-  );
-  const railLabel = h11("span", { class: "cb-list-rail-label" });
-  const rail = h11(
-    "div",
-    {
-      class: "cb-list-rail",
-      onclick() {
-        setSidebar(true);
-      }
-    },
-    showBtn,
-    railLabel
-  );
-  handle.el.append(hideBtn, rail);
-  function storedSidebar() {
-    try {
-      return localStorage.getItem(SIDEBAR) !== "closed";
-    } catch {
-      return true;
-    }
-  }
-  function setSidebar(open) {
-    handle.el.classList.toggle("cb-list-closed", !open);
-    try {
-      localStorage.setItem(SIDEBAR, open ? "open" : "closed");
-    } catch {
-    }
-  }
-  handle.el.classList.toggle("cb-list-closed", !storedSidebar());
   function paintRail() {
-    railLabel.textContent = `${viewLabel()} · ${totalItemsForView}`;
-    if (vocab2) {
-      hideBtn.title = vocab2.hide_list;
-      showBtn.title = vocab2.show_list;
-    }
+    pane.setRail(`${viewLabel()} · ${totalItemsForView}`);
   }
   function buildQuery(pageOffset) {
-    const p = draft !== null ? { match: JSON.stringify(draft) } : filters.rule ? { view: "all", rule: filters.rule } : filtered() ? { filters: filters.filters.join(",") } : { view: "all" };
+    const p = draft !== null ? { match: JSON.stringify(draft) } : filters.rule ? { view: "all", rule: filters.rule } : { view: "all" };
+    Object.assign(
+      p,
+      paneParams({
+        filters: draft === null && !filters.rule ? filters.filters : [],
+        q: filters.q
+      })
+    );
     p["offset"] = String(pageOffset);
     p["limit"] = String(PAGE_SIZE);
-    if (filters.q) p["q"] = filters.q;
     if (flat) p["group"] = "false";
     else
       p["open"] = JSON.stringify([...opened].filter((id) => id !== LEFT_OPEN));
     return p;
   }
-  const reload = coalesced(reloadNow);
+  const reloadQueued = coalesced(reloadNow);
+  function reload() {
+    if (viewKey() !== shownView) {
+      selGen++;
+      viewPending = true;
+      freezeMid();
+    }
+    return reloadQueued();
+  }
+  let inView = /* @__PURE__ */ new Set();
+  let shownView = "";
+  let viewPending = false;
+  let selGen = 0;
+  const viewKey = () => JSON.stringify(viewFilters());
+  function freezeMid() {
+    for (const b of readEl.querySelectorAll("button"))
+      b.disabled = true;
+  }
+  async function settleShown(asked2) {
+    const view = viewKey();
+    const next = new Set([...loadedItems, ...leftOpen].map((it) => it.key));
+    const off = selection.ids().filter((k) => !next.has(k));
+    if (off.length) {
+      try {
+        const want = new Set(off);
+        for (let at2 = 0, total = Infinity; at2 < total; ) {
+          const data = await ctx.api.get("/items", {
+            ...viewFilters(),
+            group: "false",
+            offset: String(at2),
+            limit: "500"
+          });
+          const got = data.items ?? [];
+          total = data.total;
+          if (!got.length) break;
+          at2 += got.length;
+          for (const it of got) if (want.has(it.key)) next.add(it.key);
+        }
+      } catch {
+      }
+      if (queryKey() !== asked2) return false;
+    }
+    inView = next;
+    shownView = view;
+    viewPending = false;
+    const gone = selection.ids().filter((k) => !inView.has(k));
+    if (gone.length) selection.deselect(gone);
+    return true;
+  }
   function queryKey() {
     return JSON.stringify(buildQuery(0));
   }
@@ -6525,7 +7409,11 @@ function makeDecide(ctx) {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       paintedQuery = asked2;
-      filterBar.setError(null);
+      if (!await settleShown(asked2)) {
+        void reload();
+        return;
+      }
+      pane.setFilterError(null);
       if (draft !== null) {
         editor?.showError(null);
         paintPreviewLine(
@@ -6536,13 +7424,19 @@ function makeDecide(ctx) {
       markOpenRow();
       updateFoot();
       updateReadEmptyCount();
+      if (tickedOn && selection.ids().length) showTicked();
     } catch (err) {
       const refused = err instanceof ApiError4 && err.status === 400;
       if (draft !== null && refused) {
         editor?.showError(err);
         paintPreviewLine(`previewing a draft ${editing} · not valid yet`);
       } else if (filtered() && refused) {
-        filterBar.setError(err.message);
+        pane.setFilterError(err.message);
+      }
+      if (!refused) {
+        shownView = viewKey();
+        viewPending = false;
+        if (tickedOn && selection.ids().length) showTicked();
       }
       if ((draft !== null || filtered()) && refused) {
         totalItems = 0;
@@ -6555,6 +7449,10 @@ function makeDecide(ctx) {
         lastOrder = [];
         offset = 0;
         paintedQuery = asked2;
+        inView = /* @__PURE__ */ new Set();
+        shownView = viewKey();
+        viewPending = false;
+        selection.clear();
         setRows();
         updateFoot();
         updateReadEmptyCount();
@@ -6581,6 +7479,7 @@ function makeDecide(ctx) {
       groups = data.groups ?? [];
       viewRecs = data.agent_recommended ?? 0;
       know(next);
+      for (const it of next) inView.add(it.key);
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       totalItems = data.total;
@@ -6595,41 +7494,27 @@ function makeDecide(ctx) {
   }
   function setRows() {
     const withLeft = offset >= totalItems && leftOpenTotal > 0;
-    const left = withLeft && opened.has(LEFT_OPEN) ? leftOpen : [];
-    const open = flat ? loadedItems : loadedItems.filter((it) => opened.has(it.group));
-    shown = [...open, ...left];
-    handle.setItems(shown);
+    const gs = flat ? [] : groups.map(paneGroup);
+    if (withLeft)
+      gs.push({
+        id: LEFT_OPEN,
+        label: vocab2?.left_open ?? "",
+        n: leftOpenTotal,
+        box: false
+      });
+    shown = pane.setRows(
+      withLeft ? [...loadedItems, ...leftOpen] : loadedItems,
+      gs,
+      opened
+    );
     const rowEls = handle.el.querySelectorAll(
       ".kit-rows > .kit-row"
     );
-    open.forEach((it, i) => {
-      if (it.new_activity) rowEls[i]?.classList.add("cb-new-activity");
-    });
     shown.forEach((it, i) => {
-      for (const sel of [".kit-kicker", ".kit-title"]) {
-        const el2 = rowEls[i]?.querySelector(sel);
-        if (el2) el2.title = el2.textContent ?? "";
-      }
-      const col = rowEls[i]?.querySelector(".kit-title")?.parentElement;
-      if (!col) return;
-      col.querySelector(".cb-row-looking")?.remove();
-      const says = lookingLine(it.looking);
-      if (says) col.append(h11("div", { class: "cb-row-looking" }, says));
+      if (isLeftOpen(it)) rowEls[i]?.classList.add("cb-left-open");
     });
-    handle.el.classList.toggle("cb-flat", flat);
-    if (flat) heads = [];
-    else placeGroupHeads(open, rowEls);
     paintRail();
     refreshNav();
-    if (!withLeft) return;
-    for (let i = open.length; i < shown.length; i++) {
-      rowEls[i]?.classList.add("cb-left-open");
-    }
-    const head = leftOpenHead();
-    heads.push(head);
-    const first = rowEls[open.length];
-    if (first) first.before(head.el);
-    else handle.el.querySelector(".kit-rows")?.append(head.el);
   }
   function navOrder() {
     const rows = loadedItems.map((it) => ({
@@ -6675,7 +7560,7 @@ function makeDecide(ctx) {
       const g = navOrder().find((r) => r.key === k)?.group ?? "";
       return navGroups().find((x) => x.id === g)?.label ?? "";
     };
-    const button = (which, glyph, tip, target2, name, later) => h11(
+    const button = (which, glyph, tip, target, name, later) => h14(
       "button",
       {
         type: "button",
@@ -6683,10 +7568,10 @@ function makeDecide(ctx) {
         dataset: {
           nav: which === "prevGroup" ? "prev-group" : which === "nextGroup" ? "next-group" : which
         },
-        disabled: !target2 && !later,
+        disabled: !target && !later,
         title: tip.replaceAll(
           "{target}",
-          target2 ? name(target2) : later ? words.later : words.none
+          target ? name(target) : later ? words.later : words.none
         ),
         onclick() {
           void navGo(which);
@@ -6695,7 +7580,7 @@ function makeDecide(ctx) {
       glyph
     );
     const pos = words.position.replaceAll("{pos}", String(n.pos)).replaceAll("{total}", String(n.total)).replaceAll("{group}", n.label);
-    return h11(
+    return h14(
       "nav",
       { class: "cb-nav" },
       button(
@@ -6707,7 +7592,7 @@ function makeDecide(ctx) {
         false
       ),
       button("prev", "‹", words.prev_item, n.prev, shortKey, false),
-      h11("span", { class: "cb-nav-pos" }, pos),
+      h14("span", { class: "cb-nav-pos" }, pos),
       button("next", "›", words.next_item, n.next, shortKey, more),
       button(
         "nextGroup",
@@ -6736,22 +7621,22 @@ function makeDecide(ctx) {
     if (which === "nextGroup" || which === "prevGroup" || atGroupEdge(key, ahead))
       await openNeighbour(key, ahead);
     if (currentOpenKey !== key) return;
-    let target2 = navTargets(navOrder(), navGroups(), key)[which];
-    while (!target2 && ahead && offset < totalItems) {
+    let target = navTargets(navOrder(), navGroups(), key)[which];
+    while (!target && ahead && offset < totalItems) {
       const before2 = offset;
       if (reloading) await reload();
       else await loadMore();
       if (currentOpenKey !== key) return;
-      target2 = navTargets(navOrder(), navGroups(), key)[which];
-      if (!target2 && offset === before2 && !reloading) break;
+      target = navTargets(navOrder(), navGroups(), key)[which];
+      if (!target && offset === before2 && !reloading) break;
     }
-    if (!target2 || currentOpenKey !== key) return;
-    const group = navOrder().find((r) => r.key === target2)?.group ?? "";
+    if (!target || currentOpenKey !== key) return;
+    const group = navOrder().find((r) => r.key === target)?.group ?? "";
     if (!opened.has(group)) {
       opened.add(group);
       setRows();
     }
-    openKey(target2);
+    openKey(target);
   }
   function atGroupEdge(key, ahead) {
     const order = navOrder();
@@ -6783,6 +7668,7 @@ function makeDecide(ctx) {
   }
   function know(items) {
     for (const it of items) {
+      itemOfKey.set(it.key, it);
       if (!it.group) continue;
       groupOfKey.set(it.key, it.group);
       if (it.proposal?.state === "pending")
@@ -6793,232 +7679,27 @@ function makeDecide(ctx) {
   function tickedIn(g) {
     return selection.ids().filter((k) => groupOfKey.get(k) === g.id);
   }
-  let heads = [];
-  function placeGroupHeads(open, rowEls) {
-    const body = handle.el.querySelector(".kit-rows");
-    heads = [];
-    if (!body) return;
-    let last = null;
-    for (const g of groups) {
-      const head = groupHead(g);
-      heads.push(head);
-      const first = open.findIndex((it) => it.group === g.id);
-      if (first >= 0) {
-        rowEls[first]?.before(head.el);
-        let end = first;
-        while (end + 1 < open.length && open[end + 1].group === g.id) end++;
-        last = rowEls[end] ?? head.el;
-      } else {
-        if (last) last.after(head.el);
-        else body.prepend(head.el);
-        last = head.el;
-      }
-    }
-  }
-  function headShell(id, label, n, box, hint, data, tags = [], more = null) {
-    const isOpen = opened.has(id);
-    const toggleOpen = () => {
-      if (opened.has(id)) opened.delete(id);
-      else opened.add(id);
-      if (id === LEFT_OPEN) {
-        setRows();
-        markOpenRow();
-      } else void reload();
-    };
-    const top = h11(
-      "div",
-      { class: "cb-group-top" },
-      h11(
-        "button",
-        {
-          type: "button",
-          class: "cb-group-caret",
-          "aria-expanded": String(isOpen),
-          "aria-label": label,
-          onclick: toggleOpen
-        },
-        isOpen ? "▼" : "▶"
-      ),
-      box ?? h11("span", { class: "cb-group-nobox" }),
-      h11(
-        "span",
-        { class: "cb-group-name", onclick: toggleOpen },
-        h11(
-          "span",
-          { class: "cb-group-line" },
-          h11("span", { class: "cb-group-label" }, label),
-          ...tags
-        ),
-        hint
-      ),
-      h11("span", { class: "cb-group-n" }, String(n)),
-      more
-    );
-    const acts = h11("div", { class: "cb-group-acts" });
-    const el2 = h11(
-      "div",
-      {
-        class: "cb-group" + (isOpen ? "" : " collapsed"),
-        role: "presentation",
-        dataset: data
-      },
-      top,
-      acts
-    );
-    return { el: el2, acts };
-  }
-  function groupSays(g) {
-    for (const k of vocab2?.kinds ?? []) {
-      const c = (k.choices ?? []).find(
-        (x) => x.disposition === g.disposition && x.label === g.label
-      );
-      if (c) return c.says;
-    }
-    return "";
-  }
-  function withSays(el2, says) {
-    if (says) el2.title = says;
-    return el2;
-  }
-  function groupButton(id, cls, label, run, off = false) {
-    return h11(
-      "button",
-      {
-        type: "button",
-        class: "kit-btn " + cls,
-        disabled: off || busyGroups.has(id) || draft !== null,
-        onclick() {
-          if (busyGroups.has(id)) return;
-          busyGroups.add(id);
-          paintAll();
-          void Promise.resolve(run()).finally(() => {
-            busyGroups.delete(id);
-            paintAll();
-          });
-        }
-      },
-      label
-    );
-  }
-  function groupHead(g) {
-    const box = h11("span", {
-      class: "cb-group-box",
-      role: "checkbox",
-      "aria-checked": "false",
-      "aria-label": g.label,
-      onclick() {
-        if (draft === null) void tickGroup(g);
-      }
-    });
-    const hint = g.outward && vocab2?.to_apply_hint ? h11("span", { class: "cb-group-where" }, vocab2.to_apply_hint) : null;
+  function paneGroup(g) {
     const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
     const rr = ruleId ? ruleRows.find((r) => r.rule.id === ruleId) : void 0;
-    const tags = ruleId ? [
-      h11("span", { class: "cb-group-tag" }, "rule"),
-      h11("span", { class: "cb-group-decision" }, g.label)
-    ] : [];
     const more = rr ? ruleMenu(rr, {
       onEdit: () => openRuleEditor(rr, null),
       onToggle: () => void toggleRule(ctx, rr).then(() => loadRules()).then(() => reload()).catch(
         (err) => showReadError(err instanceof Error ? err.message : String(err))
       )
     }) : null;
-    const { el: el2, acts } = headShell(
-      g.id,
-      ruleId ? rr?.rule.name || ruleId : g.label,
-      g.total,
-      box,
-      hint,
-      { group: g.id, d: g.disposition, ...ruleId ? { rule: ruleId } : {} },
-      tags,
-      more
-    );
-    const button = (cls, label, run, off = false) => groupButton(g.id, cls, label, run, off);
-    function paint() {
-      const ticked = tickedIn(g);
-      const n = ticked.length;
-      box.setAttribute(
-        "aria-checked",
-        n === 0 ? "false" : n >= g.total ? "true" : "mixed"
-      );
-      const t = ctx.dockTarget();
-      if (!vocab2) {
-        acts.replaceChildren();
-        return;
-      }
-      if (g.id === CAME_BACK || g.id === "none") {
-        let ask = null;
-        let note = null;
-        if (t && n > 0) {
-          const rows = loadedItems.filter((it) => it.group === g.id);
-          const looked = ticked.every(
-            (k) => rows.some((it) => it.key === k && it.looking) || !rows.some((it) => it.key === k) && lookedInto.has(`${t.id}
-${k}`)
-          );
-          ask = button(
-            "fill cb-group-ask",
-            vocab2.recommend_these,
-            () => lookInto(tickedIn(g)),
-            looked
-          );
-        } else if (t && g.id === "none" && !filtered()) {
-          if (asked === askedKey(t.id))
-            note = h11("span", { class: "cb-group-note" }, vocab2.asked);
-          else ask = button("fill cb-group-ask", vocab2.suggest_rules, askRules);
-        }
-        const untick = n > 0 ? h11(
-          "button",
-          {
-            type: "button",
-            class: "cb-group-untick",
-            onclick() {
-              selection.deselect(tickedIn(g));
-            }
-          },
-          vocab2.untick
-        ) : null;
-        acts.replaceChildren(...[ask, note, untick].filter((x) => x !== null));
-        return;
-      }
-      const w = groupButtons(g, n, vocab2);
-      acts.replaceChildren(
-        ...[
-          withSays(
-            button("fill cb-group-act", w.act, () => actGroup(g)),
-            groupSays(g)
-          ),
-          g.source.startsWith("rule:") ? null : button("cb-group-discard", w.discard, () => discardGroup(g)),
-          n > 0 ? h11(
-            "button",
-            {
-              type: "button",
-              class: "cb-group-untick",
-              onclick() {
-                selection.deselect(tickedIn(g));
-              }
-            },
-            vocab2.untick
-          ) : null
-        ].filter((x) => x !== null)
-      );
-    }
-    paint();
-    return { el: el2, paint };
-  }
-  function leftOpenHead() {
-    const { el: el2 } = headShell(
-      LEFT_OPEN,
-      vocab2?.left_open ?? "",
-      leftOpenTotal,
-      null,
-      null,
-      { group: LEFT_OPEN }
-    );
-    return { el: el2, paint() {
-    } };
+    return {
+      id: g.id,
+      label: ruleId ? rr?.rule.name || ruleId : g.label,
+      tag: ruleId ? `rule · ${g.label}` : void 0,
+      n: g.total,
+      box: true,
+      more,
+      data: { d: g.disposition, ...ruleId ? { rule: ruleId } : {} }
+    };
   }
   function paintAll() {
-    for (const head of heads) head.paint();
+    pane.paintHeads();
   }
   function groupFilters(g) {
     return { ...viewFilters(), group: g.id };
@@ -7045,8 +7726,11 @@ ${k}`)
       selection.deselect(ticked);
       return;
     }
+    const gen = selGen;
     try {
       const items = await fetchGroup(g);
+      if (gen !== selGen || viewPending) return;
+      for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
         opened.add(g.id);
@@ -7054,61 +7738,6 @@ ${k}`)
       }
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
-    }
-  }
-  async function target(g) {
-    let keys = tickedIn(g);
-    if (!keys.length) keys = (await fetchGroup(g)).map((it) => it.key);
-    const ids = [];
-    for (const k of keys) {
-      const id = proposalOfKey.get(k);
-      if (id !== void 0) ids.push(id);
-    }
-    return { keys, ids };
-  }
-  async function actGroup(g) {
-    if (deciding) return;
-    const open = currentOpenKey;
-    deciding = open ?? "\0group";
-    try {
-      const ticked = tickedIn(g).length;
-      const { keys, ids } = await target(g);
-      if (!ids.length) return;
-      const order = await orderFor(open);
-      const r = await ctx.api.post("/proposals/accept", {
-        ids
-      });
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join("; ") || "nothing was accepted");
-        return;
-      }
-      selection.deselect(keys);
-      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
-        key,
-        prev: r.previous?.[key] ?? null,
-        expect
-      }));
-      if (g.outward && vocab2)
-        waited(
-          doneWords(vocab2, g.disposition, {
-            label: g.label,
-            total: g.total,
-            ticked
-          }),
-          applyGroupLink(g.disposition, keys[0] ?? "")
-        );
-      else hideStrip();
-      if (!open || keys.includes(open)) {
-        await moveOn(open ?? "", order);
-      } else {
-        void reload();
-      }
-      const errs = r.errors ?? [];
-      if (errs.length) showReadError(errs.join("; "));
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
     }
   }
   async function lookInto(keys) {
@@ -7128,47 +7757,174 @@ ${k}`)
       if (t) for (const k of keys) lookedInto.add(`${t.id}
 ${k}`);
       await reload();
+      if (tickedOn) showTicked();
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
     }
   }
-  function discardGroup(g) {
-    if (!vocab2) return;
-    const ticked = tickedIn(g);
-    if (ticked.length && ticked.length < g.total) {
-      const ids = ticked.map((k) => proposalOfKey.get(k)).filter((id) => id !== void 0);
-      openDiscardSheet(
+  let tickedOn = false;
+  function tickedItems() {
+    return selection.ids().filter((k) => inView.has(k)).map((k) => itemOfKey.get(k) ?? { key: k });
+  }
+  function groupName(g) {
+    const ruleId = g.source.startsWith("rule:") ? g.source.slice(5) : "";
+    if (!ruleId) return g.label;
+    return ruleRows.find((r) => r.rule.id === ruleId)?.rule.name || ruleId;
+  }
+  function tickedWhere(keys) {
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ""))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) return groupName(g);
+    if (ids.length === 1 && ids[0] === LEFT_OPEN) return vocab2?.left_open ?? "";
+    return `${ids.length} groups`;
+  }
+  function showTicked() {
+    if (!vocab2 || draft !== null) return;
+    tickedOn = true;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    readEl.replaceChildren(
+      renderTicked(
         ctx,
-        vocab2,
-        ids.length,
-        discardWhere(),
-        { ids },
-        discarded
-      );
-      return;
-    }
-    openDiscardSheet(
-      ctx,
-      vocab2,
-      g.total,
-      discardWhere(),
-      groupFilters(g),
-      discarded
+        items,
+        tickedWords(vocab2, items, tickedWhere(keys)),
+        decideTicked,
+        tickedExtra(items)
+      )
     );
+    if (viewPending) freezeMid();
+  }
+  function tickedExtra(items) {
+    const out = [];
+    const t = ctx.dockTarget();
+    const keys = items.map((it) => it.key);
+    if (!vocab2) return out;
+    if (t) {
+      const looked = keys.every(
+        (k) => !!itemOfKey.get(k)?.looking || lookedInto.has(`${t.id}
+${k}`)
+      );
+      out.push(
+        h14(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn cb-ticked-ask",
+            disabled: looked,
+            onclick() {
+              if (viewPending) return;
+              void lookInto(tickedItems().map((it) => it.key));
+            }
+          },
+          vocab2.recommend_these
+        )
+      );
+    }
+    const ids = items.map((it) => it.proposal).filter((p) => p?.state === "pending" && !p.source.startsWith("rule:")).map((p) => p?.id ?? 0);
+    if (ids.length && ids.length === items.length) {
+      const words = vocab2;
+      out.push(
+        h14(
+          "button",
+          {
+            type: "button",
+            class: "kit-btn cb-ticked-discard",
+            onclick() {
+              if (viewPending) return;
+              const now = tickedItems().map((it) => it.proposal).filter(
+                (p) => p?.state === "pending" && !p.source.startsWith("rule:")
+              ).map((p) => p?.id ?? 0);
+              if (!now.length) return;
+              openDiscardSheet(
+                ctx,
+                words,
+                now.length,
+                discardWhere(),
+                { ids: now },
+                discarded
+              );
+            }
+          },
+          vocab2.discard_many.replaceAll("{n}", String(ids.length))
+        )
+      );
+    }
+    return out;
+  }
+  function tickedDone(d, keys) {
+    if (!vocab2) return "";
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ""))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) {
+      const w = doneWords(vocab2, d, {
+        label: g.label,
+        total: g.total,
+        ticked: keys.length
+      });
+      if (w) return w;
+    }
+    if (keys.length === 1) return doneWords(vocab2, d, { key: keys[0] });
+    const c = (vocab2.kinds ?? []).find((k) => k.kind === kindFromKey(keys[0] ?? ""))?.choices?.find((x) => x.disposition === d);
+    return c ? c.done_many.replaceAll(
+      "{n}",
+      countWord(keys.length, keys.length, vocab2.count_words)
+    ) : "";
+  }
+  async function decideTicked(d, until) {
+    if (deciding || !vocab2 || viewPending) return;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    if (!keys.length) return;
+    const { accept, decide } = splitTicked(items, d, until ?? "");
+    const open = currentOpenKey;
+    deciding = "\0ticked";
+    try {
+      const order = await orderFor(open);
+      const made = {};
+      const previous = {};
+      const errs = [];
+      if (accept.length) {
+        const r = await ctx.api.post("/proposals/accept", {
+          ids: accept
+        });
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...r.errors ?? []);
+      }
+      if (decide.length) {
+        const body = { keys: decide, disposition: d };
+        if (until) body["until"] = until;
+        const r = await ctx.api.post("/decide", body);
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...r.errors ?? []);
+      }
+      const decided = Object.keys(made);
+      if (!decided.length) {
+        showReadError(errs.join("; ") || "nothing was decided");
+        return;
+      }
+      lastUndo = decided.map((key) => ({
+        key,
+        prev: previous[key] ?? null,
+        expect: made[key]
+      }));
+      const done = tickedDone(d, keys);
+      selection.deselect(keys);
+      if (outwardChoice(keys[0], d))
+        waited(done, applyGroupLink(d, decided[0]));
+      else hideStrip();
+      if (open && decided.includes(open)) await moveOn(open, order);
+      else void reload();
+      if (errs.length) showReadError(errs.join("; "));
+    } catch (err) {
+      showReadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      deciding = null;
+    }
   }
   function updateFoot() {
-    if (!footEl) return;
-    const btn = footEl.querySelector(".cb-foot-more");
-    if (btn) {
-      const remaining = totalItems - offset;
-      if (remaining > 0) {
-        btn.textContent = `show ${Math.min(PAGE_SIZE, remaining)} more`;
-        btn.hidden = false;
-      } else {
-        btn.hidden = true;
-      }
-    }
-    footEl.hidden = false;
+    pane.setMore(Math.min(PAGE_SIZE, totalItems - offset));
   }
   function markOpenRow() {
     if (!currentOpenKey) return;
@@ -7187,7 +7943,10 @@ ${k}`);
   const askedKey = (session) => `${session}
 ${JSON.stringify(listAttached("none"))}`;
   const lookedInto = /* @__PURE__ */ new Set();
-  ctx.onDockTarget(() => paintAll());
+  ctx.onDockTarget(() => {
+    updateReadEmptyCount();
+    if (tickedOn) showTicked();
+  });
   async function askRules() {
     const t = ctx.dockTarget();
     if (!t) return;
@@ -7197,7 +7956,7 @@ ${JSON.stringify(listAttached("none"))}`;
     if (why) showReadError(why);
     else {
       asked = askedKey(t.id);
-      paintAll();
+      updateReadEmptyCount();
     }
   }
   let viewRecs = 0;
@@ -7224,6 +7983,7 @@ ${JSON.stringify(listAttached("none"))}`;
     );
   }
   async function openDetail(key) {
+    tickedOn = false;
     currentOpenKey = key;
     markOpenRow();
     feedAttached();
@@ -7241,6 +8001,7 @@ ${JSON.stringify(listAttached("none"))}`;
   }
   function paintDetail(key, detail) {
     shownDetail = detail;
+    if (tickedOn) return;
     const el2 = renderItem(ctx, detail, {
       decide: (d, until, note) => void decideOpen(key, d, until, note),
       cardsReady: () => renderAsk(),
@@ -7264,7 +8025,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const w = lookIntoCard(words, t.name, key);
     const looking = lookingLine(shownDetail.item.looking);
     const n = Number(grid.dataset.cards) + 1;
-    const card6 = h11(
+    const card7 = h14(
       "button",
       {
         type: "button",
@@ -7273,11 +8034,11 @@ ${JSON.stringify(listAttached("none"))}`;
         dataset: { n: String(n) },
         disabled: !!looking || askingKey === key,
         async onclick() {
-          if (card6.disabled) return;
+          if (card7.disabled) return;
           const wrap = grid.closest(".cb-choices-wrap");
           if (wrap) showChoiceError(wrap, "");
           askingKey = key;
-          card6.disabled = true;
+          card7.disabled = true;
           const why = await ctx.askSession(
             w.message,
             { keys: [key] },
@@ -7285,16 +8046,16 @@ ${JSON.stringify(listAttached("none"))}`;
           );
           askingKey = "";
           if (why) {
-            card6.disabled = false;
+            card7.disabled = false;
             if (wrap) showChoiceError(wrap, why);
           } else void refreshLooking(key);
         }
       },
-      h11("span", { class: "cb-choice-mark" }),
-      h11("span", { class: "cb-choice-label" }, w.label)
+      h14("span", { class: "cb-choice-mark" }),
+      h14("span", { class: "cb-choice-label" }, w.label)
     );
-    if (old) old.replaceWith(card6);
-    else grid.append(card6);
+    if (old) old.replaceWith(card7);
+    else grid.append(card7);
   }
   ctx.onDockTarget(() => renderAsk());
   let lookingSeq = 0;
@@ -7356,7 +8117,7 @@ ${JSON.stringify(listAttached("none"))}`;
       p.disposition,
       ruleNameOf(p.source)
     ) : "the recommendation changed";
-    const show2 = h11(
+    const show2 = h14(
       "button",
       {
         type: "button",
@@ -7365,10 +8126,10 @@ ${JSON.stringify(listAttached("none"))}`;
       },
       "show"
     );
-    const line = h11(
+    const line = h14(
       "p",
       { class: "cb-rec-fresh" },
-      h11("span", { class: "cb-rec-fresh-says" }, says),
+      h14("span", { class: "cb-rec-fresh-says" }, says),
       " · ",
       show2
     );
@@ -7393,17 +8154,17 @@ ${JSON.stringify(listAttached("none"))}`;
       return;
     }
     readEl.firstElementChild?.append(
-      h11("p", { class: "cb-choice-err" }, message5)
+      h14("p", { class: "cb-choice-err" }, message5)
     );
   }
   function showDone() {
     currentOpenKey = null;
     shownDetail = null;
     readEl.replaceChildren(
-      h11(
+      h14(
         "div",
         { class: "cb-read-empty" },
-        h11(
+        h14(
           "p",
           { class: "cb-read-done" },
           filtered() ? `Nothing left in ${viewLabel()}.` : "Nothing left to decide."
@@ -7424,7 +8185,7 @@ ${JSON.stringify(listAttached("none"))}`;
     const expect = made?.[key];
     lastUndo = expect ? [{ key, prev: previous?.[key] ?? null, expect }] : [];
   }
-  const strip = h11("div", {
+  const strip = h14("div", {
     class: "cb-strip",
     role: "status",
     hidden: true
@@ -7439,7 +8200,7 @@ ${JSON.stringify(listAttached("none"))}`;
     if (!vocab2) return;
     strip.replaceChildren(
       ...waitingStrip(vocab2.waiting, text).map(
-        (part) => typeof part === "string" ? part : "link" in part ? h11("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h11(
+        (part) => typeof part === "string" ? part : "link" in part ? h14("a", { href: groupLink, class: "cb-strip-apply" }, part.link) : h14(
           "button",
           {
             type: "button",
@@ -7599,17 +8360,17 @@ ${JSON.stringify(listAttached("none"))}`;
       deciding = null;
     }
   }
-  {
-    const urlQ = getUrlQ();
-    if (urlQ) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
-    }
-  }
   void reload();
   selection.onChange(() => {
+    selGen++;
     paintAll();
     feedAttached();
+    if (selection.ids().length) showTicked();
+    else if (tickedOn) {
+      tickedOn = false;
+      if (currentOpenKey) void openDetail(currentOpenKey);
+      else showReadEmpty();
+    }
   });
   function shownProposal() {
     const d = shownDetail;
@@ -7632,11 +8393,11 @@ ${JSON.stringify(listAttached("none"))}`;
     group: "page",
     run() {
       if (!currentOpenKey) return false;
-      const card6 = readEl.querySelectorAll(
+      const card7 = readEl.querySelectorAll(
         ".cb-choices .cb-choice"
       )[n - 1];
-      if (!card6) return false;
-      card6.click();
+      if (!card7) return false;
+      card7.click();
     }
   }));
   const jumpKeys = groupKeys((d) => {
@@ -7659,10 +8420,12 @@ ${JSON.stringify(listAttached("none"))}`;
     const wasActive = active;
     active = true;
     feedAttached();
-    const urlQ = getUrlQ();
-    if (urlQ !== filters.q) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
+    if (!sub) {
+      const urlQ = paneQuery(query).q;
+      if (urlQ !== filters.q) {
+        filters.q = urlQ;
+        pane.setSearch(urlQ);
+      }
     }
     const params = new URLSearchParams(query);
     const ids = sub ? [] : parseFilterIds(params.get("filters"));
@@ -7697,12 +8460,16 @@ ${JSON.stringify(listAttached("none"))}`;
       if (filtered()) {
         filters.filters = [];
         filters.rule = null;
-        filterBar.setError(null);
+        pane.setFilterError(null);
         paintFilters();
         paintRules();
       }
       showReadEmpty();
       void reload();
+      if (params.get("new") === "filter") {
+        setHashQuery(listQuery());
+        openFilterEditor(null);
+      }
     }
   }
   return {
@@ -7712,12 +8479,14 @@ ${JSON.stringify(listAttached("none"))}`;
     show,
     hide() {
       active = false;
+      selection.clear();
     },
     // The list's keys (j k o ↵ x ⇧x, / its search) come from the kit, bound
     // to this list while it shows.
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => listKeys,
     onLive(type, data) {
+      obs.onLive(type, data);
       if (type === "gap") {
         void loadRules();
         void reload();
@@ -7801,7 +8570,7 @@ function latestInOrder(send) {
 }
 
 // dock.ts
-import { h as h14, card as card5 } from "/_kit/kit.js";
+import { h as h17, card as card6 } from "/_kit/kit.js";
 
 // time-utils.ts
 function ageMs(ts) {
@@ -7813,9 +8582,9 @@ function fmtAge(ts) {
   if (s < 60) return "now";
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
-  const h15 = Math.floor(m / 60);
-  if (h15 < 24) return `${h15}h`;
-  const d = Math.floor(h15 / 24);
+  const h18 = Math.floor(m / 60);
+  if (h18 < 24) return `${h18}h`;
+  const d = Math.floor(h18 / 24);
   if (d < 30) return `${d}d`;
   const mo = Math.floor(d / 30);
   if (mo < 12) return `${mo}mo`;
@@ -7841,7 +8610,7 @@ function dockOpen(hasMessages, focused, manual) {
 }
 
 // composer.ts
-import { h as h12, ApiError as ApiError5 } from "/_kit/kit.js";
+import { h as h15, ApiError as ApiError5 } from "/_kit/kit.js";
 
 // attached.ts
 var KIND_PLURAL = { branch: "branches" };
@@ -7925,10 +8694,10 @@ function attachedText(a) {
 }
 function parseAttached(text) {
   const out = {};
-  const list3 = LIST_RE.exec(text);
-  if (list3) {
-    out.list = parseList(list3[1]);
-    text = text.slice(0, list3.index) + " " + text.slice(list3.index + list3[0].length);
+  const list2 = LIST_RE.exec(text);
+  if (list2) {
+    out.list = parseList(list2[1]);
+    text = text.slice(0, list2.index) + " " + text.slice(list2.index + list2[0].length);
   }
   const words = text.split(/[\s,]+/).map((w) => w.trim()).filter(Boolean);
   const keys = [];
@@ -7968,7 +8737,7 @@ function makeComposer(ctx, dock) {
   let override = null;
   let sending = false;
   const effective = () => override ?? context;
-  const value = h12("span", {
+  const value = h15("span", {
     class: "cb-comp-attached-value",
     contenteditable: "true",
     role: "textbox",
@@ -7976,10 +8745,10 @@ function makeComposer(ctx, dock) {
     spellcheck: false,
     "data-testid": "composer-attached"
   });
-  const line = h12(
+  const line = h15(
     "div",
     { class: "cb-comp-attached" },
-    h12("span", { class: "cb-comp-attached-prefix" }, "attached: "),
+    h15("span", { class: "cb-comp-attached-prefix" }, "attached: "),
     value
   );
   let editing = false;
@@ -8025,7 +8794,7 @@ function makeComposer(ctx, dock) {
       value.blur();
     }
   });
-  const input = h12("textarea", {
+  const input = h15("textarea", {
     class: "cb-comp-input",
     rows: 1,
     placeholder: "Message the agent…",
@@ -8043,14 +8812,14 @@ function makeComposer(ctx, dock) {
     e.preventDefault();
     void send(false);
   });
-  const note = h12("span", { class: "cb-comp-note", role: "status" });
-  const footer = h12(
+  const note = h15("span", { class: "cb-comp-note", role: "status" });
+  const footer = h15(
     "div",
     { class: "cb-comp-foot" },
-    h12("span", {}, "↵ send · ⌘↵ add to batch"),
+    h15("span", {}, "↵ send · ⌘↵ add to batch"),
     note
   );
-  const el2 = h12(
+  const el2 = h15(
     "div",
     { class: "cb-comp", "data-testid": "composer" },
     line,
@@ -8168,27 +8937,27 @@ function makeComposer(ctx, dock) {
 }
 
 // progress.ts
-import { h as h13, card as card4, fold as fold2, noteField as noteField3 } from "/_kit/kit.js";
+import { h as h16, card as card5, fold as fold2, noteField as noteField2 } from "/_kit/kit.js";
 function makeBatchTray(ctx, dock) {
   let thread = 0;
   let batch = 0;
   let drafts = [];
   let loadSeq = 0;
-  const label = h13("span", { class: "kit-card-head cb-batch-label" });
-  const sendBtn = h13("button", {
+  const label = h16("span", { class: "kit-card-head cb-batch-label" });
+  const sendBtn = h16("button", {
     class: "kit-btn fill cb-batch-send",
     "data-testid": "batch-send",
     onclick() {
       void sendBatch();
     }
   });
-  const list3 = h13("div", { class: "cb-batch-drafts" });
-  const el2 = card4({
-    body: h13(
+  const list2 = h16("div", { class: "cb-batch-drafts" });
+  const el2 = card5({
+    body: h16(
       "div",
       {},
-      h13("div", { class: "cb-batch-head" }, label, sendBtn),
-      list3
+      h16("div", { class: "cb-batch-head" }, label, sendBtn),
+      list2
     )
   });
   el2.classList.add("cb-batch");
@@ -8200,15 +8969,15 @@ function makeBatchTray(ctx, dock) {
     editing = null;
     el2.hidden = drafts.length === 0;
     if (!drafts.length) {
-      list3.replaceChildren();
+      list2.replaceChildren();
       return;
     }
     label.textContent = `batch · ${pluralize(drafts.length, "draft")}`;
     sendBtn.textContent = `send ${drafts.length}`;
-    list3.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
+    list2.replaceChildren(...drafts.map((d, i) => draftRow(d, i)));
   }
   function actionBtn(text, action, aria, run, disabled = false) {
-    return h13(
+    return h16(
       "button",
       {
         class: "cb-batch-act",
@@ -8221,12 +8990,12 @@ function makeBatchTray(ctx, dock) {
     );
   }
   function draftRow(d, i) {
-    const text = h13("span", { class: "cb-batch-text" }, d.body);
-    const row = h13(
+    const text = h16("span", { class: "cb-batch-text" }, d.body);
+    const row = h16(
       "div",
       { class: "cb-batch-draft", "data-draft-id": String(d.id) },
       text,
-      h13(
+      h16(
         "span",
         { class: "cb-batch-acts" },
         actionBtn(
@@ -8264,7 +9033,7 @@ function makeBatchTray(ctx, dock) {
       if (editing === field) editing = null;
       render();
     };
-    const field = noteField3({
+    const field = noteField2({
       value: d.body,
       onCommit(v) {
         const body = v.trim();
@@ -8385,17 +9154,17 @@ function countText(n, total) {
 function makeProgressLine() {
   let prog = null;
   let at2 = 0;
-  const text = h13("span", { class: "cb-prog-text" });
-  const age = h13("span", { class: "cb-prog-age" });
-  const fill = h13("span", { class: "cb-prog-fill" });
-  const bar2 = h13("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
-  const el2 = h13(
+  const text = h16("span", { class: "cb-prog-text" });
+  const age = h16("span", { class: "cb-prog-age" });
+  const fill = h16("span", { class: "cb-prog-fill" });
+  const bar2 = h16("div", { class: "cb-prog-bar", role: "progressbar" }, fill);
+  const el2 = h16(
     "div",
     { class: "cb-prog", "data-testid": "progress-line" },
-    h13(
+    h16(
       "div",
       { class: "cb-prog-row" },
-      h13("span", { class: "cb-prog-dot" }),
+      h16("span", { class: "cb-prog-dot" }),
       text,
       age
     ),
@@ -8434,11 +9203,11 @@ function makeProgressLine() {
   };
 }
 function makeWaitingStrip() {
-  const count2 = h13("span", {});
-  const el2 = h13(
+  const count2 = h16("span", {});
+  const el2 = h16(
     "div",
     { class: "cb-wait", "data-testid": "waiting-strip" },
-    h13("span", { class: "cb-wait-word" }, "waiting"),
+    h16("span", { class: "cb-wait-word" }, "waiting"),
     count2
   );
   el2.hidden = true;
@@ -8460,15 +9229,15 @@ function clock(ts) {
 }
 function workedFold(msg) {
   const lines = msg.worked?.lines ?? [];
-  const history2 = h13(
+  const history2 = h16(
     "ol",
     { class: "cb-worked-lines" },
     ...lines.map(
-      (l) => h13(
+      (l) => h16(
         "li",
         { class: "cb-worked-line" },
-        h13("span", { class: "cb-worked-at" }, clock(l.at)),
-        h13("span", {}, l.text + countText(l.n, l.total))
+        h16("span", { class: "cb-worked-at" }, clock(l.at)),
+        h16("span", {}, l.text + countText(l.n, l.total))
       )
     )
   );
@@ -8527,19 +9296,19 @@ function stateLabel(msg) {
   return base;
 }
 function sessionItem(s, extra = "") {
-  const el2 = h14(
+  const el2 = h17(
     "button",
     { class: "cb-dock-pick-item", "data-session": s.id },
-    h14("span", { class: "cb-dock-dot" }),
-    h14("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
+    h17("span", { class: "cb-dock-dot" }),
+    h17("span", { class: "cb-dock-pick-title" }, sessionTitle(s))
   );
   const meta = [sessionMeta(s), extra].filter(Boolean).join(" · ");
-  if (meta) el2.append(h14("span", { class: "cb-dock-pick-meta" }, meta));
+  if (meta) el2.append(h17("span", { class: "cb-dock-pick-meta" }, meta));
   return el2;
 }
 function renderAgentBody(msg) {
-  const wrap = h14("div", { class: "cb-dock-body" });
-  const bodyP = h14("p", { class: "cb-dock-bodytext" });
+  const wrap = h17("div", { class: "cb-dock-body" });
+  const bodyP = h17("p", { class: "cb-dock-bodytext" });
   bodyP.textContent = msg.body;
   wrap.append(bodyP);
   const { attached } = msg;
@@ -8548,7 +9317,7 @@ function renderAgentBody(msg) {
     if (attached.keys && attached.keys.length > 0) {
       const shown = attached.keys.slice(0, 5);
       for (const k of shown) {
-        const a = h14("a", {
+        const a = h17("a", {
           class: "cb-dock-link",
           href: "#",
           onclick(e) {
@@ -8561,7 +9330,7 @@ function renderAgentBody(msg) {
       }
       if (attached.keys.length > 5) {
         links.push(
-          h14(
+          h17(
             "span",
             { class: "cb-dock-link-more" },
             `+${attached.keys.length - 5} more`
@@ -8571,7 +9340,7 @@ function renderAgentBody(msg) {
     }
     if (attached.open) {
       const k = attached.open;
-      const a = h14("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8584,7 +9353,7 @@ function renderAgentBody(msg) {
     }
     if (attached.rule) {
       const id = attached.rule;
-      const a = h14("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8597,7 +9366,7 @@ function renderAgentBody(msg) {
     }
     if (attached.job) {
       const id = attached.job;
-      const a = h14("a", {
+      const a = h17("a", {
         class: "cb-dock-link",
         href: "#",
         onclick(e) {
@@ -8609,7 +9378,7 @@ function renderAgentBody(msg) {
       links.push(a);
     }
     if (links.length > 0) {
-      const linkRow = h14("div", { class: "cb-dock-links" }, ...links);
+      const linkRow = h17("div", { class: "cb-dock-links" }, ...links);
       wrap.append(linkRow);
     }
   }
@@ -8620,24 +9389,24 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
   const isAgent = msg.author !== "court";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
   const age = fmtAge(msg.created_at);
-  const headEl = h14(
+  const headEl = h17(
     "div",
     { class: "cb-dock-ch" },
-    h14(
+    h17(
       "span",
       {
         class: isAgent ? "cb-dock-ch-name cb-dock-ch-agent" : "cb-dock-ch-name"
       },
       authorLabel
     ),
-    h14("span", { class: "cb-dock-ch-age" }, age)
+    h17("span", { class: "cb-dock-ch-age" }, age)
   );
   let bodyContent;
   if (isAgent) {
     bodyContent = renderAgentBody(msg);
   } else {
-    const bodyEl = h14("div", { class: "cb-dock-body" });
-    const bodyP = h14("p", { class: "cb-dock-bodytext" });
+    const bodyEl = h17("div", { class: "cb-dock-body" });
+    const bodyP = h17("p", { class: "cb-dock-bodytext" });
     bodyP.textContent = msg.body;
     bodyEl.append(bodyP);
     bodyContent = bodyEl;
@@ -8656,7 +9425,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       "interrupted"
     ];
     if (validStates.includes(msg.state)) {
-      stateEl = h14("div", {
+      stateEl = h17("div", {
         class: "cb-dock-state",
         "data-state": msg.state,
         style: `color:${stateColor(msg.state)}`
@@ -8664,7 +9433,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       stateEl.textContent = stateLabel(msg);
     }
   }
-  const fullBody = h14(
+  const fullBody = h17(
     "div",
     { class: "cb-dock-card-body" },
     headEl,
@@ -8678,12 +9447,12 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
       stateEl.textContent = "";
       stateEl.setAttribute("data-state", "stuck");
-      const stuckBold = h14("strong", { style: "font-weight:600" });
+      const stuckBold = h17("strong", { style: "font-weight:600" });
       stuckBold.textContent = "stuck";
       stateEl.append(`delivered ${ageStr} · `, stuckBold);
     }
     const d = delivery;
-    const releaseBtn = h14("button", {
+    const releaseBtn = h17("button", {
       class: "kit-btn",
       "data-action": "release",
       onclick() {
@@ -8694,7 +9463,7 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     const otherSessions = pickable(sessions).filter(
       (s) => s.id !== d.session_id
     );
-    const moveBtn = h14("button", {
+    const moveBtn = h17("button", {
       class: "kit-btn",
       "data-action": "move",
       onclick() {
@@ -8702,9 +9471,9 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
       }
     });
     moveBtn.textContent = "move to another session";
-    fullBody.append(h14("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
+    fullBody.append(h17("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
   }
-  const el2 = card5({
+  const el2 = card6({
     edge: isAgent ? "agent" : "signal",
     body: fullBody
   });
@@ -8732,29 +9501,29 @@ function openMoveSheet(ctx, delivery, targets) {
     const el2 = sessionItem(s);
     el2.onclick = () => {
       void moveDelivery(ctx, delivery.id, s.id);
-      sheet5.close();
+      sheet4.close();
     };
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h14(
+    const noOther = h17(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
-  const sheet5 = {
-    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
+  const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
+  const sheet4 = {
+    el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
   };
-  document.body.append(sheet5.el);
+  document.body.append(sheet4.el);
   function onKey(e) {
     if (e.key === "Escape") {
-      sheet5.close();
+      sheet4.close();
       document.removeEventListener("keydown", onKey);
     }
   }
@@ -8776,29 +9545,29 @@ function openSessionMoveSheet(ctx, fromSession, targets) {
     const el2 = sessionItem(s);
     el2.onclick = () => {
       void moveSession(ctx, fromSession, s.id);
-      sheet5.close();
+      sheet4.close();
     };
     return el2;
   });
   if (items.length === 0) {
-    const noOther = h14(
+    const noOther = h17(
       "p",
       { class: "cb-dock-pick-empty" },
       "no other sessions"
     );
     items.push(noOther);
   }
-  const content = h14("div", { class: "cb-dock-pick-list" }, ...items);
-  const sheet5 = {
-    el: h14("div", { class: "cb-dock-pick-sheet" }, content),
+  const content = h17("div", { class: "cb-dock-pick-list" }, ...items);
+  const sheet4 = {
+    el: h17("div", { class: "cb-dock-pick-sheet" }, content),
     close() {
       this.el.remove();
     }
   };
-  document.body.append(sheet5.el);
+  document.body.append(sheet4.el);
   function onKey(e) {
     if (e.key === "Escape") {
-      sheet5.close();
+      sheet4.close();
       document.removeEventListener("keydown", onKey);
     }
   }
@@ -8817,10 +9586,10 @@ function buildSessionPicker(sessions, currentId, onSelect) {
   });
   if (items.length === 0) {
     items.push(
-      h14("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
+      h17("p", { class: "cb-dock-pick-empty" }, "no agent sessions are here")
     );
   }
-  const picker = h14(
+  const picker = h17(
     "div",
     { class: "cb-dock-picker", role: "listbox" },
     ...items
@@ -8850,16 +9619,16 @@ function makeDock(ctx) {
   let currentDelivery = null;
   let urlRead = false;
   let auto = false;
-  const sessionDot = h14("span", { class: "cb-dock-dot" });
-  const sessionLabelEl = h14("span", {
+  const sessionDot = h17("span", { class: "cb-dock-dot" });
+  const sessionLabelEl = h17("span", {
     class: "cb-dock-session-label",
     "data-testid": "dock-session-name"
   });
-  const sessionMetaEl = h14("div", {
+  const sessionMetaEl = h17("div", {
     class: "cb-dock-meta-row",
     "data-testid": "dock-session-meta"
   });
-  const sessionPickerBtn = h14("button", {
+  const sessionPickerBtn = h17("button", {
     class: "cb-dock-agent-btn",
     "aria-label": "pick agent session",
     onclick(e) {
@@ -8875,7 +9644,7 @@ function makeDock(ctx) {
     }
   });
   sessionPickerBtn.textContent = "AGENT ▾";
-  const collapseBtn = h14(
+  const collapseBtn = h17(
     "button",
     {
       type: "button",
@@ -8888,7 +9657,7 @@ function makeDock(ctx) {
     },
     "›"
   );
-  const opener = h14(
+  const opener = h17(
     "button",
     {
       type: "button",
@@ -8899,31 +9668,31 @@ function makeDock(ctx) {
         setManual(true);
       }
     },
-    h14("span", { class: "cb-dock-opener-dot" }),
-    h14("span", { class: "cb-dock-opener-label" }, "agent")
+    h17("span", { class: "cb-dock-opener-dot" }),
+    h17("span", { class: "cb-dock-opener-label" }, "agent")
   );
-  const leftStatusRow = h14("div", { class: "cb-dock-left-row" });
+  const leftStatusRow = h17("div", { class: "cb-dock-left-row" });
   leftStatusRow.hidden = true;
-  const sessionHeader = h14(
+  const sessionHeader = h17(
     "div",
     { class: "cb-dock-header" },
-    h14(
+    h17(
       "div",
       { class: "cb-dock-header-row" },
-      h14("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
+      h17("span", { class: "cb-dock-who" }, sessionDot, sessionLabelEl),
       sessionPickerBtn,
       collapseBtn
     ),
     sessionMetaEl,
     leftStatusRow
   );
-  const chooser = h14("div", {
+  const chooser = h17("div", {
     class: "cb-dock-chooser",
     "data-testid": "dock-chooser"
   });
   chooser.hidden = true;
-  const threadChips = h14("div", { class: "cb-dock-threads" });
-  const messageArea = h14("div", {
+  const threadChips = h17("div", { class: "cb-dock-threads" });
+  const messageArea = h17("div", {
     class: "cb-dock-messages",
     "data-testid": "dock-messages"
   });
@@ -8957,7 +9726,7 @@ function makeDock(ctx) {
       void batchTray.load(t.id);
     }
   });
-  const rail = h14("div", { class: "cb-dock-inner" });
+  const rail = h17("div", { class: "cb-dock-inner" });
   rail.append(
     opener,
     sessionHeader,
@@ -9012,7 +9781,7 @@ function makeDock(ctx) {
     sessionHeader.title = sess.id;
     if (stale) {
       leftStatusRow.textContent = "";
-      const moveLink = h14("button", {
+      const moveLink = h17("button", {
         class: "cb-dock-move-link",
         "data-testid": "dock-move-link",
         onclick(e) {
@@ -9022,12 +9791,12 @@ function makeDock(ctx) {
         }
       });
       moveLink.textContent = "move to…";
-      const parts = [h14("span", {}, "left")];
+      const parts = [h17("span", {}, "left")];
       if (sess.queued > 0) {
-        parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
-        parts.push(h14("span", {}, `${sess.queued} queued`));
+        parts.push(h17("span", { class: "cb-dock-sep" }, "·"));
+        parts.push(h17("span", {}, `${sess.queued} queued`));
       }
-      parts.push(h14("span", { class: "cb-dock-sep" }, "·"));
+      parts.push(h17("span", { class: "cb-dock-sep" }, "·"));
       parts.push(moveLink);
       leftStatusRow.append(...parts);
       leftStatusRow.hidden = false;
@@ -9051,7 +9820,7 @@ function makeDock(ctx) {
     chooser.hidden = false;
     chooser.setAttribute("data-state", state);
     const offered = pickable(sessions).filter((s) => s.id !== currentSessionId);
-    const lead = h14("p", {
+    const lead = h17("p", {
       class: "cb-dock-chooser-lead",
       "data-testid": "dock-chooser-lead"
     });
@@ -9073,7 +9842,7 @@ function makeDock(ctx) {
   function renderThreadChips() {
     threadChips.innerHTML = "";
     for (const t of threads) {
-      const chip = h14("button", {
+      const chip = h17("button", {
         class: "kit-chip" + (t.id === currentThreadId ? " on" : ""),
         "data-thread": String(t.id),
         onclick() {
@@ -9083,7 +9852,7 @@ function makeDock(ctx) {
       chip.textContent = t.name;
       threadChips.append(chip);
     }
-    const addChip = h14("button", {
+    const addChip = h17("button", {
       class: "kit-chip cb-dock-add",
       "data-testid": "dock-add-thread",
       onclick() {
@@ -9102,7 +9871,7 @@ function makeDock(ctx) {
     }
     const cards = [];
     if (messages.length === 0) {
-      cards.push(h14("p", { class: "cb-dock-empty" }, "no messages"));
+      cards.push(h17("p", { class: "cb-dock-empty" }, "no messages"));
     }
     const name = agentName();
     for (const msg of messages) {

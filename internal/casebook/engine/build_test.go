@@ -567,8 +567,8 @@ func TestNotNowBroughtBackByOthersActivity(t *testing.T) {
 	p.LastCommentAt, p.LastCommentAuthor = now.Add(-time.Hour), "bob"
 	r = Build(in)
 	it := mustFind(t, r, "pr:schuettc/hail#3")
-	if it.Status != item.StatusDue || it.DueReason != "new activity since Not now" {
-		t.Fatalf("status %s reason %q, want due: new activity since Not now", it.Status, it.DueReason)
+	if it.Status != item.StatusDue || it.DueReason != "new activity since not now" {
+		t.Fatalf("status %s reason %q, want due: new activity since not now", it.Status, it.DueReason)
 	}
 	if !slices.Contains(attentionIDs(r), it.ID) || !it.NewActivity {
 		t.Errorf("brought-back Not now: in attention %v, new activity %v", attentionIDs(r), it.NewActivity)

@@ -6,6 +6,14 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.18.0
+
+- Decide, review and run share one list: saved filters, search, groups and two-line rows, every line at a fixed height, the same on each tab.
+- Run lists items, not jobs, grouped by what happened: needs you, running, done, undone. An item shows what ran on it and its job, the steps around it marked "this item".
+- Ticked items show in the middle with their buttons on every tab, and a group's head shows only "N ticked · untick": its buttons are gone.
+- Labels, group names, buttons and headings are lower case, here and in `casebook` and the agent's tools.
+- How old the observations are, « and "show N more" are on every tab.
+
 ## 0.17.1
 
 - Deleting a branch on GitHub works: casebook asked GitHub's API with the wrong type for the branch name, and GitHub refused every delete.

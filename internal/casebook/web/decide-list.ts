@@ -2,22 +2,21 @@
 // filters, rules as groups, and the item, rule or summary in the middle
 // pane.
 //
-// makeDecide(ctx) builds the kit list(), wires the filters, the rule row
-// (a chip per rule, "+ rule") and search, fetches items from GET /api/items
-// (view=all), and opens items in the reading column via renderItem() from
-// item.ts. Each rule's recommendations are a group whose header is the rule
-// (its name, "rule", its decision, its count, ⋯); "Came back" leads.
+// makeDecide(ctx) builds decide on the shared list pane (list-pane.ts): its
+// own row is the rules (a chip per rule, "+ rule"), its tools "group by
+// recommendation"; it fetches items from GET /api/items (view=all), and
+// opens items in the reading column via renderItem() from item.ts. Each
+// rule's recommendations are a group whose head is the rule (its name,
+// "rule · its decision", its count, ⋯); "came back" leads.
 //
 // The Selection store is exported so the page's other parts bind to it
 // without creating a second store.
 
 import {
-  list,
   createSelection,
   type Selection,
   h,
   ApiError,
-  type ListHandle,
   type KeyBinding,
 } from '/_kit/kit.js';
 import type {
@@ -41,21 +40,21 @@ import type {
 } from './wire.d.ts';
 import type { Ctx, Section } from './app.ts';
 import { renderItem } from './item.ts';
-import { getVocab } from './decide.ts';
+import { getVocab, renderTicked } from './decide.ts';
 import {
-  keyWithoutKind,
   pluralize,
   nextInView,
   MORE,
   recommendLine,
-  groupButtons,
-  leftOpenMeta,
   lookIntoCard,
   navTargets,
   shortKey,
-  rowSub,
+  standsLine,
   decideSummary,
-  CAME_BACK,
+  splitTicked,
+  tickedWords,
+  countWord,
+  kindFromKey,
   decideRoute,
   doneWords,
   waitingStrip,
@@ -67,12 +66,7 @@ import { showChoiceError } from './choices.ts';
 import { lookingLine } from './sessions.ts';
 import { coalesced } from './coalesce.ts';
 import { openDiscardSheet } from './proposals.ts';
-import {
-  makeFilterBar,
-  filterEditor,
-  renderFilter,
-  type FilterEditor,
-} from './filters.ts';
+import { filterEditor, renderFilter, type FilterEditor } from './filters.ts';
 import {
   makeRuleRow,
   ruleEditor,
@@ -81,6 +75,14 @@ import {
 } from './rule-editor.ts';
 import { PREVIEW_DEBOUNCE_MS, renderRule } from './rules.ts';
 import { parseFilterIds, filterLabel } from './filters-text.ts';
+import {
+  makePane,
+  setHashQuery,
+  type Pane,
+  type PaneGroup,
+} from './list-pane.ts';
+import { paneQuery, paneParams } from './list-pane-text.ts';
+import { makeObs } from './obs.ts';
 
 // STRIP_MS is how long the strip after an outward decision ("Closed it ·
 // waiting in apply · undo") shows.
@@ -123,9 +125,6 @@ function emptyFilters(): Filters {
 // LEFT_OPEN is the left-open group's id among the groups' (collapsed).
 const LEFT_OPEN = 'left-open';
 
-// SIDEBAR is where the list's collapse is kept ('open' or 'closed').
-const SIDEBAR = 'casebook.sidebar';
-
 // GROUPING is where the list's "group by recommendation" switch is kept
 // ('flat' or 'grouped'); the list starts grouped.
 const GROUPING = 'casebook.grouping';
@@ -144,33 +143,6 @@ function storeFlat(flat: boolean): void {
   } catch {
     // storage refused: the address still keeps the choice
   }
-}
-
-// ---- URL search param helpers -----------------------------------------------
-
-function getUrlQ(): string {
-  return new URLSearchParams(location.search).get('q') ?? '';
-}
-
-function setUrlQ(q: string): void {
-  const p = new URLSearchParams(location.search);
-  if (q) {
-    p.set('q', q);
-  } else {
-    p.delete('q');
-  }
-  const qs = p.toString();
-  const newUrl = location.pathname + (qs ? '?' + qs : '') + location.hash;
-  history.replaceState(null, '', newUrl);
-}
-
-function ageOf(it: ItemView): string {
-  if (!it.created_at) return '';
-  const ms = Date.now() - new Date(it.created_at).getTime();
-  const days = Math.floor(ms / 86400000);
-  if (days === 0) return 'today';
-  if (days === 1) return '1d';
-  return `${days}d`;
 }
 
 // isLeftOpen: a kept item still open, in a view's left-open group.
@@ -193,8 +165,6 @@ export function makeDecide(ctx: Ctx): Section {
   let reloading = false;
   let loadingMore = false;
   let loads = 0;
-  let footEl: HTMLElement | null = null;
-  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let totalItemsForView = 0; // updated after every load
   // The view's groups (serve's order and counts, every page) and the ones
   // Court opened (in memory only). Every group starts collapsed (Court,
@@ -207,8 +177,9 @@ export function makeDecide(ctx: Ctx): Section {
   // A ticked item on a page not loaded is counted and acted on from here.
   const groupOfKey = new Map<string, string>();
   const proposalOfKey = new Map<string, number>();
-  // The groups whose button is running (their buttons wait).
-  const busyGroups = new Set<string>();
+  // Every item the page has seen (loaded rows and a group fetched whole):
+  // a ticked item on a page not loaded shows in the middle pane from here.
+  const itemOfKey = new Map<string, ItemView>();
   // The view's left-open group (kept items still open: they need no
   // decision, so the view's count and move-on leave them out). It is the
   // last group, once every page of the items that need a decision is
@@ -285,6 +256,27 @@ export function makeDecide(ctx: Ctx): Section {
         '{n}',
         String(viewRecs),
       );
+    // At volume the agent is asked for rules, not item by item: "ask agent
+    // to suggest rules" for the not recommended, with a session attached
+    // (not while filtered: the list then holds decided items too).
+    const t = ctx.dockTarget();
+    const none = groups.some((g) => g.id === 'none' && g.total > 0);
+    const suggest =
+      t && none && !filtered()
+        ? asked === askedKey(t.id)
+          ? h('span', { class: 'cb-group-note' }, vocab.asked)
+          : h(
+              'button',
+              {
+                type: 'button',
+                class: 'kit-btn cb-suggest-rules',
+                onclick() {
+                  void askRules();
+                },
+              },
+              vocab.suggest_rules,
+            )
+        : null;
     return h(
       'div',
       { class: 'cb-read-empty', 'data-testid': 'decide-summary' },
@@ -295,6 +287,7 @@ export function makeDecide(ctx: Ctx): Section {
         ...rest.map((l) => h('li', null, l)),
       ),
       discardAllBtn,
+      suggest,
       prompt,
     );
   }
@@ -345,6 +338,7 @@ export function makeDecide(ctx: Ctx): Section {
 
   // Show the empty reading-column state (replaces any open item detail).
   function showReadEmpty(): void {
+    tickedOn = false;
     currentOpenKey = null;
     shownDetail = null;
     // A selected rule shows in the middle pane until an item is opened;
@@ -435,82 +429,80 @@ export function makeDecide(ctx: Ctx): Section {
   // (nothing is selected yet: the filters and rules aren't loaded).
   readEl.replaceChildren(renderReadEmpty());
 
-  // ---- foot -----------------------------------------------------------------
+  // ---- the list: the shared pane --------------------------------------------
 
-  // The foot is pinned to the bottom of the list: "show N more" while more
-  // pages exist.
-  function buildFoot(): HTMLElement {
-    const footRight = h(
-      'div',
-      { class: 'cb-foot-right' },
-      h(
-        'button',
-        {
-          class: 'cb-foot-more',
-          hidden: true, // shown by updateFoot() when there are more items
-          onclick() {
-            void loadMore();
-          },
-        },
-        `show ${PAGE_SIZE} more`,
-      ),
-    );
-    footEl = h('div', { class: 'cb-foot' }, footRight);
-    return footEl;
-  }
-
-  // ---- list -----------------------------------------------------------------
-
-  const handle: ListHandle<ItemView> = list<ItemView>({
-    label: '',
-    filters: [],
-    selection,
-    openOnMove: false,
-    search: {
-      placeholder: 'search by key or title',
-      onInput(text: string) {
-        if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
-        searchDebounceTimer = setTimeout(() => {
-          searchDebounceTimer = null;
-          filters.q = text;
-          setUrlQ(text);
-          void reload();
-        }, 200);
-      },
-    },
+  const pane: Pane<ItemView> = makePane<ItemView>(ctx, 'decide', selection, {
     row(it: ItemView) {
-      // Display the key without its kind prefix — the kind is already shown in the kicker.
-      const displayKey = it.kind ? keyWithoutKind(it.key) : it.key;
-      const kindKey = it.kind ? `${it.kind} · ${displayKey}` : displayKey;
-      const left = isLeftOpen(it);
-      const age = left ? leftOpenMeta(it.decision?.decided_at) : ageOf(it);
+      const st = standsLine(vocab, it, flat);
       return {
         id: it.key,
-        key: kindKey,
-        // Fallback: use display key (without kind prefix) so titleless items
-        // like branch:schuettc/hail@feat/client show "schuettc/hail@feat/client".
-        title: it.title ?? keyWithoutKind(it.key),
-        meta: age,
-        // An item new activity brought back says so ("new activity since
-        // you left it open"), before any recommendation's reason; the flat
-        // list, with no group heads, names the recommendation too.
-        sub: rowSub(vocab, it, flat),
+        key: it.key,
+        title: it.title || undefined,
+        stands: st.text,
+        tone: it.new_activity && st.tone === 'muted' ? 'signal' : st.tone,
         // A draft filter's preview is only to look at.
         selectable: draft === null,
       };
     },
+    groupOf: (it: ItemView) =>
+      isLeftOpen(it) ? LEFT_OPEN : flat ? '' : it.group,
     onOpen(it: ItemView) {
       if (syncingOpen || draft !== null) return;
       // Navigate to the item's hash URL and load the detail.
       ctx.route.go('item', it.key);
       void openDetail(it.key);
     },
-    foot: buildFoot(),
+    onQuery(q, clicked) {
+      if (clicked !== undefined) {
+        // A chip clicked while an editor is open ends it first.
+        if (draft !== null) closeFilterEditor(false);
+        shownFilter = q.filters.includes(clicked) ? clicked : null;
+        selectFilters(q.filters);
+        return;
+      }
+      filters.q = q.q;
+      // The list's address keeps its search (an item's doesn't).
+      if (ctx.route.current().section === 'decide' && draft === null)
+        setHashQuery(listQuery());
+      void reload();
+    },
+    onToggle(id: string) {
+      // Opening a group asks serve for its rows (the left-open group's come
+      // with every load); closing one drops them.
+      if (opened.has(id)) opened.delete(id);
+      else opened.add(id);
+      if (id === LEFT_OPEN) {
+        setRows();
+        markOpenRow();
+      } else void reload();
+    },
+    onTickGroup(id: string) {
+      const g = groups.find((x) => x.id === id);
+      if (g && draft === null) void tickGroup(g);
+    },
+    tickedIn: (id: string) =>
+      selection.ids().filter((k) => groupOfKey.get(k) === id),
+    onMore() {
+      void loadMore();
+    },
+    onFilterOpen(row) {
+      if (draft !== null) closeFilterEditor(true);
+      shownFilter = row.filter.id;
+      // A selected rule has the middle pane: drop it so the filter shows.
+      if (filters.rule) selectRule(null);
+      else {
+        if (currentOpenKey) goList();
+        showReadEmpty();
+      }
+    },
+    onFilterNew() {
+      openFilterEditor(null);
+    },
   });
-
-  // The groups' CSS (indented rows, one row height, the reserved
-  // scrollbar) is decide's alone.
-  handle.el.classList.add('cb-decide-list');
+  const handle = pane.handle;
+  // How old the observations are, at the foot of the list (obs.ts).
+  const obs = makeObs(ctx, (text, state) => pane.setObs(text, state));
+  void obs.load();
 
   // "group by recommendation": on, the list's groups with their heads and
   // buttons; off, one list newest first, each row naming its
@@ -541,30 +533,8 @@ export function makeDecide(ctx: Ctx): Section {
 
   // ---- saved filters ---------------------------------------------------------
 
-  // filterRows are serve's saved filters (GET /api/filters); the bar sits
-  // between the view chips and the switch.
+  // filterRows are serve's saved filters (GET /api/filters).
   let filterRows: FilterRow[] = [];
-  const filterBar = makeFilterBar(ctx, {
-    onSelect(ids, clicked) {
-      // A chip clicked while an editor is open ends it first.
-      if (draft !== null) closeFilterEditor(false);
-      shownFilter = ids.includes(clicked) ? clicked : null;
-      selectFilters(ids);
-    },
-    onOpen(row) {
-      if (draft !== null) closeFilterEditor(true);
-      shownFilter = row.filter.id;
-      // A selected rule has the middle pane: drop it so the filter shows.
-      if (filters.rule) selectRule(null);
-      else {
-        if (currentOpenKey) goList();
-        showReadEmpty();
-      }
-    },
-    onNew() {
-      openFilterEditor(null);
-    },
-  });
 
   // ---- rules: a chip per rule under the filters ------------------------------
 
@@ -609,7 +579,7 @@ export function makeDecide(ctx: Ctx): Section {
   function selectRule(id: string | null): void {
     filters.rule = id;
     if (id) filters.filters = [];
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     paintRules();
     showReadEmpty();
@@ -742,8 +712,8 @@ export function makeDecide(ctx: Ctx): Section {
     readEl.replaceChildren(editor.el);
     document.addEventListener('keydown', onEditorEsc);
     handle.el.classList.add('cb-previewing');
-    filterBar.paint(filterRows, []);
-    filterBar.setError(null);
+    pane.setFilters(filterRows, []);
+    pane.setFilterError(null);
     paintRules();
     paintAll();
     void reload();
@@ -804,7 +774,7 @@ export function makeDecide(ctx: Ctx): Section {
     return filters.filters.length > 0 || filters.rule !== null;
   }
   function paintFilters(): void {
-    filterBar.paint(filterRows, draft !== null ? [] : filters.filters);
+    pane.setFilters(filterRows, draft !== null ? [] : filters.filters);
   }
   async function loadFilters(): Promise<void> {
     try {
@@ -822,15 +792,16 @@ export function makeDecide(ctx: Ctx): Section {
   // goList puts the list's state in the address: the view, or the
   // selected filters, and flat.
   function goList(): void {
-    ctx.route.go(
-      'decide',
-      '',
-      decideQuery({
-        flat,
-        filters: filters.filters,
-        rule: filters.rule ?? '',
-      }),
-    );
+    ctx.route.go('decide', '', listQuery());
+  }
+  // listQuery is the list's address query.
+  function listQuery(): string {
+    return decideQuery({
+      flat,
+      filters: filters.filters,
+      rule: filters.rule ?? '',
+      q: filters.q,
+    });
   }
   // selectFilters makes ids the selection (none: back to the view).
   function selectFilters(ids: string[]): void {
@@ -838,80 +809,20 @@ export function makeDecide(ctx: Ctx): Section {
     if (ids.length) filters.rule = null;
     paintRules();
     showReadEmpty();
-    filterBar.setError(null);
+    pane.setFilterError(null);
     paintFilters();
     goList();
     void reload();
   }
 
-  handle.el
-    .querySelector('.kit-chips[data-group="view"]')
-    ?.after(
-      filterBar.el,
-      ruleRow.el,
-      h('div', { class: 'cb-list-tools' }, groupSwitch, previewLine),
-    );
+  pane.ownRow.append(ruleRow.el);
+  pane.tools.append(groupSwitch, previewLine);
   void loadFilters();
   void loadRules();
 
-  // ---- the list collapses to a rail -----------------------------------------
-
-  // « hides the list: it becomes a thin rail showing » and the view with
-  // its count, written up the rail; the rail (or ») brings it back. The
-  // choice is kept across reloads.
-  const hideBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'cb-list-hide',
-      onclick() {
-        setSidebar(false);
-      },
-    },
-    '\u00ab',
-  );
-  const showBtn = h(
-    'button',
-    { type: 'button', class: 'cb-list-show' },
-    '\u00bb',
-  );
-  const railLabel = h('span', { class: 'cb-list-rail-label' });
-  const rail = h(
-    'div',
-    {
-      class: 'cb-list-rail',
-      onclick() {
-        setSidebar(true);
-      },
-    },
-    showBtn,
-    railLabel,
-  );
-  handle.el.append(hideBtn, rail);
-  function storedSidebar(): boolean {
-    try {
-      return localStorage.getItem(SIDEBAR) !== 'closed';
-    } catch {
-      return true;
-    }
-  }
-  function setSidebar(open: boolean): void {
-    handle.el.classList.toggle('cb-list-closed', !open);
-    try {
-      localStorage.setItem(SIDEBAR, open ? 'open' : 'closed');
-    } catch {
-      // storage refused: the choice lasts this page only
-    }
-  }
-  handle.el.classList.toggle('cb-list-closed', !storedSidebar());
-  // paintRail writes the rail's view and count, and the controls' tooltips
-  // (serve's words).
+  // paintRail writes the rail's view and count.
   function paintRail(): void {
-    railLabel.textContent = `${viewLabel()} \u00b7 ${totalItemsForView}`;
-    if (vocab) {
-      hideBtn.title = vocab.hide_list;
-      showBtn.title = vocab.show_list;
-    }
+    pane.setRail(`${viewLabel()} \u00b7 ${totalItemsForView}`);
   }
 
   // ---- API ------------------------------------------------------------------
@@ -924,12 +835,16 @@ export function makeDecide(ctx: Ctx): Section {
         ? { match: JSON.stringify(draft) }
         : filters.rule
           ? { view: 'all', rule: filters.rule }
-          : filtered()
-            ? { filters: filters.filters.join(',') }
-            : { view: 'all' };
+          : { view: 'all' };
+    Object.assign(
+      p,
+      paneParams({
+        filters: draft === null && !filters.rule ? filters.filters : [],
+        q: filters.q,
+      }),
+    );
     p['offset'] = String(pageOffset);
     p['limit'] = String(PAGE_SIZE);
-    if (filters.q) p['q'] = filters.q;
     if (flat) p['group'] = 'false';
     else
       p['open'] = JSON.stringify([...opened].filter((id) => id !== LEFT_OPEN));
@@ -943,7 +858,71 @@ export function makeDecide(ctx: Ctx): Section {
   // 0.4.7: it was, and the list kept the old view). A load whose query
   // changed while it was on its way paints nothing: the newer query's load
   // paints.
-  const reload = coalesced(reloadNow);
+  const reloadQueued = coalesced(reloadNow);
+  // reload: a load that changes what is shown (a search, a filter, a rule)
+  // turns the middle's buttons off at once, until the new list and its
+  // ticked document are drawn; a tick it hides is then dropped.
+  function reload(): Promise<void> {
+    if (viewKey() !== shownView) {
+      selGen++;
+      viewPending = true;
+      freezeMid();
+    }
+    return reloadQueued();
+  }
+
+  // inView is every key the current view is known to hold (its loaded rows,
+  // and the pages a whole-group tick fetched), for shownView: ticks only
+  // ever cover these. viewPending: the view changed and its list isn't in.
+  let inView = new Set<string>();
+  let shownView = '';
+  let viewPending = false;
+  // selGen counts changes to the view and to the ticks: a whole-group fetch
+  // that finishes after either changed adds nothing.
+  let selGen = 0;
+  const viewKey = (): string => JSON.stringify(viewFilters());
+
+  // freezeMid turns every button in the middle pane off.
+  function freezeMid(): void {
+    for (const b of readEl.querySelectorAll<HTMLButtonElement>('button'))
+      b.disabled = true;
+  }
+
+  // settleShown works out what the view just loaded shows, and drops a tick
+  // it doesn't: a tick off the loaded rows is looked for in the view's every
+  // page. It reports whether the query is still the one asked.
+  async function settleShown(asked: string): Promise<boolean> {
+    const view = viewKey();
+    const next = new Set([...loadedItems, ...leftOpen].map((it) => it.key));
+    const off = selection.ids().filter((k) => !next.has(k));
+    if (off.length) {
+      try {
+        const want = new Set(off);
+        for (let at = 0, total = Infinity; at < total;) {
+          const data = await ctx.api.get<ItemsView>('/items', {
+            ...viewFilters(),
+            group: 'false',
+            offset: String(at),
+            limit: '500',
+          });
+          const got = data.items ?? [];
+          total = data.total;
+          if (!got.length) break;
+          at += got.length;
+          for (const it of got) if (want.has(it.key)) next.add(it.key);
+        }
+      } catch {
+        // not known to be shown: dropped
+      }
+      if (queryKey() !== asked) return false;
+    }
+    inView = next;
+    shownView = view;
+    viewPending = false;
+    const gone = selection.ids().filter((k) => !inView.has(k));
+    if (gone.length) selection.deselect(gone);
+    return true;
+  }
 
   // queryKey is a load's query, comparable (the page offset aside).
   function queryKey(): string {
@@ -1002,7 +981,11 @@ export function makeDecide(ctx: Ctx): Section {
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       paintedQuery = asked;
-      filterBar.setError(null);
+      if (!(await settleShown(asked))) {
+        void reload();
+        return;
+      }
+      pane.setFilterError(null);
       if (draft !== null) {
         editor?.showError(null);
         paintPreviewLine(
@@ -1015,6 +998,7 @@ export function makeDecide(ctx: Ctx): Section {
       markOpenRow();
       updateFoot();
       updateReadEmptyCount();
+      if (tickedOn && selection.ids().length) showTicked();
     } catch (err) {
       // A selection serve refuses (a filter deleted elsewhere, or one that
       // doesn't validate) says why, by name, and lists nothing: never the
@@ -1024,7 +1008,13 @@ export function makeDecide(ctx: Ctx): Section {
         editor?.showError(err);
         paintPreviewLine(`previewing a draft ${editing} \u00b7 not valid yet`);
       } else if (filtered() && refused) {
-        filterBar.setError(err.message);
+        pane.setFilterError(err.message);
+      }
+      if (!refused) {
+        // The list stays as it was, and so does what it shows.
+        shownView = viewKey();
+        viewPending = false;
+        if (tickedOn && selection.ids().length) showTicked();
       }
       if ((draft !== null || filtered()) && refused) {
         totalItems = 0;
@@ -1037,6 +1027,11 @@ export function makeDecide(ctx: Ctx): Section {
         lastOrder = [];
         offset = 0;
         paintedQuery = asked;
+        // Nothing is shown, so nothing stays ticked.
+        inView = new Set();
+        shownView = viewKey();
+        viewPending = false;
+        selection.clear();
         setRows();
         updateFoot();
         updateReadEmptyCount();
@@ -1070,6 +1065,7 @@ export function makeDecide(ctx: Ctx): Section {
       groups = data.groups ?? [];
       viewRecs = data.agent_recommended ?? 0;
       know(next);
+      for (const it of next) inView.add(it.key);
       lastOrder = loadedItems.map((it) => it.key);
       offset = loadedItems.length;
       totalItems = data.total;
@@ -1084,55 +1080,33 @@ export function makeDecide(ctx: Ctx): Section {
     }
   }
 
-  // setRows renders the items that need a decision, under their groups'
-  // headers (a collapsed group's header alone; flat, every loaded row and
-  // no group heads), and, once every page of them is loaded, the
-  // left-open group last: its header and (expanded) its muted rows.
+  // setRows renders the items that need a decision under their groups'
+  // heads (a collapsed group's head alone; flat, every loaded row and no
+  // heads), and, once every page of them is loaded, the left-open group
+  // last: its head and (expanded) its muted rows.
   function setRows(): void {
     const withLeft = offset >= totalItems && leftOpenTotal > 0;
-    const left = withLeft && opened.has(LEFT_OPEN) ? leftOpen : [];
-    const open = flat
-      ? loadedItems
-      : loadedItems.filter((it) => opened.has(it.group));
-    shown = [...open, ...left];
-    handle.setItems(shown);
+    const gs: PaneGroup[] = flat ? [] : groups.map(paneGroup);
+    if (withLeft)
+      gs.push({
+        id: LEFT_OPEN,
+        label: vocab?.left_open ?? '',
+        n: leftOpenTotal,
+        box: false,
+      });
+    shown = pane.setRows(
+      withLeft ? [...loadedItems, ...leftOpen] : loadedItems,
+      gs,
+      opened,
+    );
     const rowEls = handle.el.querySelectorAll<HTMLElement>(
       '.kit-rows > .kit-row',
     );
-    open.forEach((it, i) => {
-      if (it.new_activity) rowEls[i]?.classList.add('cb-new-activity');
-    });
-    // "‹session› is looking into it" (muted, agent colour) on the rows a
-    // session is looking into.
-    // It goes where the row's sub line goes: in the text column, under the
-    // title (and any recommendation's reason), one line.
     shown.forEach((it, i) => {
-      // The kicker and the title are one line each, cut with an ellipsis:
-      // whole in their tooltips.
-      for (const sel of ['.kit-kicker', '.kit-title']) {
-        const el = rowEls[i]?.querySelector<HTMLElement>(sel);
-        if (el) el.title = el.textContent ?? '';
-      }
-      const col = rowEls[i]?.querySelector('.kit-title')?.parentElement;
-      if (!col) return;
-      col.querySelector('.cb-row-looking')?.remove();
-      const says = lookingLine(it.looking);
-      if (says) col.append(h('div', { class: 'cb-row-looking' }, says));
+      if (isLeftOpen(it)) rowEls[i]?.classList.add('cb-left-open');
     });
-    handle.el.classList.toggle('cb-flat', flat);
-    if (flat) heads = [];
-    else placeGroupHeads(open, rowEls);
     paintRail();
     refreshNav();
-    if (!withLeft) return;
-    for (let i = open.length; i < shown.length; i++) {
-      rowEls[i]?.classList.add('cb-left-open');
-    }
-    const head = leftOpenHead();
-    heads.push(head);
-    const first = rowEls[open.length];
-    if (first) first.before(head.el);
-    else handle.el.querySelector('.kit-rows')?.append(head.el);
   }
 
   // ---- « ‹ › »: the open item's place in the list ---------------------------
@@ -1351,6 +1325,7 @@ export function makeDecide(ctx: Ctx): Section {
   // know records the group and the pending proposal of each item.
   function know(items: ItemView[]): void {
     for (const it of items) {
+      itemOfKey.set(it.key, it);
       if (!it.group) continue;
       groupOfKey.set(it.key, it.group);
       if (it.proposal?.state === 'pending')
@@ -1364,182 +1339,11 @@ export function makeDecide(ctx: Ctx): Section {
     return selection.ids().filter((k) => groupOfKey.get(k) === g.id);
   }
 
-  // heads are the shown groups' headers, painted again when the selection
-  // or the attached session changes.
-  let heads: Array<{ el: HTMLElement; paint(): void }> = [];
-
-  // placeGroupHeads puts each group with loaded rows under its header, in
-  // serve's order: before its first row, or (collapsed) where its rows
-  // would be.
-  function placeGroupHeads(
-    open: ItemView[],
-    rowEls: NodeListOf<HTMLElement>,
-  ): void {
-    const body = handle.el.querySelector<HTMLElement>('.kit-rows');
-    heads = [];
-    if (!body) return;
-    // Every group has its header, from serve's counts, loaded rows or not.
-    let last: Element | null = null;
-    for (const g of groups) {
-      const head = groupHead(g);
-      heads.push(head);
-      const first = open.findIndex((it) => it.group === g.id);
-      if (first >= 0) {
-        rowEls[first]?.before(head.el);
-        let end = first;
-        while (end + 1 < open.length && open[end + 1].group === g.id) end++;
-        last = rowEls[end] ?? head.el;
-      } else {
-        if (last) last.after(head.el);
-        else body.prepend(head.el);
-        last = head.el;
-      }
-    }
-  }
-
-  // headShell is a group's header, sticky over its rows: the caret, the
-  // group's checkbox (box; a blank of its width without one), its label
-  // (tags after it, hint under it), its count and (more) its ⋯; then the
-  // line its buttons go on, one line of one height whether or not they are
-  // there. The caret and the label collapse and expand it (id: the
-  // group's).
-  function headShell(
-    id: string,
-    label: string,
-    n: number,
-    box: HTMLElement | null,
-    hint: HTMLElement | null,
-    data: Record<string, string>,
-    tags: HTMLElement[] = [],
-    more: HTMLElement | null = null,
-  ): { el: HTMLElement; acts: HTMLElement } {
-    const isOpen = opened.has(id);
-    // Opening a group asks serve for its rows (the left-open group's come
-    // with every load); closing one drops them.
-    const toggleOpen = (): void => {
-      if (opened.has(id)) opened.delete(id);
-      else opened.add(id);
-      if (id === LEFT_OPEN) {
-        setRows();
-        markOpenRow();
-      } else void reload();
-    };
-    const top = h(
-      'div',
-      { class: 'cb-group-top' },
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'cb-group-caret',
-          'aria-expanded': String(isOpen),
-          'aria-label': label,
-          onclick: toggleOpen,
-        },
-        isOpen ? '\u25bc' : '\u25b6',
-      ),
-      box ?? h('span', { class: 'cb-group-nobox' }),
-      h(
-        'span',
-        { class: 'cb-group-name', onclick: toggleOpen },
-        h(
-          'span',
-          { class: 'cb-group-line' },
-          h('span', { class: 'cb-group-label' }, label),
-          ...tags,
-        ),
-        hint,
-      ),
-      h('span', { class: 'cb-group-n' }, String(n)),
-      more,
-    );
-    const acts = h('div', { class: 'cb-group-acts' });
-    const el = h(
-      'div',
-      {
-        class: 'cb-group' + (isOpen ? '' : ' collapsed'),
-        role: 'presentation',
-        dataset: data,
-      },
-      top,
-      acts,
-    );
-    return { el, acts };
-  }
-
-  // groupButton is one of group id's buttons: while one runs, the group's
-  // buttons wait.
-  // groupSays is what a group's decision does, in serve's words (the
-  // choice whose label the group carries): its button's hover.
-  function groupSays(g: GroupView): string {
-    for (const k of vocab?.kinds ?? []) {
-      const c = (k.choices ?? []).find(
-        (x) => x.disposition === g.disposition && x.label === g.label,
-      );
-      if (c) return c.says;
-    }
-    return '';
-  }
-  function withSays(el: HTMLElement, says: string): HTMLElement {
-    if (says) el.title = says;
-    return el;
-  }
-
-  function groupButton(
-    id: string,
-    cls: string,
-    label: string,
-    run: () => Promise<void> | void,
-    off = false,
-  ): HTMLElement {
-    return h(
-      'button',
-      {
-        type: 'button',
-        class: 'kit-btn ' + cls,
-        disabled: off || busyGroups.has(id) || draft !== null,
-        onclick() {
-          if (busyGroups.has(id)) return;
-          busyGroups.add(id);
-          paintAll();
-          void Promise.resolve(run()).finally(() => {
-            busyGroups.delete(id);
-            paintAll();
-          });
-        },
-      },
-      label,
-    );
-  }
-
-  // groupHead is one group's header: a checkbox that ticks every item of
-  // the group (every page), an outward group's "goes to apply first" under
-  // its label; its buttons act on the whole group or its ticked items. A
-  // rule's group is headed by the rule: its name, "rule", its decision, its
-  // count and ⋯ (edit, turn off). "Came back" has no buttons: each of its
-  // items is decided on its own.
-  function groupHead(g: GroupView): { el: HTMLElement; paint(): void } {
-    const box = h('span', {
-      class: 'cb-group-box',
-      role: 'checkbox',
-      'aria-checked': 'false',
-      'aria-label': g.label,
-      onclick() {
-        if (draft === null) void tickGroup(g);
-      },
-    });
-    const hint =
-      g.outward && vocab?.to_apply_hint
-        ? h('span', { class: 'cb-group-where' }, vocab.to_apply_hint)
-        : null;
+  // paneGroup is a group's head: a rule's is headed by the rule (its name,
+  // "rule · its decision", its count and ⋯: edit, turn off).
+  function paneGroup(g: GroupView): PaneGroup {
     const ruleId = g.source.startsWith('rule:') ? g.source.slice(5) : '';
     const rr = ruleId ? ruleRows.find((r) => r.rule.id === ruleId) : undefined;
-    const tags = ruleId
-      ? [
-          h('span', { class: 'cb-group-tag' }, 'rule'),
-          h('span', { class: 'cb-group-decision' }, g.label),
-        ]
-      : [];
     const more = rr
       ? ruleMenu(rr, {
           onEdit: () => openRuleEditor(rr, null),
@@ -1552,129 +1356,19 @@ export function makeDecide(ctx: Ctx): Section {
               ),
         })
       : null;
-    const { el, acts } = headShell(
-      g.id,
-      ruleId ? rr?.rule.name || ruleId : g.label,
-      g.total,
-      box,
-      hint,
-      { group: g.id, d: g.disposition, ...(ruleId ? { rule: ruleId } : {}) },
-      tags,
+    return {
+      id: g.id,
+      label: ruleId ? rr?.rule.name || ruleId : g.label,
+      tag: ruleId ? `rule \u00b7 ${g.label}` : undefined,
+      n: g.total,
+      box: true,
       more,
-    );
-    const button = (
-      cls: string,
-      label: string,
-      run: () => Promise<void> | void,
-      off = false,
-    ): HTMLElement => groupButton(g.id, cls, label, run, off);
-
-    function paint(): void {
-      const ticked = tickedIn(g);
-      const n = ticked.length;
-      box.setAttribute(
-        'aria-checked',
-        n === 0 ? 'false' : n >= g.total ? 'true' : 'mixed',
-      );
-      const t = ctx.dockTarget();
-      if (!vocab) {
-        acts.replaceChildren();
-        return;
-      }
-      if (g.id === CAME_BACK || g.id === 'none') {
-        // What needs a recommendation: with a session attached, ticked
-        // items get "ask agent to recommend these" (the look-into message,
-        // naming them). Unticked, the not recommended get "ask agent to
-        // suggest rules", the list's group attached; not while filtered:
-        // the group then holds decided items too, which no rule recommends.
-        let ask: HTMLElement | null = null;
-        let note: HTMLElement | null = null;
-        if (t && n > 0) {
-          // Underway: serve says the row is being looked into, or (a
-          // row not loaded) this page asked this session about it.
-          const rows = loadedItems.filter((it) => it.group === g.id);
-          const looked = ticked.every(
-            (k) =>
-              rows.some((it) => it.key === k && it.looking) ||
-              (!rows.some((it) => it.key === k) &&
-                lookedInto.has(`${t.id}\n${k}`)),
-          );
-          ask = button(
-            'fill cb-group-ask',
-            vocab.recommend_these,
-            () => lookInto(tickedIn(g)),
-            looked,
-          );
-        } else if (t && g.id === 'none' && !filtered()) {
-          if (asked === askedKey(t.id))
-            note = h('span', { class: 'cb-group-note' }, vocab.asked);
-          else ask = button('fill cb-group-ask', vocab.suggest_rules, askRules);
-        }
-        const untick =
-          n > 0
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  class: 'cb-group-untick',
-                  onclick() {
-                    selection.deselect(tickedIn(g));
-                  },
-                },
-                vocab.untick,
-              )
-            : null;
-        acts.replaceChildren(...[ask, note, untick].filter((x) => x !== null));
-        return;
-      }
-      const w = groupButtons(g, n, vocab);
-      acts.replaceChildren(
-        ...[
-          withSays(
-            button('fill cb-group-act', w.act, () => actGroup(g)),
-            groupSays(g),
-          ),
-          g.source.startsWith('rule:')
-            ? null
-            : button('cb-group-discard', w.discard, () => discardGroup(g)),
-          n > 0
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  class: 'cb-group-untick',
-                  onclick() {
-                    selection.deselect(tickedIn(g));
-                  },
-                },
-                vocab.untick,
-              )
-            : null,
-        ].filter((x) => x !== null),
-      );
-    }
-    paint();
-    return { el, paint };
-  }
-
-  // leftOpenHead is the left-open group's header (serve's label, its count
-  // across pages). Its items need no decision: no checkbox, no choice, no
-  // discard, and no ask (spec point 10: at scale the agent is asked for
-  // rules, not to look into every item).
-  function leftOpenHead(): { el: HTMLElement; paint(): void } {
-    const { el } = headShell(
-      LEFT_OPEN,
-      vocab?.left_open ?? '',
-      leftOpenTotal,
-      null,
-      null,
-      { group: LEFT_OPEN },
-    );
-    return { el, paint() {} };
+      data: { d: g.disposition, ...(ruleId ? { rule: ruleId } : {}) },
+    };
   }
 
   function paintAll(): void {
-    for (const head of heads) head.paint();
+    pane.paintHeads();
   }
 
   // groupFilters is the view and its filters as GET /api/items and
@@ -1710,8 +1404,13 @@ export function makeDecide(ctx: Ctx): Section {
       selection.deselect(ticked);
       return;
     }
+    const gen = selGen;
     try {
       const items = await fetchGroup(g);
+      // The view or the ticks changed while its pages came: they are the
+      // old view's, and tick nothing.
+      if (gen !== selGen || viewPending) return;
+      for (const it of items) inView.add(it.key);
       selection.all(items.map((it) => it.key));
       if (!opened.has(g.id)) {
         opened.add(g.id);
@@ -1719,75 +1418,6 @@ export function makeDecide(ctx: Ctx): Section {
       }
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // target is what a group's button acts on: its ticked items, or with
-  // none ticked every item of the group (every page).
-  async function target(
-    g: GroupView,
-  ): Promise<{ keys: string[]; ids: number[] }> {
-    let keys = tickedIn(g);
-    if (!keys.length) keys = (await fetchGroup(g)).map((it) => it.key);
-    const ids: number[] = [];
-    for (const k of keys) {
-      const id = proposalOfKey.get(k);
-      if (id !== undefined) ids.push(id);
-    }
-    return { keys, ids };
-  }
-
-  // actGroup accepts the recommendations of a group (or its ticked items).
-  // An outward choice only goes to apply, and the strip says so ("Deleted
-  // all 3 · waiting in apply · undo"; its undo takes them all back). When
-  // the open item was one of them, the next undecided item opens; with
-  // none open, the first undecided one does.
-  async function actGroup(g: GroupView): Promise<void> {
-    if (deciding) return;
-    const open = currentOpenKey;
-    deciding = open ?? '\u0000group';
-    try {
-      const ticked = tickedIn(g).length;
-      const { keys, ids } = await target(g);
-      if (!ids.length) return;
-      const order = await orderFor(open);
-      const r = await ctx.api.post<AcceptResult>('/proposals/accept', {
-        ids,
-      });
-      if (!r.accepted) {
-        showReadError((r.errors ?? []).join('; ') || 'nothing was accepted');
-        return;
-      }
-      selection.deselect(keys);
-      // Undo puts back what each had, as serve says it was when it
-      // decided (not the list's rows: a group's items aren't all loaded,
-      // and a live reload may already show the new decisions).
-      lastUndo = Object.entries(r.decisions ?? {}).map(([key, expect]) => ({
-        key,
-        prev: r.previous?.[key] ?? null,
-        expect,
-      }));
-      if (g.outward && vocab)
-        waited(
-          doneWords(vocab, g.disposition, {
-            label: g.label,
-            total: g.total,
-            ticked,
-          }),
-          applyGroupLink(g.disposition, keys[0] ?? ''),
-        );
-      else hideStrip();
-      if (!open || keys.includes(open)) {
-        await moveOn(open ?? '', order);
-      } else {
-        void reload();
-      }
-      const errs = r.errors ?? [];
-      if (errs.length) showReadError(errs.join('; '));
-    } catch (err) {
-      showReadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      deciding = null;
     }
   }
 
@@ -1810,57 +1440,216 @@ export function makeDecide(ctx: Ctx): Section {
       }
       if (t) for (const k of keys) lookedInto.add(`${t.id}\n${k}`);
       await reload();
+      if (tickedOn) showTicked();
     } catch (err) {
       showReadError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  // discardGroup confirms, then withdraws the group's agent
-  // recommendations (every page), or exactly its ticked items'.
-  function discardGroup(g: GroupView): void {
-    if (!vocab) return;
-    const ticked = tickedIn(g);
-    if (ticked.length && ticked.length < g.total) {
-      const ids = ticked
-        .map((k) => proposalOfKey.get(k))
-        .filter((id): id is number => id !== undefined);
-      openDiscardSheet(
+  // ---- what is ticked: the middle pane ---------------------------------------
+
+  // tickedOn: the middle pane shows the ticked items (it waits to show the
+  // open item until none is ticked).
+  let tickedOn = false;
+
+  // tickedItems is every ticked item as the page knows it.
+  function tickedItems(): ItemView[] {
+    return selection
+      .ids()
+      .filter((k) => inView.has(k))
+      .map((k) => itemOfKey.get(k) ?? ({ key: k } as ItemView));
+  }
+
+  // groupName is a group's name as its head shows it: its rule's name, else
+  // its label.
+  function groupName(g: GroupView): string {
+    const ruleId = g.source.startsWith('rule:') ? g.source.slice(5) : '';
+    if (!ruleId) return g.label;
+    return ruleRows.find((r) => r.rule.id === ruleId)?.rule.name || ruleId;
+  }
+
+  // tickedWhere is the group the ticks are in, by name, or how many groups.
+  function tickedWhere(keys: string[]): string {
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ''))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) return groupName(g);
+    if (ids.length === 1 && ids[0] === LEFT_OPEN) return vocab?.left_open ?? '';
+    return `${ids.length} groups`;
+  }
+
+  // showTicked puts the ticked items in the middle pane: the decision
+  // buttons for all of them, "ask agent to recommend these" (with a session
+  // attached) and "discard N" (when an agent recommends every one).
+  function showTicked(): void {
+    if (!vocab || draft !== null) return;
+    tickedOn = true;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    readEl.replaceChildren(
+      renderTicked(
         ctx,
-        vocab,
-        ids.length,
-        discardWhere(),
-        { ids },
-        discarded,
-      );
-      return;
-    }
-    openDiscardSheet(
-      ctx,
-      vocab,
-      g.total,
-      discardWhere(),
-      groupFilters(g),
-      discarded,
+        items,
+        tickedWords(vocab, items, tickedWhere(keys)),
+        decideTicked,
+        tickedExtra(items),
+      ),
     );
+    // The view is changing: nothing acts until its list is in.
+    if (viewPending) freezeMid();
+  }
+
+  function tickedExtra(items: ItemView[]): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    const t = ctx.dockTarget();
+    const keys = items.map((it) => it.key);
+    if (!vocab) return out;
+    if (t) {
+      const looked = keys.every(
+        (k) => !!itemOfKey.get(k)?.looking || lookedInto.has(`${t.id}\n${k}`),
+      );
+      out.push(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'kit-btn cb-ticked-ask',
+            disabled: looked,
+            onclick() {
+              // What is ticked and shown as Court presses.
+              if (viewPending) return;
+              void lookInto(tickedItems().map((it) => it.key));
+            },
+          },
+          vocab.recommend_these,
+        ),
+      );
+    }
+    const ids = items
+      .map((it) => it.proposal)
+      .filter((p) => p?.state === 'pending' && !p.source.startsWith('rule:'))
+      .map((p) => p?.id ?? 0);
+    if (ids.length && ids.length === items.length) {
+      const words = vocab;
+      out.push(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'kit-btn cb-ticked-discard',
+            onclick() {
+              // What is ticked and shown as Court presses.
+              if (viewPending) return;
+              const now = tickedItems()
+                .map((it) => it.proposal)
+                .filter(
+                  (p) =>
+                    p?.state === 'pending' && !p.source.startsWith('rule:'),
+                )
+                .map((p) => p?.id ?? 0);
+              if (!now.length) return;
+              openDiscardSheet(
+                ctx,
+                words,
+                now.length,
+                discardWhere(),
+                { ids: now },
+                discarded,
+              );
+            },
+          },
+          vocab.discard_many.replaceAll('{n}', String(ids.length)),
+        ),
+      );
+    }
+    return out;
+  }
+
+  // tickedDone is what deciding the ticked items did, in serve's words
+  // ("Deleted all 3"), for the strip.
+  function tickedDone(d: string, keys: string[]): string {
+    if (!vocab) return '';
+    const ids = [...new Set(keys.map((k) => groupOfKey.get(k) ?? ''))];
+    const g = ids.length === 1 ? groups.find((x) => x.id === ids[0]) : null;
+    if (g) {
+      const w = doneWords(vocab, d, {
+        label: g.label,
+        total: g.total,
+        ticked: keys.length,
+      });
+      if (w) return w;
+    }
+    if (keys.length === 1) return doneWords(vocab, d, { key: keys[0] });
+    const c = (vocab.kinds ?? [])
+      .find((k) => k.kind === kindFromKey(keys[0] ?? ''))
+      ?.choices?.find((x) => x.disposition === d);
+    return c
+      ? c.done_many.replaceAll(
+          '{n}',
+          countWord(keys.length, keys.length, vocab.count_words),
+        )
+      : '';
+  }
+
+  // decideTicked decides every ticked item (every page): a pending
+  // recommendation of exactly this decision is accepted, every other item
+  // decided. An outward one says where it went (the strip, whose undo takes
+  // them all back). The open item, if it was one of them, moves on.
+  async function decideTicked(d: string, until?: string): Promise<void> {
+    if (deciding || !vocab || viewPending) return;
+    const items = tickedItems();
+    const keys = items.map((it) => it.key);
+    if (!keys.length) return;
+    const { accept, decide } = splitTicked(items, d, until ?? '');
+    const open = currentOpenKey;
+    deciding = '\u0000ticked';
+    try {
+      const order = await orderFor(open);
+      const made: Record<string, Committed> = {};
+      const previous: Record<string, Committed> = {};
+      const errs: string[] = [];
+      if (accept.length) {
+        const r = await ctx.api.post<AcceptResult>('/proposals/accept', {
+          ids: accept,
+        });
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...(r.errors ?? []));
+      }
+      if (decide.length) {
+        const body: Record<string, unknown> = { keys: decide, disposition: d };
+        if (until) body['until'] = until;
+        const r = await ctx.api.post<DecideResult>('/decide', body);
+        Object.assign(made, r.decisions ?? {});
+        Object.assign(previous, r.previous ?? {});
+        errs.push(...(r.errors ?? []));
+      }
+      const decided = Object.keys(made);
+      if (!decided.length) {
+        showReadError(errs.join('; ') || 'nothing was decided');
+        return;
+      }
+      lastUndo = decided.map((key) => ({
+        key,
+        prev: previous[key] ?? null,
+        expect: made[key],
+      }));
+      const done = tickedDone(d, keys);
+      selection.deselect(keys);
+      if (outwardChoice(keys[0], d))
+        waited(done, applyGroupLink(d, decided[0]));
+      else hideStrip();
+      if (open && decided.includes(open)) await moveOn(open, order);
+      else void reload();
+      if (errs.length) showReadError(errs.join('; '));
+    } catch (err) {
+      showReadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      deciding = null;
+    }
   }
 
   function updateFoot(): void {
-    if (!footEl) return;
-
-    // Show or hide only the show-more button; the foot itself stays visible
-    // so the summary remains.
-    const btn = footEl.querySelector<HTMLElement>('.cb-foot-more');
-    if (btn) {
-      const remaining = totalItems - offset;
-      if (remaining > 0) {
-        btn.textContent = `show ${Math.min(PAGE_SIZE, remaining)} more`;
-        btn.hidden = false;
-      } else {
-        btn.hidden = true;
-      }
-    }
-    // The foot div itself is always visible.
-    footEl.hidden = false;
+    pane.setMore(Math.min(PAGE_SIZE, totalItems - offset));
   }
 
   // markOpenRow moves the list's open row to the item the reading column
@@ -1893,7 +1682,10 @@ export function makeDecide(ctx: Ctx): Section {
   // lookedInto is each session\nkey this page asked to recommend: a row
   // not loaded (past the first pages) still counts as underway.
   const lookedInto = new Set<string>();
-  ctx.onDockTarget(() => paintAll());
+  ctx.onDockTarget(() => {
+    updateReadEmptyCount();
+    if (tickedOn) showTicked();
+  });
 
   async function askRules(): Promise<void> {
     const t = ctx.dockTarget();
@@ -1904,7 +1696,7 @@ export function makeDecide(ctx: Ctx): Section {
     if (why) showReadError(why);
     else {
       asked = askedKey(t.id);
-      paintAll();
+      updateReadEmptyCount();
     }
   }
 
@@ -1944,6 +1736,7 @@ export function makeDecide(ctx: Ctx): Section {
   }
 
   async function openDetail(key: string): Promise<void> {
+    tickedOn = false;
     currentOpenKey = key;
     markOpenRow();
     feedAttached();
@@ -1967,6 +1760,8 @@ export function makeDecide(ctx: Ctx): Section {
   // paintDetail renders detail (key's) in the reading column.
   function paintDetail(key: string, detail: ItemDetailView): void {
     shownDetail = detail;
+    // What is ticked has the middle pane: the item waits for it to go.
+    if (tickedOn) return;
     const el = renderItem(ctx, detail, {
       decide: (d, until, note) => void decideOpen(key, d, until, note),
       cardsReady: () => renderAsk(),
@@ -2461,21 +2256,21 @@ export function makeDecide(ctx: Ctx): Section {
 
   // ---- section wiring -------------------------------------------------------
 
-  // Initial load: restore search text from URL if present.
-  {
-    const urlQ = getUrlQ();
-    if (urlQ) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
-    }
-  }
   void reload();
 
-  // Ticked items act through their group: the groups' ticked counts and
-  // buttons follow the selection (no bar primary, no d, no foot count).
+  // Ticked items show in the middle pane with their buttons; unticking them
+  // all brings back the open item, or the summary. The groups' heads count
+  // the ticks.
   selection.onChange(() => {
+    selGen++;
     paintAll();
     feedAttached();
+    if (selection.ids().length) showTicked();
+    else if (tickedOn) {
+      tickedOn = false;
+      if (currentOpenKey) void openDetail(currentOpenKey);
+      else showReadEmpty();
+    }
   });
 
   // shownProposal is the pending proposal the reading column shows: what
@@ -2545,11 +2340,14 @@ export function makeDecide(ctx: Ctx): Section {
     const wasActive = active;
     active = true;
     feedAttached();
-    // Restore search text from URL (?q=...) on every navigation into this section.
-    const urlQ = getUrlQ();
-    if (urlQ !== filters.q) {
-      filters.q = urlQ;
-      handle.setSearch(urlQ);
+    // The list's address names its search (#/decide?q=…); an item's
+    // address keeps the search the list has.
+    if (!sub) {
+      const urlQ = paneQuery(query).q;
+      if (urlQ !== filters.q) {
+        filters.q = urlQ;
+        pane.setSearch(urlQ);
+      }
     }
     const params = new URLSearchParams(query);
     const ids = sub ? [] : parseFilterIds(params.get('filters'));
@@ -2595,12 +2393,18 @@ export function makeDecide(ctx: Ctx): Section {
       if (filtered()) {
         filters.filters = [];
         filters.rule = null;
-        filterBar.setError(null);
+        pane.setFilterError(null);
         paintFilters();
         paintRules();
       }
       showReadEmpty();
       void reload();
+      // "+ filter" on review or run lands here (#/decide?new=filter): the
+      // editor opens on the list.
+      if (params.get('new') === 'filter') {
+        setHashQuery(listQuery());
+        openFilterEditor(null);
+      }
     }
   }
 
@@ -2611,12 +2415,15 @@ export function makeDecide(ctx: Ctx): Section {
     show,
     hide() {
       active = false;
+      // Leaving decide clears its ticks: a tick covers only what is shown.
+      selection.clear();
     },
     // The list's keys (j k o ↵ x ⇧x, / its search) come from the kit, bound
     // to this list while it shows.
     listKeys: () => ({ nav: handle, selects: true }),
     keys: () => listKeys,
     onLive(type: string, data: unknown) {
+      obs.onLive(type, data);
       if (type === 'gap') {
         // Events this page never heard were pruned: reload all it shows
         // (the rules, the list, and the open item).

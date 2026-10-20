@@ -78,7 +78,15 @@ async function eventually(fn, timeout = 5000) {
   }
 }
 
-const helpers = { check, checkList, until, eventually };
+// expectError says one console error is meant (a scenario provoking serve's
+// refusal: the browser logs the 4xx it gets): the next console error that
+// has text is not counted. One call, one error.
+const expectedErrors = [];
+function expectError(text) {
+  expectedErrors.push(text);
+}
+
+const helpers = { check, checkList, until, eventually, expectError };
 
 let e2eServe = null;
 function cleanup() {
@@ -226,7 +234,7 @@ async function e2eScenario(browser) {
       disposition: 'close',
     });
     await pg.click('.kit-ctl[data-id="review"]');
-    const HEAD = '.cb-apply-part[data-part="close|pr"] .cb-group-plan';
+    const HEAD = '.cb-apply-part[data-part="close|pr"] .cb-group-box';
     await pg.waitForSelector(HEAD, { timeout: 8000 });
     await pg.click(HEAD);
     const RUN = '[data-testid="run-group"] .kit-btn.fill';
@@ -251,17 +259,18 @@ async function e2eScenario(browser) {
     );
     await pg.click(RUN);
     const job = (await (await approved).json()).job ?? {};
-    const bar = (id) =>
-      `.cb-apply-list .kit-row[data-job="${id}"] .cb-pb[aria-valuenow="%"]`;
     check(
-      `run shows the job (#${job.id}), its progress at 0`,
+      `run shows the job (#${job.id}), and lists it running, 0 of 1`,
       await until(
         pg,
-        ([id, sel]) =>
+        (id) =>
           location.hash === `#/run/${id}` &&
           document.querySelector('.cb-job')?.dataset.job === String(id) &&
-          !!document.querySelector(sel),
-        [job.id, bar(job.id).replace('%', '0')],
+          (
+            document.querySelector(`.cb-pane-run .cb-run-job[data-job="${id}"]`)
+              ?.textContent ?? ''
+          ).endsWith('0 of 1'),
+        job.id,
         8000,
       ),
     );
@@ -273,11 +282,16 @@ async function e2eScenario(browser) {
         state,
       });
     check(
-      'its progress rises live as the agent reports the step, and serve verifies it',
+      'its step moves live as the agent reports it, and serve verifies it; run counts its item done',
       (await until(
         pg,
-        (sel) => !!document.querySelector(sel),
-        bar(job.id).replace('%', '1'),
+        (step) =>
+          document.querySelector(`.cb-job .cb-step[data-step="${step}"]`)
+            ?.dataset.state === 'verified' &&
+          document.querySelector(
+            '.cb-pane-run .cb-group[data-group="done"] .cb-group-n',
+          )?.textContent === '1',
+        job.steps[0].id,
         10000,
       )) &&
         (await eventually(
@@ -299,7 +313,7 @@ async function e2eScenario(browser) {
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 59;
+const MIN_CHECKS = 77;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -406,7 +420,9 @@ async function run() {
     }
     c.on('console', (msg) => {
       if (msg.type() !== 'error') return;
-      if (msg.text().includes('the walkthrough overlay showed'))
+      const meant = expectedErrors.findIndex((x) => msg.text().includes(x));
+      if (meant >= 0) expectedErrors.splice(meant, 1);
+      else if (msg.text().includes('the walkthrough overlay showed'))
         walkLeaks.push(group);
       else pageErrors.push(`${group}: ${msg.text()}`);
     });

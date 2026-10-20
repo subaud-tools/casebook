@@ -31,13 +31,21 @@ import {
   tagText,
   publicLine,
   runsNow,
-  reviewKicker,
-  reviewKeys,
+  reviewKick,
+  reviewLine,
+  untickHidden,
+  stepLine,
   waitBlocks,
   heldText,
   otherHalf,
+  ranLine,
+  runBulk,
+  tickedRunWords,
+  standsStep,
+  aroundSteps,
+  actionVerb,
 } from './apply-text.ts';
-import type { Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
+import type { ItemView, Job, JobStep, NeedsYou, Plan, Step } from './wire.d.ts';
 
 let ids = 1;
 function step(
@@ -120,8 +128,8 @@ describe('names', () => {
     assert.equal(laneLabel('agent', ''), 'agent · outward');
   });
   test('a group is named by its action', () => {
-    assert.equal(actionTitle('branch-delete-local'), 'Delete local branches');
-    assert.equal(actionTitle('pr-close'), 'Close PRs');
+    assert.equal(actionTitle('branch-delete-local'), 'delete local branches');
+    assert.equal(actionTitle('pr-close'), 'close PRs');
     assert.equal(actionTitle('something-new'), 'something-new');
   });
   test("a job's title is its groups, and its lanes casebook's first", () => {
@@ -130,7 +138,7 @@ describe('names', () => {
       step('branch-delete-local', 'casebook'),
       step('repo-archive', 'agent'),
     ]);
-    assert.equal(jobTitle(j), 'Archive repos, delete local branches');
+    assert.equal(jobTitle(j), 'archive repos, delete local branches');
     assert.deepEqual(jobLanes(j), ['casebook', 'agent']);
     assert.equal(jobTitle(job('planned', [])), 'job #3');
   });
@@ -411,13 +419,13 @@ describe('planTitle', () => {
         ]),
         nouns,
       ),
-      'Delete 2 repos',
+      'delete 2 repos',
     );
   });
   test('one item reads singular', () => {
     assert.equal(
       planTitle(job([['pr:o/a#1', 'pr-merge']]), nouns),
-      'Merge 1 pr',
+      'merge 1 pr',
     );
   });
   test('a branch counts once across its local and remote steps', () => {
@@ -430,7 +438,7 @@ describe('planTitle', () => {
         ]),
         nouns,
       ),
-      'Delete 1 local branch, delete 1 remote branch, close 1 pr',
+      'delete 1 local branch, delete 1 remote branch, close 1 pr',
     );
   });
 });
@@ -520,7 +528,7 @@ describe('review tags and lines', () => {
     };
     assert.equal(
       runsNow(plan),
-      'Runs now: 2 worktrees removed first, 3 deleted on GitHub, 1 deleted here.\nWaits for pro-2: 4 local copies. Held: 1.',
+      'runs now: 2 worktrees removed first, 3 deleted on GitHub, 1 deleted here.\nWaits for pro-2: 4 local copies. Held: 1.',
     );
     assert.equal(
       runsNow({
@@ -534,7 +542,7 @@ describe('review tags and lines', () => {
         built_at: '',
         steps: [st('branch-delete-local'), st('repo-archive')],
       }),
-      'Runs now: 1 deleted here, 1 on GitHub, through the agent.',
+      'runs now: 1 deleted here, 1 on GitHub, through the agent.',
     );
     assert.equal(
       runsNow({
@@ -542,45 +550,165 @@ describe('review tags and lines', () => {
         steps: [],
         held_back: [{ key: 'pr:o/r#3', holds: [] }],
       }),
-      'Nothing runs now.\nHeld: 1.',
+      'nothing runs now.\nHeld: 1.',
     );
     assert.equal(
       runsNow({
         built_at: '',
         steps: Array.from({ length: 1240 }, () => st('branch-delete-remote')),
       }),
-      'Runs now: 1,240 deleted on GitHub.',
+      'runs now: 1,240 deleted on GitHub.',
     );
   });
-  test('reviewKicker', () => {
-    assert.equal(reviewKicker(1), 'review');
-    assert.equal(reviewKicker(3), 'review \u00b7 3 groups ticked');
+  test('reviewKick', () => {
+    assert.equal(
+      reviewKick(10, ['branches']),
+      'review \u00b7 10 ticked in branches',
+    );
+    assert.equal(
+      reviewKick(3, ['branches', 'PRs']),
+      'review \u00b7 3 ticked in 2 groups',
+    );
   });
 });
 
-describe('reviewKeys', () => {
-  const g = (ticked: string[], waiting: string[]) => ({ ticked, waiting });
-  test('ticks only in a group that is not open: those ticks only', () => {
-    assert.deepEqual(reviewKeys([g([], ['a', 'b']), g(['c'], ['c', 'd'])], 0), {
-      keys: ['c'],
-      groups: 1,
-    });
-  });
-  test('ticks in two groups: their union', () => {
+describe('review rows', () => {
+  const branchWith = (over: Partial<ItemView>): ItemView =>
+    ({
+      key: 'branch:o/r@feat/x',
+      kind: 'branch',
+      decision: { disposition: 'delete' },
+      ...over,
+    }) as unknown as ItemView;
+  const prClose = (): ItemView =>
+    ({
+      key: 'pr:o/r#3',
+      kind: 'pr',
+      decision: { disposition: 'close' },
+    }) as unknown as ItemView;
+  test('reviewLine says what holds it first', () =>
     assert.deepEqual(
-      reviewKeys(
-        [g(['a'], ['a', 'b']), g([], ['e']), g(['c', 'd'], ['c', 'd'])],
-        1,
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'no-access',
+              text: "you can't change branches on GitHub",
+              stops: ['delete'],
+            },
+          ],
+        }),
+        'Deleted it',
       ),
-      { keys: ['a', 'c', 'd'], groups: 2 },
+      { text: "held: you can't change branches on GitHub", tone: 'agent' },
+    ));
+  test('a hold that stops another decision is not this one', () =>
+    assert.equal(
+      reviewLine(
+        branchWith({
+          holds: [{ kind: 'x', text: 'no merging', stops: ['merge'] }],
+          copies: [{ machine: '' }],
+        }),
+        'Deleted it',
+      ).text,
+      'deleted on GitHub',
+    ));
+  test('reviewLine names where a branch is deleted', () => {
+    assert.equal(
+      reviewLine(
+        branchWith({ copies: [{ machine: 'work' }, { machine: '' }] }),
+        'Deleted it',
+      ).text,
+      'deleted on GitHub and here',
+    );
+    assert.equal(
+      reviewLine(
+        branchWith({
+          copies: [{ machine: 'work' }, { machine: '', absent: true }],
+        }),
+        'Deleted it',
+      ).text,
+      'deleted here',
     );
   });
-  test("no ticks anywhere: the open group's waiting items", () => {
-    assert.deepEqual(reviewKeys([g([], ['a']), g([], ['c', 'd'])], 1), {
-      keys: ['c', 'd'],
-      groups: 1,
-    });
+  // Court, 2026-10-20: ghmr-bench's ten branches read "held" while their
+  // GitHub deletes were in the plan; only their local copies waited.
+  test('a local copy on another Mac waits; the GitHub delete still runs', () =>
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'other-mac',
+              text: 'its local copy is only on pro-2',
+              stops: ['delete'],
+              local: true,
+              machine: 'pro-2',
+            },
+          ],
+          copies: [
+            { machine: 'pro-2' },
+            { machine: 'work', absent: true },
+            { machine: '' },
+          ],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: 'deleted on GitHub \u00b7 local copy waits for pro-2',
+        tone: 'muted',
+      },
+    ));
+  test('a hold on one half names that half; the other half runs', () => {
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'worktree',
+              text: 'in use by worktree ops on work, which has uncommitted changes',
+              stops: ['delete'],
+              local: true,
+              machine: 'work',
+            },
+          ],
+          copies: [{ machine: 'work' }, { machine: '' }],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: 'deleted on GitHub \u00b7 local copy held: in use by worktree ops on work, which has uncommitted changes',
+        tone: 'agent',
+      },
+    );
+    assert.deepEqual(
+      reviewLine(
+        branchWith({
+          holds: [
+            {
+              kind: 'no-access',
+              text: "you can't change branches in o/r on GitHub (your access: read)",
+              stops: ['delete'],
+              remote: true,
+            },
+          ],
+          copies: [{ machine: 'work' }, { machine: '' }],
+        }),
+        'Deleted it',
+      ),
+      {
+        text: "deleted here \u00b7 GitHub copy held: you can't change branches in o/r on GitHub (your access: read)",
+        tone: 'agent',
+      },
+    );
   });
+  test('reviewLine falls back to the done word, lower case', () =>
+    assert.deepEqual(reviewLine(prClose(), 'Closed it'), {
+      text: 'closed it',
+      tone: 'muted',
+    }));
+  test('TestReviewUntickHidden: a filter unticks what it hides', () =>
+    assert.deepEqual(untickHidden(['a', 'b'], new Set(['a'])), ['b']));
 });
 
 describe('waits and held wording', () => {
@@ -642,4 +770,195 @@ describe('waits and held wording', () => {
     assert.equal(otherHalf(a.key, steps), ' \u00b7 its other half runs above');
     assert.equal(otherHalf(b.key, steps), '');
   });
+});
+
+describe('run rows', () => {
+  const mk = (over: Partial<JobStep>): JobStep =>
+    step(over.action ?? 'pr-close', over.lane ?? 'casebook', over.state, over);
+  test('ranLine names what failed and the job', () =>
+    assert.deepEqual(
+      ranLine({
+        job: 33,
+        group: 'needs-you',
+        steps: [mk({ action: 'branch-delete-remote', state: 'failed' })],
+      }),
+      { text: 'GitHub delete failed \u00b7 job #33', tone: 'signal' },
+    ));
+  test('ranLine on a verified step', () =>
+    assert.equal(
+      ranLine({
+        job: 28,
+        group: 'done',
+        steps: [mk({ action: 'branch-delete-local', state: 'verified' })],
+      }).text,
+      'deleted \u00b7 verified \u00b7 job #28',
+    ));
+  test('actionVerb names where a branch is deleted', () => {
+    assert.equal(actionVerb('branch-delete-remote'), 'GitHub delete');
+    assert.equal(actionVerb('branch-delete-local'), 'local delete');
+    assert.equal(actionVerb('worktree-remove'), 'worktree remove');
+    assert.equal(actionVerb('pr-merge'), 'merge');
+  });
+  test('standsStep: what needs you, else what has not finished, else the last', () => {
+    const v = mk({ state: 'verified' });
+    const f = mk({ state: 'failed' });
+    const p = mk({ state: 'pending' });
+    assert.equal(standsStep({ job: 1, group: '', steps: [v, p, f] }), f);
+    assert.equal(standsStep({ job: 1, group: '', steps: [v, p] }), p);
+    assert.equal(
+      standsStep({ job: 1, group: '', steps: [v, mk({ state: 'skipped' })] })
+        .state,
+      'skipped',
+    );
+  });
+  test('aroundSteps keeps the steps around the item in a large job', () => {
+    const r = aroundSteps(
+      Array.from({ length: 215 }, (_, i) => mk({ key: `k${i}` })),
+      'k100',
+      3,
+    );
+    assert.deepEqual(
+      r.steps.map((s) => s.key),
+      ['k97', 'k98', 'k99', 'k100', 'k101', 'k102', 'k103'],
+    );
+    assert.equal(r.hidden, 208);
+  });
+  test('aroundSteps at the start of a job, and a small job whole', () => {
+    const steps = Array.from({ length: 5 }, (_, i) => mk({ key: `k${i}` }));
+    assert.deepEqual(
+      aroundSteps(steps, 'k0', 3).steps.map((s) => s.key),
+      ['k0', 'k1', 'k2', 'k3'],
+    );
+    assert.equal(aroundSteps(steps, 'k0', 3).hidden, 1);
+  });
+});
+
+describe('ticked run items', () => {
+  const failed = (id: number): JobStep => ({
+    id,
+    job_id: 33,
+    key: `k${id}`,
+    action: 'branch-delete-remote',
+    lane: 'casebook',
+    command: '',
+    state: 'failed',
+  });
+  const verifiedUndoable = (id: number): JobStep => ({
+    id,
+    job_id: 28,
+    key: `k${id}`,
+    action: 'branch-delete-local',
+    lane: 'casebook',
+    command: '',
+    state: 'verified',
+    undoable: true,
+  });
+  const card = (step: number, kind: string): NeedsYou => ({
+    id: 100 + step,
+    job_id: 33,
+    step_id: step,
+    kind,
+    question: '',
+    text: '',
+    state: 'open',
+    answer: '',
+    created_at: '',
+  });
+  const failedMark = (job: number) => ({
+    job,
+    group: 'needs-you',
+    steps: [failed(job * 10 + 1)],
+  });
+  const mark = (job: number, steps: JobStep[], finished = false) => ({
+    job,
+    group: 'needs-you',
+    finished,
+    steps,
+  });
+  const ids = (xs: JobStep[]) => xs.map((x) => x.id);
+  test('runBulk on an item with two failed steps skips both', () => {
+    const b = runBulk(
+      [mark(33, [failed(1), failed(2)])],
+      [card(1, 'failed'), card(2, 'failed')],
+    );
+    assert.deepEqual(
+      [ids(b.skip), ids(b.hand), ids(b.undo)],
+      [[1, 2], [1, 2], []],
+    );
+  });
+  test('runBulk shows nothing for a failed item and a done one together', () => {
+    const b = runBulk(
+      [mark(33, [failed(1)]), mark(28, [verifiedUndoable(2)], true)],
+      [card(1, 'failed')],
+    );
+    assert.deepEqual([ids(b.skip), ids(b.hand), ids(b.undo)], [[], [], []]);
+  });
+  test('runBulk undoes every undoable step of each item', () => {
+    const b = runBulk(
+      [
+        mark(28, [verifiedUndoable(1), verifiedUndoable(2)], true),
+        mark(28, [verifiedUndoable(3)], true),
+      ],
+      [],
+    );
+    assert.deepEqual(
+      [ids(b.skip), ids(b.hand), ids(b.undo)],
+      [[], [], [1, 2, 3]],
+    );
+  });
+  test('runBulk skips nothing in a job that has finished', () => {
+    const b = runBulk([mark(33, [failed(1)], true)], [card(1, 'failed')]);
+    assert.deepEqual(ids(b.skip), []);
+  });
+  test('tickedRunWords', () =>
+    assert.deepEqual(
+      tickedRunWords([failedMark(33), failedMark(33)], 'needs you'),
+      {
+        kick: 'run \u00b7 2 ticked in needs you',
+        title: '2 failed steps',
+        ctx: 'job #33',
+      },
+    ));
+});
+
+// Court, 2026-10-20: "this is also not an intelligible command".
+describe('stepLine', () => {
+  test('a GitHub delete reads as what it does; the key line above names the branch', () =>
+    assert.equal(
+      stepLine({
+        action: 'branch-delete-remote',
+        key: 'branch:schuettc/ghmr-bench@feat/boot-trace',
+        command: "gh api graphql -f query='mutation(...)' -f r='R_1'",
+        expected_tip: '14da80f3d9aecd97e5321bcf6be172a500fbaa3e',
+      }),
+      'delete on GitHub \u00b7 if still at 14da80f',
+    ));
+  test('a local delete and a worktree removal read the same way', () => {
+    assert.equal(
+      stepLine({
+        action: 'branch-delete-local',
+        key: 'branch:o/r@feat/x',
+        command: "git -C '/r' update-ref -d 'refs/heads/feat/x' abc1234def",
+        expected_tip: 'abc1234def',
+      }),
+      'delete here \u00b7 if still at abc1234',
+    );
+    assert.equal(
+      stepLine({
+        action: 'worktree-remove',
+        key: 'worktree:work:/r/.worktrees/ops',
+        command: "git -C '/r' worktree remove '/r/.worktrees/ops'",
+      }),
+      'remove the worktree',
+    );
+  });
+  test('a gh command that already reads is shown as it is', () =>
+    assert.equal(
+      stepLine({
+        action: 'pr-merge',
+        key: 'pr:o/r#7',
+        command: "gh pr merge 7 -R 'o/r' --squash",
+      }),
+      "gh pr merge 7 -R 'o/r' --squash",
+    ));
 });

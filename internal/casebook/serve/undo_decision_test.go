@@ -295,7 +295,7 @@ func TestDecideAndAcceptSayWhatWasThere(t *testing.T) {
 	}
 	prev := res.Previous[key]
 	if prev == nil || prev.Disposition != "wait" || prev.Until != "date(2030-01-01)" || prev.Note != "later" || !prev.DecidedAt.Equal(first.DecidedAt) {
-		t.Fatalf("previous %+v, want the Not now that was there (%+v)", prev, first)
+		t.Fatalf("previous %+v, want the not now that was there (%+v)", prev, first)
 	}
 	res.Previous = nil
 	body = map[string]any{"keys": []string{"issue:schuettc/hail#6"}, "disposition": "keep"}

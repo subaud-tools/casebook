@@ -18,8 +18,10 @@ import {
   leftOpenMeta,
   navTargets,
   shortKey,
-  rowSub,
+  standsLine,
   decideSummary,
+  splitTicked,
+  tickedWords,
 } from './decide-math.ts';
 import type {
   DecisionVocabView,
@@ -388,9 +390,9 @@ describe('navTargets', () => {
     total,
   });
   const groups = [
-    g('close', 'Close it without merging', 27),
-    g('keep', 'Leave it open', 2),
-    g('merge', 'Merge it', 2),
+    g('close', 'close it without merging', 27),
+    g('keep', 'leave it open', 2),
+    g('merge', 'merge it', 2),
   ];
   // The loaded rows in group order, a collapsed group's included.
   const order = [
@@ -409,7 +411,7 @@ describe('navTargets', () => {
     assert.equal(n.prevGroup, undefined);
     assert.equal(n.pos, 1);
     assert.equal(n.total, 27);
-    assert.equal(n.label, 'Close it without merging');
+    assert.equal(n.label, 'close it without merging');
     assert.equal(n.next, 'pr:o/r#2');
     assert.equal(n.nextGroup, 'pr:o/r#4');
   });
@@ -420,7 +422,7 @@ describe('navTargets', () => {
     assert.equal(n.prev, 'pr:o/r#4');
     assert.equal(n.pos, 2);
     assert.equal(n.total, 2);
-    assert.equal(n.label, 'Leave it open');
+    assert.equal(n.label, 'leave it open');
     // The previous group's first item, not its last.
     assert.equal(n.prevGroup, 'pr:o/r#1');
     assert.equal(n.nextGroup, 'pr:o/r#6');
@@ -456,98 +458,86 @@ describe('shortKey', () => {
   });
 });
 
-// ---- rowSub -----------------------------------------------------------------
+// ---- standsLine ---------------------------------------------------------------
 
-describe('rowSub', () => {
+describe('standsLine', () => {
   const vocab = {
     kinds: [
       {
-        kind: 'pr',
-        allowed: ['keep', 'close'],
+        kind: 'branch',
+        allowed: ['keep', 'delete'],
         needs_until: [],
         question: '',
         choices: [
           {
-            disposition: 'keep',
-            label: 'Leave it open',
-            says: '',
-            outward: false,
-            needs_until: false,
-            many: '',
-          },
-          {
-            disposition: 'close',
-            label: 'Close it without merging',
+            disposition: 'delete',
+            label: 'delete it',
             says: '',
             outward: true,
-            many: '',
             needs_until: false,
+            many: '',
           },
         ],
       },
     ],
+    came_back: { due: 'its decision came due' },
   } as unknown as DecisionVocabView;
-  const pr = (over: Partial<ItemView> = {}): ItemView =>
+  const br = (over: Partial<ItemView> = {}): ItemView =>
     ({
-      key: 'pr:schuettc/hail#3',
-      kind: 'pr',
+      key: 'branch:o/r@feat/x',
+      kind: 'branch',
       status: 'new',
-      group: 'pi:s1|close|Close it without merging',
-      proposal: { state: 'pending', disposition: 'close', note: 'stale' },
+      group: 'rule:landed|delete|delete it',
+      proposal: { state: 'pending', disposition: 'delete', note: 'landed' },
       ...over,
     }) as unknown as ItemView;
 
-  test('grouped: the reason alone (the head names the choice)', () => {
-    assert.equal(rowSub(vocab, pr(), false), 'stale');
-  });
-  test('flat: the choice, then the reason', () => {
-    assert.equal(
-      rowSub(vocab, pr(), true),
-      'Close it without merging \u00b7 stale',
-    );
-  });
-  test('flat with new activity: why it came back first', () => {
-    const it = pr({
-      new_activity: true,
-      due_reason: 'new activity since you left it open',
-    });
-    assert.equal(
-      rowSub(vocab, it, true),
-      'new activity since you left it open \u00b7 Close it without merging \u00b7 stale',
-    );
-  });
-  test('no proposal: no sub', () => {
-    assert.equal(rowSub(vocab, pr({ proposal: undefined }), true), undefined);
-  });
-  test('left open: no sub', () => {
-    assert.equal(rowSub(vocab, pr({ status: 'left-open' }), true), undefined);
-  });
-  test("came back: why, first; serve's words when the item has no reason", () => {
-    const v = {
-      ...vocab,
-      came_back: { drift: 'it changed on GitHub since you decided' },
-    } as unknown as DecisionVocabView;
-    assert.equal(
-      rowSub(
-        v,
-        pr({
+  test('standsLine puts looking first, then why it came back, then the recommendation', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          looking: { session: { id: 's1', name: 'pi' } },
           status: 'due',
           group: 'came-back',
-          due_reason: 'its condition was met',
-          proposal: undefined,
+        } as unknown as Partial<ItemView>),
+        true,
+      ),
+      { text: 'pi is looking into it', tone: 'agent' },
+    );
+    assert.deepEqual(
+      standsLine(vocab, br({ status: 'due', group: 'came-back' }), true),
+      { text: 'its decision came due', tone: 'signal' },
+    );
+    assert.deepEqual(standsLine(vocab, br(), true), {
+      text: 'delete it \u00b7 landed',
+      tone: 'muted',
+    });
+  });
+  test('grouped: the head names the choice, the row its reason', () => {
+    assert.deepEqual(standsLine(vocab, br(), false), {
+      text: 'landed',
+      tone: 'muted',
+    });
+  });
+  test('new activity is why it is back', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          new_activity: true,
+          due_reason: 'new activity since you left it open',
         }),
         false,
       ),
-      'its condition was met',
+      { text: 'new activity since you left it open', tone: 'signal' },
     );
-    assert.equal(
-      rowSub(
-        v,
-        pr({ status: 'drift', group: 'came-back', proposal: undefined }),
-        false,
-      ),
-      'it changed on GitHub since you decided',
-    );
+  });
+  test('no recommendation', () => {
+    assert.deepEqual(standsLine(vocab, br({ proposal: undefined }), false), {
+      text: 'not recommended yet',
+      tone: 'muted',
+    });
   });
 });
 
@@ -572,15 +562,15 @@ describe('decideSummary', () => {
     assert.deepEqual(
       decideSummary(
         [
-          g('came-back', '', 'Came back', 3),
+          g('came-back', '', 'came back', 3),
           g(
-            'rule:landed-branches|delete|Delete it',
+            'rule:landed-branches|delete|delete it',
             'rule:landed-branches',
-            'Delete it',
+            'delete it',
             30,
           ),
           g('pi:x|archive|Archive it', 'pi:x', 'Archive it', 5),
-          g('none', '', 'Not recommended yet', 12),
+          g('none', '', 'not recommended yet', 12),
         ],
         50,
         rules,
@@ -589,7 +579,7 @@ describe('decideSummary', () => {
       [
         '50 to decide',
         '3 came back',
-        'Landed branches \u00b7 Delete it \u00b7 30',
+        'Landed branches \u00b7 delete it \u00b7 30',
         'pi \u00b7 Archive it \u00b7 5',
         '12 not recommended yet',
       ],
@@ -599,4 +589,88 @@ describe('decideSummary', () => {
   test('nothing to decide: the one line', () => {
     assert.deepEqual(decideSummary([], 0, rules, vocab), ['0 to decide']);
   });
+});
+
+// ---- ticked items -------------------------------------------------------------
+
+describe('ticked items', () => {
+  let n = 0;
+  const withProp = (key: string, id: number, d: string): ItemView =>
+    ({
+      key,
+      kind: 'branch',
+      proposal: { id, state: 'pending', disposition: d, source: 'rule:x' },
+    }) as unknown as ItemView;
+  const bare = (key: string): ItemView =>
+    ({ key, kind: 'branch' }) as unknown as ItemView;
+  const VOCAB = {
+    recommends: 'agent recommends',
+    rule_recommends: '{rule} recommends',
+    kinds: [
+      {
+        kind: 'branch',
+        noun: 'branch',
+        nouns: 'branches',
+        choices: [{ disposition: 'delete', label: 'delete it' }],
+      },
+      {
+        kind: 'pr',
+        noun: 'PR',
+        nouns: 'PRs',
+        choices: [{ disposition: 'close', label: 'close it' }],
+      },
+    ],
+  } as unknown as DecisionVocabView;
+  const branchRec = (rule: string): ItemView =>
+    ({
+      key: `branch:o/r@b${n++}`,
+      kind: 'branch',
+      group: `rule:landed|delete|delete it`,
+      proposal: {
+        id: n,
+        state: 'pending',
+        disposition: 'delete',
+        source: 'rule:landed',
+      },
+      title: rule,
+    }) as unknown as ItemView;
+
+  test('splitTicked accepts matching recommendations and decides the rest', () =>
+    assert.deepEqual(
+      splitTicked(
+        [withProp('a', 7, 'delete'), withProp('b', 8, 'keep'), bare('c')],
+        'delete',
+      ),
+      { accept: [7], decide: ['b', 'c'] },
+    ));
+  test('tickedWords for two from one rule', () =>
+    assert.deepEqual(
+      tickedWords(
+        VOCAB,
+        [branchRec('Landed branches'), branchRec('Landed branches')],
+        'Landed branches',
+      ),
+      {
+        kick: 'decide \u00b7 2 ticked in Landed branches',
+        title: '2 branches',
+        ctx: 'Landed branches recommends delete it for both',
+      },
+    ));
+  test('tickedWords for mixed kinds and no common recommendation', () =>
+    assert.deepEqual(
+      tickedWords(
+        VOCAB,
+        [
+          bare('branch:o/r@x'),
+          { key: 'pr:o/r#1', kind: 'pr' } as ItemView,
+          bare('branch:o/r@y'),
+        ],
+        '2 groups',
+      ),
+      {
+        kick: 'decide \u00b7 3 ticked in 2 groups',
+        title: '3 items',
+        ctx: 'not recommended yet',
+      },
+    ));
 });

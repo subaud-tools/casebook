@@ -195,16 +195,16 @@ func TestChoicesAreAllowed(t *testing.T) {
 // {n} for the count word.
 func TestChoiceMany(t *testing.T) {
 	want := map[string]string{
-		"Leave it open":            "Leave {n} open",
-		"Keep it":                  "Keep {n}",
-		"Merge it":                 "Merge {n}",
-		"Close it without merging": "Close {n}",
-		"Close it":                 "Close {n}",
-		"Delete it":                "Delete {n}",
-		"Remove it":                "Remove {n}",
-		"Archive it on GitHub":     "Archive {n}",
-		"Not now":                  "Not now for {n}",
-		"Stop tracking it":         "Stop tracking {n}",
+		"leave it open":            "leave {n} open",
+		"keep it":                  "keep {n}",
+		"merge it":                 "merge {n}",
+		"close it without merging": "close {n}",
+		"close it":                 "close {n}",
+		"delete it":                "delete {n}",
+		"remove it":                "remove {n}",
+		"archive it on GitHub":     "archive {n}",
+		"not now":                  "not now for {n}",
+		"stop tracking it":         "stop tracking {n}",
 	}
 	seen := map[string]bool{}
 	for _, k := range []Kind{KindRepo, KindPR, KindIssue, KindBranch, KindWorktree} {
@@ -257,16 +257,16 @@ func TestEveryChoiceSaysWhatHappensAndWhen(t *testing.T) {
 // and for several ({n}: the count word).
 func TestChoicesSayWhatTheyDid(t *testing.T) {
 	want := map[string][2]string{
-		"Leave it open":            {"Left it open", "Left {n} open"},
-		"Keep it":                  {"Kept it", "Kept {n}"},
-		"Merge it":                 {"Merged it", "Merged {n}"},
-		"Close it without merging": {"Closed it", "Closed {n}"},
-		"Close it":                 {"Closed it", "Closed {n}"},
-		"Delete it":                {"Deleted it", "Deleted {n}"},
-		"Remove it":                {"Removed it", "Removed {n}"},
-		"Archive it on GitHub":     {"Archived it", "Archived {n}"},
-		"Not now":                  {"Put it off", "Put off {n}"},
-		"Stop tracking it":         {"Stopped tracking it", "Stopped tracking {n}"},
+		"leave it open":            {"left it open", "left {n} open"},
+		"keep it":                  {"kept it", "kept {n}"},
+		"merge it":                 {"merged it", "merged {n}"},
+		"close it without merging": {"closed it", "closed {n}"},
+		"close it":                 {"closed it", "closed {n}"},
+		"delete it":                {"deleted it", "deleted {n}"},
+		"remove it":                {"removed it", "removed {n}"},
+		"archive it on GitHub":     {"archived it", "archived {n}"},
+		"not now":                  {"put it off", "put off {n}"},
+		"stop tracking it":         {"stopped tracking it", "stopped tracking {n}"},
 	}
 	for _, k := range []Kind{KindRepo, KindPR, KindIssue, KindBranch, KindWorktree} {
 		for _, c := range Choices(k) {
@@ -287,13 +287,13 @@ func TestApplyLabels(t *testing.T) {
 		n    int
 		want string
 	}{
-		{KindBranch, Delete, 30, "Delete 30 branches"},
-		{KindPR, Close, 5, "Close 5 PRs"},
-		{KindRepo, Archive, 10, "Archive 10 repos"},
-		{KindBranch, Delete, 1, "Delete 1 branch"},
-		{KindWorktree, Delete, 2, "Remove 2 worktrees"},
-		{KindPR, Merge, 3, "Merge 3 PRs"},
-		{KindIssue, Close, 4, "Close 4 issues"},
+		{KindBranch, Delete, 30, "delete 30 branches"},
+		{KindPR, Close, 5, "close 5 PRs"},
+		{KindRepo, Archive, 10, "archive 10 repos"},
+		{KindBranch, Delete, 1, "delete 1 branch"},
+		{KindWorktree, Delete, 2, "remove 2 worktrees"},
+		{KindPR, Merge, 3, "merge 3 PRs"},
+		{KindIssue, Close, 4, "close 4 issues"},
 	} {
 		if got := ApplyLabel(c.k, c.d, c.n); got != c.want {
 			t.Errorf("ApplyLabel(%s, %s, %d) = %q, want %q", c.k, c.d, c.n, got, c.want)

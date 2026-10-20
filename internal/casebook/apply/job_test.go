@@ -1648,3 +1648,37 @@ func TestVerifiedStepsAreAKeysVerifiedStepsFromEveryJob(t *testing.T) {
 		t.Fatalf("got %+v, want steps %d and %d", got, a[0].ID, b[0].ID)
 	}
 }
+
+func TestKeyStepsAcrossJobs(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore(openTestDB(t))
+	const k = "branch:schuettc/hail@feat/thing"
+	plan := func(keys ...string) Plan {
+		var p Plan
+		for _, key := range keys {
+			p.Steps = append(p.Steps, Step{Key: key, Action: "branch-delete-local", Lane: LaneCasebook, Command: "true"})
+		}
+		return p
+	}
+	j1, err := s.Create(ctx, plan(k, "branch:o/r@x", k), "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	j2, err := s.Create(ctx, plan("branch:o/r@y", k), "mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.KeySteps(ctx, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int64{j1.Steps[0].ID, j1.Steps[2].ID, j2.Steps[1].ID}
+	if len(got) != len(want) {
+		t.Fatalf("steps %+v", got)
+	}
+	for i, st := range got {
+		if st.ID != want[i] || st.Key != k {
+			t.Errorf("step %d: %+v, want id %d", i, st, want[i])
+		}
+	}
+}

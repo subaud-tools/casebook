@@ -75,13 +75,16 @@ type ItemView struct {
 	// RecommendedBy is the session whose pending proposal the item has
 	// (its id alone when serve doesn't know it); nil for none or a rule's.
 	RecommendedBy *deliver.Session `json:"recommended_by,omitempty"`
+	// Ran is what ran on the item in its latest job: set in run's list
+	// (view=run) alone.
+	Ran *RunMark `json:"ran,omitempty"`
 }
 
 // GroupNone is the group of an Attention view's items with no pending
 // proposal, and GroupNoneLabel its name.
 const (
 	GroupNone      = "none"
-	GroupNoneLabel = "Not recommended yet"
+	GroupNoneLabel = "not recommended yet"
 )
 
 // GroupCameBack is the group of an Attention view's items that were
@@ -89,7 +92,7 @@ const (
 // it is listed first. GroupCameBackLabel is its name.
 const (
 	GroupCameBack      = "came-back"
-	GroupCameBackLabel = "Came back"
+	GroupCameBackLabel = "came back"
 )
 
 // GroupView is one group of an Attention view: the items whose pending
@@ -161,6 +164,14 @@ type ItemDetailView struct {
 	Decisions []store.LogEntry   `json:"decisions"`
 	// DoneHow says how a done item got done (doneHow); "" when not done.
 	DoneHow string `json:"done_how"`
+	// Steps is every step on the item, from every job, in job order: what
+	// ran on it.
+	Steps []apply.JobStep `json:"steps"`
+	// Ran is the item's latest job that ran (planned and cancelled jobs
+	// never did) and its steps there: run's item shows that job. Null when
+	// none ran. RanSteps is Steps less those of jobs that never ran.
+	Ran      *RunMark        `json:"ran"`
+	RanSteps []apply.JobStep `json:"ran_steps"`
 }
 
 // DecideResult is the response body of POST /api/decide and POST

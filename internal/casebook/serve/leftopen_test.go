@@ -210,12 +210,12 @@ func TestNotNowComesBackOnNewActivity(t *testing.T) {
 		t.Fatalf("decide %d %+v", c, res)
 	}
 	if v := r.view(t, ViewDue); slices.Contains(v.keys(), key) || slices.Contains(v.leftKeys(), key) {
-		t.Fatalf("a Not now is listed: %v / %v", v.keys(), v.leftKeys())
+		t.Fatalf("a not now is listed: %v / %v", v.keys(), v.leftKeys())
 	}
 	d := r.decisionOf(t, key)
 	r.comment(t, "issue", 5, "carol", d.DecidedAt.Add(time.Minute))
 	v := r.view(t, ViewDue)
-	if len(v.Items) == 0 || v.Items[0].Key != key || v.Items[0].DueReason != "new activity since Not now" {
+	if len(v.Items) == 0 || v.Items[0].Key != key || v.Items[0].DueReason != "new activity since not now" {
 		t.Fatalf("due after carol's comment: %+v", v.Items)
 	}
 }

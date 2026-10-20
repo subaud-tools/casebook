@@ -90,7 +90,7 @@ func TestHoldLongLived(t *testing.T) {
 	})
 	it := holdsOf(t, in, "branch:o/r@dev")
 	if len(it.Holds) != 1 || it.Holds[0].Kind != HoldLongLived || it.Holds[0].Local ||
-		it.Holds[0].Text != "dev is a long-lived branch: casebook never deletes it" || it.Holds[0].Fix != "Decide it again: Keep it or Stop tracking it." {
+		it.Holds[0].Text != "dev is a long-lived branch: casebook never deletes it" || it.Holds[0].Fix != "Decide it again: keep it or stop tracking it." {
 		t.Fatalf("holds %+v", it.Holds)
 	}
 	if !it.Stopped(item.Delete) {

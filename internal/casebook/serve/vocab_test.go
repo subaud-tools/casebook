@@ -1,8 +1,11 @@
 package serve
 
 import (
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
 type vocabChoice struct {
@@ -59,7 +62,7 @@ func TestVocabularySaysWhatEachDid(t *testing.T) {
 			if ch.Done == "" || !strings.Contains(ch.DoneMany, "{n}") {
 				t.Errorf("%s %q: done %q, done_many %q", k.Kind, ch.Label, ch.Done, ch.DoneMany)
 			}
-			if k.Kind == "issue" && ch.Label == "Close it" && (ch.Done != "Closed it" || ch.DoneMany != "Closed {n}") {
+			if k.Kind == "issue" && ch.Label == "close it" && (ch.Done != "closed it" || ch.DoneMany != "closed {n}") {
 				t.Errorf("issue close: %+v", ch)
 			}
 		}
@@ -96,36 +99,36 @@ func TestVocabularyWordingPerKind(t *testing.T) {
 		choices []c
 	}{
 		"pr": {"What should happen to this pull request?", []c{
-			{"keep", "Leave it open", saysLeaveOp, false, false},
-			{"merge", "Merge it", "Decides to merge this pull request. Nothing happens on GitHub until you run it in review.", true, false},
-			{"close", "Close it without merging", "Decides to close this pull request. Nothing happens on GitHub until you run it in review.", true, false},
-			{"wait", "Not now", saysNotNow, false, true},
-			{"ignore", "Stop tracking it", saysIgnore, false, false},
+			{"keep", "leave it open", saysLeaveOp, false, false},
+			{"merge", "merge it", "Decides to merge this pull request. Nothing happens on GitHub until you run it in review.", true, false},
+			{"close", "close it without merging", "Decides to close this pull request. Nothing happens on GitHub until you run it in review.", true, false},
+			{"wait", "not now", saysNotNow, false, true},
+			{"ignore", "stop tracking it", saysIgnore, false, false},
 		}},
 		"issue": {"What should happen to this issue?", []c{
-			{"keep", "Leave it open", saysLeaveOp, false, false},
-			{"close", "Close it", "Decides to close this issue. Nothing happens on GitHub until you run it in review.", true, false},
-			{"wait", "Not now", saysNotNow, false, true},
-			{"ignore", "Stop tracking it", saysIgnore, false, false},
+			{"keep", "leave it open", saysLeaveOp, false, false},
+			{"close", "close it", "Decides to close this issue. Nothing happens on GitHub until you run it in review.", true, false},
+			{"wait", "not now", saysNotNow, false, true},
+			{"ignore", "stop tracking it", saysIgnore, false, false},
 		}},
 		"branch": {"What should happen to this branch?", []c{
-			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Delete it", "Decides to delete this branch. Nothing is deleted until you run it in review.", true, false},
-			{"wait", "Not now", saysNotNow, false, true},
-			{"ignore", "Stop tracking it", saysIgnore, false, false},
+			{"keep", "keep it", saysKeep, false, false},
+			{"delete", "delete it", "Decides to delete this branch. Nothing is deleted until you run it in review.", true, false},
+			{"wait", "not now", saysNotNow, false, true},
+			{"ignore", "stop tracking it", saysIgnore, false, false},
 		}},
 		"worktree": {"What should happen to this worktree?", []c{
-			{"keep", "Keep it", saysKeep, false, false},
-			{"delete", "Remove it", "Decides to remove this worktree. Nothing is removed until you run it in review.", true, false},
-			{"wait", "Not now", saysNotNow, false, true},
-			{"ignore", "Stop tracking it", saysIgnore, false, false},
+			{"keep", "keep it", saysKeep, false, false},
+			{"delete", "remove it", "Decides to remove this worktree. Nothing is removed until you run it in review.", true, false},
+			{"wait", "not now", saysNotNow, false, true},
+			{"ignore", "stop tracking it", saysIgnore, false, false},
 		}},
 		"repo": {"What should happen to this repository?", []c{
-			{"keep", "Keep it", saysKeep, false, false},
-			{"archive", "Archive it on GitHub", "Decides to archive this repository. Nothing happens on GitHub until you run it in review.", true, false},
-			{"delete", "Delete it", "Decides to delete this repository. Nothing happens on GitHub until you run it in review.", true, false},
-			{"wait", "Not now", saysNotNow, false, true},
-			{"ignore", "Stop tracking it", saysIgnore, false, false},
+			{"keep", "keep it", saysKeep, false, false},
+			{"archive", "archive it on GitHub", "Decides to archive this repository. Nothing happens on GitHub until you run it in review.", true, false},
+			{"delete", "delete it", "Decides to delete this repository. Nothing happens on GitHub until you run it in review.", true, false},
+			{"wait", "not now", saysNotNow, false, true},
+			{"ignore", "stop tracking it", saysIgnore, false, false},
 		}},
 	}
 	if len(v.Kinds) != len(want) {
@@ -237,7 +240,7 @@ func TestVocabularyWaitingStrip(t *testing.T) {
 }
 
 // TestVocabularyNamesEachKind: each kind's nouns, one and several, the
-// words apply's group labels count in ("Delete 3 branches").
+// words apply's group labels count in ("delete 3 branches").
 func TestVocabularyNamesEachKind(t *testing.T) {
 	r := newRig(t)
 	var v struct {
@@ -258,5 +261,34 @@ func TestVocabularyNamesEachKind(t *testing.T) {
 	}
 	if len(v.Kinds) != len(want) {
 		t.Errorf("%d kinds", len(v.Kinds))
+	}
+}
+
+// lowerButNames is s lower-cased, with the proper names it holds (GitHub,
+// PR) in their own case.
+func lowerButNames(s string) string {
+	s = strings.ToLower(s)
+	s = regexp.MustCompile(`\bgithub\b`).ReplaceAllString(s, "GitHub")
+	return regexp.MustCompile(`\bpr(s?)\b`).ReplaceAllString(s, "PR$1")
+}
+
+// TestVocabularyIsLowerCase: labels, group names and buttons are lower
+// case; proper names keep theirs.
+func TestVocabularyIsLowerCase(t *testing.T) {
+	var all []string
+	for _, k := range []item.Kind{item.KindRepo, item.KindPR, item.KindIssue, item.KindBranch, item.KindWorktree} {
+		for _, c := range item.Choices(k) {
+			all = append(all, c.Label, c.Many, c.Done, c.DoneMany)
+		}
+	}
+	v := decisionVocab()
+	all = append(all, GroupNoneLabel, GroupCameBackLabel, v.DiscardMany, v.DiscardAll, v.HideList, v.ShowList)
+	for _, id := range []string{RunNeedsYou, RunRunning, RunDone, RunUndone} {
+		all = append(all, runGroupOf(RunMark{Group: id}).Label)
+	}
+	for _, s := range all {
+		if s != lowerButNames(s) {
+			t.Errorf("%q is not lower case", s)
+		}
 	}
 }

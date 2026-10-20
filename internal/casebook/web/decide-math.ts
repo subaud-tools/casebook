@@ -17,7 +17,8 @@ import type {
   NotNowForm,
   RuleRow,
 } from './wire.d.ts';
-import { sessionName } from './sessions.ts';
+import { lookingLine, sessionName } from './sessions.ts';
+import type { Tone } from './list-pane-text.ts';
 
 /**
  * kindFromKey extracts the kind from a key by taking the prefix before the
@@ -304,33 +305,35 @@ export function recommendsWho(
 export const CAME_BACK = 'came-back';
 
 /**
- * rowSub is a decide row's second line: why it came back (its own reason,
- * or serve's words for its status), then its pending recommendation's
- * reason. The flat list has no group heads, so there the reason follows
- * the choice ("Close it · stale"). A left-open row has none.
+ * standsLine is a decide row's second line, where the item stands, the
+ * first that applies: a session looking into it (agent); why it came back,
+ * or its new activity (signal); its recommendation (muted). Grouped, the
+ * head names the choice and the row gives its reason; flat, the row names
+ * both ("delete it · landed"). A left-open row says when it was left open.
  */
-export function rowSub(
+export function standsLine(
   vocab: DecisionVocabView | null,
   it: ItemView,
   flat: boolean,
-): string | undefined {
-  const p =
-    it.status !== 'left-open' && it.proposal?.state === 'pending'
-      ? it.proposal
-      : undefined;
-  return (
-    [
-      it.group === CAME_BACK
-        ? it.due_reason || vocab?.came_back?.[it.status]
-        : it.new_activity
-          ? it.due_reason
-          : undefined,
-      p && flat ? choiceLabel(vocab, it.key, p.disposition) : undefined,
-      p?.note || undefined,
-    ]
-      .filter(Boolean)
-      .join(' \u00b7 ') || undefined
-  );
+): { text: string; tone: Tone } {
+  const looking = lookingLine(it.looking);
+  if (looking) return { text: looking, tone: 'agent' };
+  if (it.status === 'left-open')
+    return { text: leftOpenMeta(it.decision?.decided_at), tone: 'muted' };
+  const back =
+    it.group === CAME_BACK
+      ? it.due_reason || vocab?.came_back?.[it.status]
+      : it.new_activity
+        ? it.due_reason
+        : '';
+  if (back) return { text: back, tone: 'signal' };
+  const p = it.proposal?.state === 'pending' ? it.proposal : undefined;
+  if (!p) return { text: 'not recommended yet', tone: 'muted' };
+  const label = choiceLabel(vocab, it.key, p.disposition);
+  const text = flat
+    ? [label, p.note].filter(Boolean).join(' \u00b7 ')
+    : p.note || label;
+  return { text, tone: 'muted' };
 }
 
 /**
@@ -385,24 +388,6 @@ export function countWord(
   if (total === 1) return words.one;
   if (total === 2) return words.two;
   return words.all.replaceAll('{n}', String(total));
-}
-
-/**
- * groupButtons is a group's two buttons in serve's words, for the whole
- * group (ticked 0) or the ticked items of it: its choice for several items
- * ("Close all 27", "Close 3"), and discard their recommendations.
- */
-export function groupButtons(
-  g: GroupView,
-  ticked: number,
-  vocab: Pick<DecisionVocabView, 'discard_many' | 'count_words'>,
-): { act: string; discard: string } {
-  const n = countWord(g.total, ticked, vocab.count_words);
-  const fill = (s: string): string => s.replaceAll('{n}', n);
-  return {
-    act: fill(g.many || g.label),
-    discard: fill(vocab.discard_many),
-  };
 }
 
 /**
@@ -691,4 +676,71 @@ export function waitingStrip(w: WaitingVocab, done: string): StripPart[] {
 export function applyGroupLink(disposition: string, key: string): string {
   const kind = key.slice(0, key.indexOf(':'));
   return `#/review?group=${encodeURIComponent(`${disposition}|${kind}`)}`;
+}
+
+// ---- ticked items -------------------------------------------------------------
+
+/**
+ * splitTicked splits ticked items for a decision: the pending
+ * recommendations of exactly it are accepted (their ids), every other item
+ * is decided (its key).
+ */
+export function splitTicked(
+  items: ItemView[],
+  disposition: string,
+  until = '',
+): { accept: number[]; decide: string[] } {
+  const out = { accept: [] as number[], decide: [] as string[] };
+  for (const it of items) {
+    const p = it.proposal;
+    if (
+      p?.state === 'pending' &&
+      p.disposition === disposition &&
+      (p.until ?? '') === until
+    )
+      out.accept.push(p.id);
+    else out.decide.push(it.key);
+  }
+  return out;
+}
+
+/**
+ * tickedWords is the middle pane's lines for ticked items: where they are
+ * ticked ("decide · 2 ticked in Landed branches"), what they are ("2
+ * branches"; "3 items" of several kinds), and the recommendation they share
+ * ("Landed branches recommends delete it for both"), if they share one.
+ */
+export function tickedWords(
+  vocab: DecisionVocabView,
+  items: ItemView[],
+  groupLabel: string,
+): { kick: string; title: string; ctx: string } {
+  const n = items.length;
+  const kinds = [...new Set(items.map((it) => kindFromKey(it.key)))];
+  const kv =
+    kinds.length === 1
+      ? (vocab.kinds ?? []).find((k) => k.kind === kinds[0])
+      : undefined;
+  const title = kv?.nouns
+    ? `${n} ${n === 1 ? kv.noun : kv.nouns}`
+    : pluralize(n, 'item');
+  const ps = items.map((it) =>
+    it.proposal?.state === 'pending' ? it.proposal : undefined,
+  );
+  const first = ps[0];
+  const shared =
+    !!first &&
+    ps.every(
+      (p) => p?.disposition === first.disposition && p?.source === first.source,
+    );
+  let ctx = 'not recommended yet';
+  if (shared && first) {
+    const all = n === 1 ? 'it' : n === 2 ? 'both' : `all ${n}`;
+    ctx = `${recommendsWho(vocab, first.source, groupLabel)} ${choiceLabel(vocab, items[0].key, first.disposition)} for ${all}`;
+  } else if (ps.some(Boolean)) ctx = 'their recommendations differ';
+  return {
+    kick: `decide \u00b7 ${n} ticked in ${groupLabel}`,
+    title,
+    ctx,
+  };
 }
