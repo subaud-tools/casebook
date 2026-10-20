@@ -1004,8 +1004,8 @@ function start(first) {
 import {
   ApiError as ApiError2,
   createSelection,
-  h as h10,
-  facts as facts3,
+  h as h9,
+  facts as facts2,
   buttons as buttons4,
   card as card3,
   sheet
@@ -3611,319 +3611,14 @@ function makeObs(ctx, set) {
 }
 
 // ran.ts
-import { h as h9, facts as facts2, buttons as buttons3, card as card2 } from "/_kit/kit.js";
-
-// item.ts
-import { h as h8, facts, fold } from "/_kit/kit.js";
-
-// holds-text.ts
-function copyRow(c) {
-  const label = c.machine || "GitHub";
-  if (c.absent) return [label, "not there"];
-  const parts = [];
-  if (c.path) parts.push(c.path);
-  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
-  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
-  if (c.head) parts.push("checked out in the clone");
-  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
-  return [label, parts.join(" · ")];
-}
-function choiceTags(kind, disposition) {
-  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
-    return ["permanent"];
-  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
-    return ["github-undo"];
-  return [];
-}
-
-// item.ts
-var BODY_CAP = 600;
-function fmtDate(s) {
-  if (!s) return "—";
-  const d = new Date(s);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  });
-}
-function fmtShortDate(s) {
-  if (!s)
-    return "def";
-  const d = new Date(s);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${mm}-${dd}`;
-}
-function renderEvidence(evs) {
-  const section = h8("section", { class: "cb-evidence" });
-  section.append(h8("h3", { class: "kit-label" }, "evidence"));
-  if (evs.length === 0) {
-    section.append(h8("p", { class: "cb-empty" }, "no evidence"));
-    return section;
-  }
-  for (const ev of evs) {
-    const authorEl = ev.author ? h8("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
-    const time = h8(
-      "span",
-      { class: "cb-muted" },
-      ` · ${fmtShortDate(ev.created_at)}`
-    );
-    const item = h8(
-      "div",
-      { class: "cb-evidence-item" },
-      h8(
-        "p",
-        { class: "cb-evidence-meta" },
-        ...authorEl ? [authorEl] : [],
-        ev.text,
-        time
-      )
-    );
-    section.append(item);
-  }
-  return section;
-}
-function renderHistory(events, decisions, ownKey) {
-  const section = h8("section", { class: "cb-history" });
-  section.append(h8("h3", { class: "kit-label" }, "history"));
-  if (events.length === 0 && decisions.length === 0) {
-    section.append(h8("p", { class: "cb-empty" }, "no history"));
-    return section;
-  }
-  for (const entry of decisions) {
-    const display = stripOwnKey(entry.Subject, ownKey);
-    section.append(
-      h8(
-        "div",
-        { class: "cb-history-item cb-history-decision" },
-        h8("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
-        h8("span", { class: "cb-history-msg" }, display)
-      )
-    );
-  }
-  for (const ev of events) {
-    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
-    section.append(
-      h8(
-        "div",
-        { class: "cb-history-item" },
-        h8("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
-        h8("span", { class: "cb-history-msg" }, label)
-      )
-    );
-  }
-  return section;
-}
-function renderDecideRow(ctx, detail, hooks) {
-  const it = detail.item;
-  const section = h8("section", { class: "cb-decide", role: "group" });
-  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  const tag = (kind, text) => h8("span", { class: `cb-tag cb-tag-${kind}` }, text);
-  const cards = renderChoices(ctx, it.kind, {
-    recommended: pending?.disposition,
-    chosen: it.decision?.disposition,
-    note: it.decision?.note,
-    onPick(d, until, note) {
-      hooks.decide?.(d, until, note);
-    },
-    onCards(grid) {
-      const tagged = [];
-      for (const card7 of grid.querySelectorAll(
-        ".cb-choice[data-d]"
-      )) {
-        const kinds = choiceTags(it.kind, card7.dataset.d ?? "");
-        if (!kinds.length) continue;
-        tagged.push(
-          h8(
-            "span",
-            { class: "cb-choice-tagged" },
-            card7.querySelector(".cb-choice-label")?.textContent ?? "",
-            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
-          )
-        );
-      }
-      if (tagged.length) tagsLine.replaceChildren(...tagged);
-      tagsLine.hidden = !tagged.length;
-      hooks.cardsReady?.();
-    }
-  });
-  const tagsLine = h8("p", { class: "cb-choice-tags", hidden: true });
-  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
-  cards.querySelector(".cb-choices")?.after(tagsLine);
-  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
-    tag(
-      "posts",
-      `posts a public comment${it.public ? " · on a public repo" : ""}`
-    )
-  );
-  section.append(cards);
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    section.setAttribute("aria-label", kv?.question ?? "");
-  });
-  return section;
-}
-function renderRec(ctx, detail, hooks) {
-  const it = detail.item;
-  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
-  if (!p) return null;
-  const who = h8("p", { class: "cb-rec-who" });
-  const label = h8("p", { class: "cb-rec-label" }, p.disposition);
-  const el2 = h8(
-    "section",
-    { class: "cb-rec" },
-    who,
-    label,
-    p.note ? h8("p", { class: "cb-rec-note" }, p.note) : null,
-    p.until ? h8("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
-  );
-  void getVocab(ctx).then((vocab2) => {
-    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
-    const rec = asNotNow(p.disposition);
-    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
-    who.textContent = recommendsWho(
-      vocab2,
-      p.source,
-      hooks.sourceName?.(p.source) ?? ""
-    );
-  });
-  return el2;
-}
-function renderHolds(detail) {
-  const holds = detail.item.holds ?? [];
-  if (!holds.length) return null;
-  return h8(
-    "section",
-    { class: "cb-hold" },
-    h8("p", { class: "cb-hold-who" }, "in the way"),
-    ...holds.flatMap((hd) => [
-      h8(
-        "p",
-        { class: "cb-hold-line" },
-        hd.text,
-        hd.by ? h8(
-          "a",
-          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
-          keyWithoutKind(hd.by)
-        ) : null
-      ),
-      hd.fix ? h8("p", { class: "cb-hold-sub" }, hd.fix) : null
-    ])
-  );
-}
-function renderWhere(detail) {
-  const copies = detail.item.copies ?? [];
-  if (!copies.length) return null;
-  return h8(
-    "section",
-    { class: "cb-where" },
-    h8("h3", { class: "kit-label" }, "where it is"),
-    ...copies.map((c) => {
-      const [label, text] = copyRow(c);
-      return h8(
-        "div",
-        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
-        h8("span", { class: "cb-wm" }, label),
-        h8("span", null, text)
-      );
-    })
-  );
-}
-function cameBack(vocab2, it) {
-  const status = vocab2.came_back?.[it.status ?? ""];
-  if (status) return it.due_reason || status;
-  return it.new_activity ? it.due_reason ?? "" : "";
-}
-function itemHead(detail, ctx) {
-  const it = detail.item;
-  const displayKey = keyWithoutKind(it.key);
-  const keyEl = it.url ? h8("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
-  const kicker = h8("p", { class: "cb-kicker kit-kick" });
-  const parts = [it.kind, keyEl, it.relation].filter(
-    (part) => !!part
-  );
-  parts.forEach((part, i) => {
-    if (i > 0) kicker.append(" · ");
-    kicker.append(part);
-  });
-  const title = it.title ?? keyWithoutKind(it.key);
-  const titleEl = h8("h1", { class: "cb-title kit-h1", title }, title);
-  const factPairs = [];
-  if (it.status)
-    factPairs.push([
-      "status",
-      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
-    ]);
-  if (it.repo) factPairs.push(["repo", it.repo]);
-  if (it.author)
-    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
-  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
-  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
-  if (it.labels && it.labels.length > 0)
-    factPairs.push(["labels", it.labels.join(", ")]);
-  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
-  const factsEl = facts(factPairs);
-  factsEl.title = factsEl.textContent ?? "";
-  if (ctx)
-    void getVocab(ctx).then((vocab2) => {
-      const why = cameBack(vocab2, it);
-      if (!why) return;
-      const line = vocab2.came_back_fact.replaceAll("{reason}", why);
-      factsEl.prepend(h8("span", { class: "cb-came-back", title: line }, line));
-      factsEl.title = factsEl.textContent ?? "";
-    });
-  return [kicker, titleEl, factsEl];
-}
-function renderItem(ctx, detail, hooks = {}) {
-  const it = detail.item;
-  const el2 = h8(
-    "article",
-    { class: "cb-item", dataset: { key: it.key } },
-    ...itemHead(detail, ctx)
-  );
-  el2.append(renderDecideRow(ctx, detail, hooks));
-  const looking = lookingLine(it.looking);
-  const reading = h8(
-    "div",
-    { class: "cb-reading" },
-    h8("p", { class: "cb-looking", hidden: !looking }, looking),
-    renderHolds(detail),
-    renderWhere(detail),
-    renderRec(ctx, detail, hooks)
-  );
-  if (it.body) {
-    const excerpt = it.body.slice(0, BODY_CAP);
-    const rest = it.body.slice(BODY_CAP);
-    reading.append(
-      h8(
-        "section",
-        { class: "cb-body" },
-        h8("p", null, excerpt),
-        rest ? fold("read more", h8("p", null, rest)) : null
-      )
-    );
-  }
-  reading.append(
-    h8(
-      "div",
-      { class: "cb-trail" },
-      renderEvidence(detail.evidence ?? []),
-      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
-    )
-  );
-  el2.append(reading);
-  return h8("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
-}
-
-// ran.ts
+import { h as h8, facts, buttons as buttons3, card as card2 } from "/_kit/kit.js";
 var dangerVerb = (verb) => DANGER_DISPS.has(verb) || verb === "remove";
 function stepKeyLines(key) {
   const at2 = key.indexOf("@");
-  if (at2 < 0) return [h9("span", { class: "cb-step-k" }, key)];
+  if (at2 < 0) return [h8("span", { class: "cb-step-k" }, key)];
   return [
-    h9("span", { class: "cb-step-repo" }, key.slice(0, at2)),
-    h9("span", { class: "cb-step-k" }, key.slice(at2 + 1))
+    h8("span", { class: "cb-step-repo" }, key.slice(0, at2)),
+    h8("span", { class: "cb-step-k" }, key.slice(at2 + 1))
   ];
 }
 function renderJob(_ctx, v, hooks) {
@@ -3935,15 +3630,15 @@ function renderJob(_ctx, v, hooks) {
   const stepOf = (id) => steps.find((s) => s.id === id);
   const lanes = jobLanes(j).map((l) => laneLabel(l, agent));
   const state = j.paused && isRunning(j) ? "paused" : j.state;
-  const doc = h9(
+  const doc = h8(
     "article",
     { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-    h9(
+    h8(
       "p",
       { class: "kit-kick" },
       [lanes.join(" + "), `job #${j.id}`, state].filter(Boolean).join(" · ")
     ),
-    h9("h1", { class: "kit-h1" }, jobTitle(j))
+    h8("h1", { class: "kit-h1" }, jobTitle(j))
   );
   const pairs = [
     ["done", `${p.verified} of ${p.total}`],
@@ -3954,32 +3649,32 @@ function renderJob(_ctx, v, hooks) {
   if (p.failed) pairs.push(["failed", String(p.failed)]);
   const restores = steps.filter((s) => s.restore).length;
   if (restores) pairs.push(["restore records", String(restores)]);
-  doc.append(facts2(pairs));
-  const cardsEl = h9("div", { class: "cb-needs", "data-testid": "needs-you" });
+  doc.append(facts(pairs));
+  const cardsEl = h8("div", { class: "cb-needs", "data-testid": "needs-you" });
   for (const c of open)
     cardsEl.append(needsCard(c, stepOf(c.step_id), j, agent, hooks));
   doc.append(cardsEl);
   const note = hooks.note();
   if (note)
-    doc.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
+    doc.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
   const next = nextSteps(steps);
   const shown = steps.slice(0, hooks.stepsShown());
   doc.append(
-    h9("h3", { class: "kit-label" }, "steps"),
-    h9(
+    h8("h3", { class: "kit-label" }, "steps"),
+    h8(
       "div",
       { class: "kit-table cb-steps", "data-testid": "steps" },
       ...shown.map((s) => stepRow(s, next.has(s.id), hooks)),
-      steps.length > shown.length ? h9(
+      steps.length > shown.length ? h8(
         "div",
         { class: "kit-tr cb-steps-more" },
-        h9("span"),
-        h9(
+        h8("span"),
+        h8(
           "span",
           { class: "cb-step-k" },
           `… ${pluralize(steps.length - shown.length, "more step")}`
         ),
-        h9(
+        h8(
           "button",
           {
             type: "button",
@@ -4002,14 +3697,14 @@ function needsCard(c, step, j, agent, hooks) {
   let el2;
   switch (c.kind) {
     case "text": {
-      const quote = h9("blockquote", { class: "cb-needs-text" }, c.text);
-      const body = h9(
+      const quote = h8("blockquote", { class: "cb-needs-text" }, c.text);
+      const body = h8(
         "div",
         null,
-        h9(
+        h8(
           "p",
           { class: "cb-needs-what" },
-          h9("code", null, key),
+          h8("code", null, key),
           ` · ${verb} with comment`
         ),
         quote
@@ -4040,7 +3735,7 @@ function needsCard(c, step, j, agent, hooks) {
         actions: four
       });
       const startEdit = (text, focus) => {
-        const field = h9("textarea", {
+        const field = h8("textarea", {
           class: "cb-needs-edit",
           "aria-label": "comment",
           rows: 4
@@ -4080,7 +3775,7 @@ function needsCard(c, step, j, agent, hooks) {
       el2 = card2({
         edge: "signal",
         head: "needs you · confirm the batch",
-        body: h9("p", null, c.question),
+        body: h8("p", null, c.question),
         actions: [
           { label: "confirm", fill: true, run: () => answer("confirm") },
           { label: "skip batch", run: () => answer("skip-batch") }
@@ -4098,11 +3793,11 @@ function needsCard(c, step, j, agent, hooks) {
       el2 = card2({
         edge: "signal",
         head: `needs you · ${key || "a step"} failed`,
-        body: h9(
+        body: h8(
           "div",
           null,
-          h9("p", null, c.question),
-          step ? h9("code", { class: "cb-cmd" }, step.command) : null
+          h8("p", null, c.question),
+          step ? h8("code", { class: "cb-cmd" }, step.command) : null
         ),
         actions: bs
       });
@@ -4112,10 +3807,10 @@ function needsCard(c, step, j, agent, hooks) {
       el2 = card2({
         edge: "agent",
         head: `${agent} paused`,
-        body: h9(
+        body: h8(
           "p",
           null,
-          key ? h9("code", null, key) : null,
+          key ? h8("code", null, key) : null,
           key ? ": " : "",
           c.question
         ),
@@ -4145,7 +3840,7 @@ function stepRow(s, next, hooks, o = {}) {
   const m = stepMark(s, next);
   const text = o.what ? `${o.what} · ${m.text}` : m.text;
   const key = keyWithoutKind(s.key);
-  return h9(
+  return h8(
     "div",
     {
       class: "kit-tr cb-step" + (o.here ? " cb-here" : ""),
@@ -4153,19 +3848,19 @@ function stepRow(s, next, hooks, o = {}) {
       "data-state": s.state,
       "data-key": s.key
     },
-    h9("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
-    ...o.line ? [h9("span", { class: "cb-step-k", title: key }, key)] : stepKeyLines(key),
-    h9(
+    h8("span", { class: `cb-step-g cb-tone-${m.tone}` }, m.glyph),
+    ...o.line ? [h8("span", { class: "cb-step-k", title: key }, key)] : stepKeyLines(key),
+    h8(
       "span",
       { class: "cb-step-w" },
-      h9("span", { class: "cb-step-t" }, text),
-      o.job ? h9(
+      h8("span", { class: "cb-step-t" }, text),
+      o.job ? h8(
         "a",
         { class: "cb-link cb-step-job", href: `#/run/${s.job_id}` },
         `job #${s.job_id}`
       ) : null,
-      o.here ? h9("span", { class: "cb-step-here" }, "this item") : null,
-      s.undoable && !o.readOnly ? h9(
+      o.here ? h8("span", { class: "cb-step-here" }, "this item") : null,
+      s.undoable && !o.readOnly ? h8(
         "button",
         {
           type: "button",
@@ -4177,20 +3872,31 @@ function stepRow(s, next, hooks, o = {}) {
         "undo"
       ) : null
     ),
-    m.why ? h9("span", { class: "cb-step-why", title: m.why }, m.why) : null
+    m.why ? h8("span", { class: "cb-step-why", title: m.why }, m.why) : null
   );
+}
+function ranHead(detail) {
+  const it = detail.item;
+  const key = keyWithoutKind(it.key);
+  const status = detail.done_how ? `${it.status}: ${detail.done_how}` : it.status ?? "";
+  return midHead({
+    kick: [it.kind, key, it.relation].filter(Boolean).join(" · "),
+    title: it.title || key,
+    ctx: [status, it.repo].filter(Boolean).join(" · "),
+    acts: []
+  });
 }
 function renderRan(ctx, detail, job, cards, hooks) {
   const key = detail.item.key;
   const steps = detail.steps ?? [];
-  const doc = h9(
+  const doc = h8(
     "article",
     { class: "cb-apply-doc cb-ran", "data-key": key },
-    ...itemHead(detail, ctx)
+    ...ranHead(detail)
   );
   doc.append(
-    h9("h3", { class: "kit-label" }, "what ran on this item"),
-    h9(
+    h8("h3", { class: "kit-label" }, "what ran on this item"),
+    h8(
       "div",
       { class: "kit-table cb-steps", "data-testid": "what-ran" },
       ...steps.map(
@@ -4205,7 +3911,7 @@ function renderRan(ctx, detail, job, cards, hooks) {
   const mine = new Set(steps.map((s) => s.id));
   const open = cards.filter((c) => c.state === "open" && mine.has(c.step_id));
   if (open.length) {
-    const cardsEl = h9("div", { class: "cb-needs", "data-testid": "needs-you" });
+    const cardsEl = h8("div", { class: "cb-needs", "data-testid": "needs-you" });
     for (const c of open) {
       const s = steps.find((x) => x.id === c.step_id);
       const j2 = job && job.job.id === c.job_id ? job.job : null;
@@ -4231,21 +3937,21 @@ function renderRan(ctx, detail, job, cards, hooks) {
   }
   const note = hooks.note();
   if (note)
-    doc.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
+    doc.append(h8("p", { class: "cb-apply-note", role: "status" }, note));
   if (!job) return doc;
   const j = job.job;
   const all = j.steps ?? [];
   const around = aroundSteps(all, key, 3);
   const next = nextSteps(all);
   doc.append(
-    h9(
+    h8(
       "h3",
       { class: "kit-label cb-its-job" },
       "its job · ",
-      h9("a", { class: "cb-link", href: `#/run/${j.id}` }, `job #${j.id}`),
+      h8("a", { class: "cb-link", href: `#/run/${j.id}` }, `job #${j.id}`),
       ` · ${jobTitle(j)}`
     ),
-    h9(
+    h8(
       "div",
       { class: "kit-table cb-steps", "data-testid": "its-job" },
       ...around.steps.map(
@@ -4259,11 +3965,11 @@ function renderRan(ctx, detail, job, cards, hooks) {
           })
         )
       ),
-      around.hidden ? h9(
+      around.hidden ? h8(
         "div",
         { class: "kit-tr cb-steps-more" },
-        h9("span"),
-        h9(
+        h8("span"),
+        h8(
           "a",
           { class: "cb-link cb-step-k", href: `#/run/${j.id}` },
           `all ${all.length} steps →`
@@ -4315,7 +4021,7 @@ function focusRestore(root, snap) {
   }
 }
 function makeApply(ctx) {
-  const readEl = h10("div", { class: "kit-read cb-apply-read" });
+  const readEl = h9("div", { class: "kit-read cb-apply-read" });
   let mode = "review";
   let jobs = [];
   let cards = [];
@@ -4523,7 +4229,7 @@ function makeApply(ctx) {
   });
   reviewPane.el.classList.add("cb-apply-list");
   runPane.el.classList.add("cb-apply-list");
-  const listEl = h10(
+  const listEl = h9(
     "div",
     { class: "kit-list cb-panes" },
     reviewPane.el,
@@ -4596,11 +4302,11 @@ function makeApply(ctx) {
     const running = order().running;
     runPane.ownRow.replaceChildren(
       ...running.length ? [
-        h10("span", { class: "cb-bar-label" }, "running"),
+        h9("span", { class: "cb-bar-label" }, "running"),
         ...running.map((j) => {
           const p = progress(j);
           const text = `job #${j.id} · ${titleOf(j)} · ${p.finished} of ${p.total}`;
-          return h10(
+          return h9(
             "button",
             {
               type: "button",
@@ -4816,11 +4522,11 @@ function makeApply(ctx) {
       if (!jobSeq.isLatest(mine) || openId !== id) return;
       open = null;
       readEl.replaceChildren(
-        h10(
+        h9(
           "div",
           { class: "cb-read-empty" },
-          h10("p", { class: "cb-read-empty-section kit-label" }, "run"),
-          h10("p", { class: "cb-read-empty-prompt" }, message2(err))
+          h9("p", { class: "cb-read-empty-section kit-label" }, "run"),
+          h9("p", { class: "cb-read-empty-prompt" }, message2(err))
         )
       );
       feed();
@@ -5049,10 +4755,10 @@ function makeApply(ctx) {
       if (!ranSeq.isLatest(mine) || ranKey !== key) return;
       ranDetail = null;
       paint(
-        h10(
+        h9(
           "article",
           { class: "cb-apply-doc" },
-          h10("p", { class: "cb-apply-note", role: "status" }, message2(err))
+          h9("p", { class: "cb-apply-note", role: "status" }, message2(err))
         )
       );
     }
@@ -5073,7 +4779,7 @@ function makeApply(ctx) {
     const can = bulkNow();
     const gs = [...new Set(its.map((it) => it.group))];
     const where = gs.length === 1 ? runGroups.find((g) => g.id === gs[0])?.label ?? gs[0] : `${gs.length} groups`;
-    const btn = (label, run) => h10(
+    const btn = (label, run) => h9(
       "button",
       {
         type: "button",
@@ -5090,11 +4796,11 @@ function makeApply(ctx) {
       acts.push(btn("hand to agent", () => void answerAll("hand-to-agent")));
     const shown = its.slice(0, 20);
     paint(
-      h10(
+      h9(
         "article",
         { class: "cb-apply-doc cb-ticked", "data-testid": "run-ticked" },
         ...midHead({ ...tickedRunWords(marks, where), acts }),
-        note ? h10("p", { class: "cb-apply-note", role: "status" }, note) : null,
+        note ? h9("p", { class: "cb-apply-note", role: "status" }, note) : null,
         midRows(
           shown.map((it) => {
             const l = it.ran ? ranLine(it.ran) : { text: "", tone: "muted" };
@@ -5237,18 +4943,18 @@ function makeApply(ctx) {
     const keys = [...new Set(permanent.map((s) => s.key))];
     const sh = sheet({
       title: `${title}?`,
-      body: h10(
+      body: h9(
         "div",
         { class: "cb-confirm", "data-testid": "confirm-permanent" },
-        h10(
+        h9(
           "p",
           { class: "cb-confirm-warn" },
           "This cannot be undone. These run on GitHub as soon as you confirm:"
         ),
-        h10(
+        h9(
           "ul",
           { class: "cb-confirm-list" },
-          ...keys.map((k) => h10("li", {}, keyWithoutKind(k)))
+          ...keys.map((k) => h9("li", {}, keyWithoutKind(k)))
         )
       ),
       actions: [
@@ -5304,14 +5010,14 @@ function makeApply(ctx) {
     }
   }
   function refusalCard() {
-    const body = h10(
+    const body = h9(
       "div",
       null,
-      h10("p", { "data-testid": "plan-refused" }, refusal)
+      h9("p", { "data-testid": "plan-refused" }, refusal)
     );
     if (syncing) {
       body.append(
-        h10(
+        h9(
           "p",
           { class: "cb-apply-note", role: "status", "data-testid": "syncing" },
           "syncing… the group opens again when the sync is done"
@@ -5319,7 +5025,7 @@ function makeApply(ctx) {
       );
     } else if (syncError) {
       body.append(
-        h10(
+        h9(
           "p",
           {
             class: "cb-apply-note",
@@ -5346,7 +5052,7 @@ function makeApply(ctx) {
   }
   function paint(doc) {
     const keep = focusSnapshot(readEl);
-    readEl.replaceChildren(h10("div", { class: "kit-doc" }, doc));
+    readEl.replaceChildren(h9("div", { class: "kit-doc" }, doc));
     focusRestore(readEl, keep);
   }
   function drawOverview() {
@@ -5355,15 +5061,15 @@ function makeApply(ctx) {
       if (reviewOpen) return;
       const waitingN = groups.reduce((n, g) => n + waitingCount(g), 0);
       paint(
-        h10(
+        h9(
           "article",
           { class: "cb-apply-doc", "data-testid": "review-overview" },
-          h10(
+          h9(
             "h1",
             { class: "kit-h1" },
             waitingN ? `${pluralize(waitingN, "decision")} waiting` : "nothing decided is waiting"
           ),
-          h10(
+          h9(
             "p",
             null,
             "Tick items, or a whole group, to review them here: the exact command for each item, where it runs and whether it can be undone. Nothing runs until you press its button there; then it runs in run. This machine applies what is on it; GitHub steps run once, from whichever machine runs them."
@@ -5377,20 +5083,20 @@ function makeApply(ctx) {
     const o = order();
     const needs = o.running.reduce((n, j) => n + cardsFor(j.id), 0);
     paint(
-      h10(
+      h9(
         "article",
         { class: "cb-apply-doc", "data-testid": "run-overview" },
-        h10(
+        h9(
           "h1",
           { class: "kit-h1" },
           o.running.length ? `${pluralize(o.running.length, "job")} running` : "nothing is running"
         ),
-        facts3([
+        facts2([
           ["running", String(o.running.length)],
           ["needs you", String(needs)],
           ["done", String(o.done.length)]
         ]),
-        h10(
+        h9(
           "p",
           null,
           "Running a plan in review starts a job: its items show here by what happened to them. An item opens what ran on it and its job; a running job's line opens the job."
@@ -5408,7 +5114,7 @@ function makeApply(ctx) {
     const runs = !!v && !!j?.steps?.length && !refusal && !reviewNote;
     if (runs) drawnView = v;
     const [first] = v ? runsNow(v.plan).split("\n") : [""];
-    const doc = h10(
+    const doc = h9(
       "article",
       {
         class: "cb-apply-doc cb-plan",
@@ -5431,7 +5137,7 @@ function makeApply(ctx) {
     }
     if (reviewNote) {
       doc.append(
-        h10(
+        h9(
           "p",
           {
             class: "cb-apply-note",
@@ -5449,7 +5155,7 @@ function makeApply(ctx) {
     const waits = v.plan.waiting ?? [];
     if (!steps.length && !held2.length && !waits.length) {
       doc.append(
-        h10(
+        h9(
           "p",
           { "data-testid": "plan-empty" },
           "Nothing in this group runs from this machine: no step is on it, and nothing outward."
@@ -5473,10 +5179,10 @@ function makeApply(ctx) {
       const title = github ? "delete on GitHub" : first2 ? "remove worktrees first" : actionTitle(p.action);
       const where = p.lane === "agent" ? `Runs on GitHub, through ${agent}.` : github ? "Runs from this Mac through GitHub, for branches on either Mac; refuses one that moved since it was observed." : first2 ? "Runs here, before their branches: each holds a branch below and is clean." : `Runs here, on ${j.machine}.`;
       doc.append(
-        h10(
+        h9(
           "h3",
           { class: "kit-label cb-group-label" },
-          h10(
+          h9(
             "span",
             { class: `cb-lanename cb-lanename-${p.lane}` },
             github ? "casebook · github" : laneLabel(p.lane, agent)
@@ -5484,49 +5190,55 @@ function makeApply(ctx) {
           ` · ${title} · ${p.steps.length}`,
           ...tagEls(stepTags(p.steps), p.steps.length)
         ),
-        h10(
+        h9(
           "p",
           { class: "cb-plan-where", "data-testid": "plan-where" },
           where,
-          p.undo ? h10(
+          p.undo ? h9(
             "span",
             { class: "cb-plan-undo", "data-testid": "plan-undo" },
             ` ${p.undo}`
           ) : null
         ),
-        h10(
+        h9(
           "div",
           {
             class: "kit-table cb-plan-group",
             "data-action": p.action,
             "data-lane": p.lane
           },
-          ...p.steps.map(
-            (s) => h10(
+          ...p.steps.flatMap((s) => [
+            h9(
               "div",
               { class: "kit-tr cb-plan-step", "data-key": s.key },
-              h10(
+              h9(
                 "span",
                 { class: "cb-step-k", title: s.key },
                 keyWithoutKind(s.key)
               ),
-              h10(
+              h9(
                 "code",
                 { class: "cb-cmd", "data-cmd": s.command, title: s.command },
                 s.command,
-                github && s.expected_tip ? h10(
+                github && s.expected_tip ? h9(
                   "span",
                   { class: "cb-cmd-if" },
                   ` (if still at ${s.expected_tip.slice(0, 7)})`
                 ) : null
-              ),
-              s.posts && s.comment ? h10(
-                "span",
-                { class: "cb-publine", title: publicLine(s) },
-                publicLine(s)
-              ) : null
-            )
-          )
+              )
+            ),
+            // A post's comment: whole, on a fixed line of its own under its
+            // step (two lines at most, "…" past them, whole on hover).
+            s.posts && s.comment ? h9(
+              "div",
+              {
+                class: "kit-tr cb-plan-pub",
+                "data-key": s.key,
+                title: publicLine(s)
+              },
+              h9("span", { class: "cb-publine" }, publicLine(s))
+            ) : null
+          ])
         )
       );
     }
@@ -5540,25 +5252,25 @@ function makeApply(ctx) {
       byMachine.set(w.machine, [...byMachine.get(w.machine) ?? [], w]);
     for (const [m, ws] of byMachine) {
       doc.append(
-        h10(
+        h9(
           "h3",
           { class: "kit-label cb-group-label cb-wait-h" },
           `waits for ${m} · ${ws.length}`
         ),
         ...waitBlocks(ws, steps).flatMap((b) => [
-          h10("p", { class: "cb-plan-where" }, b.text),
-          h10(
+          h9("p", { class: "cb-plan-where" }, b.text),
+          h9(
             "div",
             {
               class: "kit-table cb-plan-group cb-waits",
               "data-testid": "plan-waits"
             },
             ...b.waits.map(
-              (w) => h10(
+              (w) => h9(
                 "div",
                 { class: "kit-tr cb-plan-step" },
-                h10("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
-                h10(
+                h9("span", { class: "cb-step-k" }, keyWithoutKind(w.key)),
+                h9(
                   "span",
                   { class: "cb-cmd" },
                   `on ${m}${w.path ? ` · ${w.path}` : ""}`
@@ -5573,13 +5285,13 @@ function makeApply(ctx) {
   function drawHeld(doc, held2, steps) {
     if (!held2.length) return;
     doc.append(
-      h10(
+      h9(
         "h3",
         { class: "kit-label cb-group-label cb-held-h" },
         `held · ${held2.length}`
       ),
-      h10("p", { class: "cb-plan-where" }, heldText),
-      h10(
+      h9("p", { class: "cb-plan-where" }, heldText),
+      h9(
         "div",
         {
           class: "kit-table cb-plan-group cb-held",
@@ -5591,7 +5303,7 @@ function makeApply(ctx) {
           for (const hd of holds) {
             if (hd.by)
               links.push(
-                h10(
+                h9(
                   "a",
                   { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
                   keyWithoutKind(hd.by)
@@ -5599,22 +5311,22 @@ function makeApply(ctx) {
               );
             else if (hd.kind === "long-lived")
               links.push(
-                h10(
+                h9(
                   "a",
                   { class: "cb-link", href: `#/decide/${pathEscape(x.key)}` },
                   "decide again"
                 )
               );
           }
-          return h10(
+          return h9(
             "div",
             { class: "kit-tr cb-plan-step cb-held-row", "data-held": x.key },
-            h10(
+            h9(
               "span",
               { class: "cb-step-k", title: x.key },
               keyWithoutKind(x.key)
             ),
-            h10(
+            h9(
               "span",
               {
                 class: "cb-held-why",
@@ -5631,12 +5343,12 @@ function makeApply(ctx) {
   }
   function tagEls(tags, of) {
     return tags.map(
-      (t) => h10("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
+      (t) => h9("span", { class: `cb-tag cb-tag-${t.kind}` }, tagText(t, of))
     );
   }
   function runActs(v) {
     const rc = runCheck();
-    return h10(
+    return h9(
       "div",
       { class: "cb-run-acts", "data-testid": "run-group" },
       buttons4([
@@ -5647,7 +5359,7 @@ function makeApply(ctx) {
           run: () => runGroup()
         }
       ]),
-      rc?.text ? h10(
+      rc?.text ? h9(
         "span",
         {
           class: rc.can || busy ? "cb-approve-lab" : "cb-approve-none",
@@ -5660,14 +5372,14 @@ function makeApply(ctx) {
   }
   function planLines(v) {
     const steps = v.job.steps ?? [];
-    const el2 = h10("div", { class: "cb-approve" });
+    const el2 = h9("div", { class: "cb-approve" });
     const [, rest] = runsNow(v.plan).split("\n");
-    if (rest) el2.append(h10("p", { class: "cb-approve-what" }, rest));
+    if (rest) el2.append(h9("p", { class: "cb-approve-what" }, rest));
     const tags = stepTags(steps);
     if (tags.length)
-      el2.append(h10("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
+      el2.append(h9("p", { class: "cb-tags-line" }, ...tagEls(tags, 0)));
     if (note)
-      el2.append(h10("p", { class: "cb-apply-note", role: "status" }, note));
+      el2.append(h9("p", { class: "cb-apply-note", role: "status" }, note));
     return el2;
   }
   function drawOpen() {
@@ -5676,12 +5388,12 @@ function makeApply(ctx) {
     const j = open.job;
     if (j.state === "planned" || j.state === "cancelled") {
       paint(
-        h10(
+        h9(
           "article",
           { class: "cb-apply-doc cb-job", "data-job": String(j.id) },
-          h10("p", { class: "kit-kick" }, `job #${j.id}`),
-          h10("h1", { class: "kit-h1" }, titleOf(j)),
-          h10(
+          h9("p", { class: "kit-kick" }, `job #${j.id}`),
+          h9("h1", { class: "kit-h1" }, titleOf(j)),
+          h9(
             "p",
             { class: "cb-approve-none", "data-testid": "never-ran" },
             j.state === "planned" ? "This has not run: its decisions wait in review." : "This was replaced before it ran: nothing in it ran."
@@ -5853,7 +5565,7 @@ function makeApply(ctx) {
           ranKey = item;
           ranDetail = null;
           ranJob = null;
-          paint(h10("article", { class: "cb-apply-doc cb-ran" }));
+          paint(h9("article", { class: "cb-apply-doc cb-ran" }));
         }
         paintList();
         drawRan();
@@ -5923,6 +5635,309 @@ import {
   h as h14,
   ApiError as ApiError4
 } from "/_kit/kit.js";
+
+// item.ts
+import { h as h10, facts as facts3, fold } from "/_kit/kit.js";
+
+// holds-text.ts
+function copyRow(c) {
+  const label = c.machine || "GitHub";
+  if (c.absent) return [label, "not there"];
+  const parts = [];
+  if (c.path) parts.push(c.path);
+  if (c.tip) parts.push(`at ${c.tip.slice(0, 7)}`);
+  if (c.worktree) parts.push(`in worktree ${c.worktree}`);
+  if (c.head) parts.push("checked out in the clone");
+  if (!c.machine && c.landed) parts.push(`landed ${c.landed}`);
+  return [label, parts.join(" · ")];
+}
+function choiceTags(kind, disposition) {
+  if (kind === "repo" && disposition === "delete" || kind === "pr" && disposition === "merge")
+    return ["permanent"];
+  if ((kind === "pr" || kind === "issue") && disposition === "close" || kind === "repo" && disposition === "archive")
+    return ["github-undo"];
+  return [];
+}
+
+// item.ts
+var BODY_CAP = 600;
+function fmtDate(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+function fmtShortDate(s) {
+  if (!s)
+    return "def";
+  const d = new Date(s);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}-${dd}`;
+}
+function renderEvidence(evs) {
+  const section = h10("section", { class: "cb-evidence" });
+  section.append(h10("h3", { class: "kit-label" }, "evidence"));
+  if (evs.length === 0) {
+    section.append(h10("p", { class: "cb-empty" }, "no evidence"));
+    return section;
+  }
+  for (const ev of evs) {
+    const authorEl = ev.author ? h10("span", { class: "cb-evidence-author" }, ev.author + " ") : null;
+    const time = h10(
+      "span",
+      { class: "cb-muted" },
+      ` · ${fmtShortDate(ev.created_at)}`
+    );
+    const item = h10(
+      "div",
+      { class: "cb-evidence-item" },
+      h10(
+        "p",
+        { class: "cb-evidence-meta" },
+        ...authorEl ? [authorEl] : [],
+        ev.text,
+        time
+      )
+    );
+    section.append(item);
+  }
+  return section;
+}
+function renderHistory(events, decisions, ownKey) {
+  const section = h10("section", { class: "cb-history" });
+  section.append(h10("h3", { class: "kit-label" }, "history"));
+  if (events.length === 0 && decisions.length === 0) {
+    section.append(h10("p", { class: "cb-empty" }, "no history"));
+    return section;
+  }
+  for (const entry of decisions) {
+    const display = stripOwnKey(entry.Subject, ownKey);
+    section.append(
+      h10(
+        "div",
+        { class: "cb-history-item cb-history-decision" },
+        h10("span", { class: "cb-history-time" }, fmtShortDate(entry.Time)),
+        h10("span", { class: "cb-history-msg" }, display)
+      )
+    );
+  }
+  for (const ev of events) {
+    const label = ev.actions && ev.actions.length > 0 ? ev.actions.map((a) => a.hook ?? "").filter(Boolean).join(", ") : ev.hook ?? ev.src;
+    section.append(
+      h10(
+        "div",
+        { class: "cb-history-item" },
+        h10("span", { class: "cb-history-time" }, fmtShortDate(ev.ts)),
+        h10("span", { class: "cb-history-msg" }, label)
+      )
+    );
+  }
+  return section;
+}
+function renderDecideRow(ctx, detail, hooks) {
+  const it = detail.item;
+  const section = h10("section", { class: "cb-decide", role: "group" });
+  const pending = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  const tag = (kind, text) => h10("span", { class: `cb-tag cb-tag-${kind}` }, text);
+  const cards = renderChoices(ctx, it.kind, {
+    recommended: pending?.disposition,
+    chosen: it.decision?.disposition,
+    note: it.decision?.note,
+    onPick(d, until, note) {
+      hooks.decide?.(d, until, note);
+    },
+    onCards(grid) {
+      const tagged = [];
+      for (const card7 of grid.querySelectorAll(
+        ".cb-choice[data-d]"
+      )) {
+        const kinds = choiceTags(it.kind, card7.dataset.d ?? "");
+        if (!kinds.length) continue;
+        tagged.push(
+          h10(
+            "span",
+            { class: "cb-choice-tagged" },
+            card7.querySelector(".cb-choice-label")?.textContent ?? "",
+            ...kinds.map((k) => tag(k, tagText({ kind: k, n: 1 }, 1)))
+          )
+        );
+      }
+      if (tagged.length) tagsLine.replaceChildren(...tagged);
+      tagsLine.hidden = !tagged.length;
+      hooks.cardsReady?.();
+    }
+  });
+  const tagsLine = h10("p", { class: "cb-choice-tags", hidden: true });
+  cards.querySelector(".cb-choices")?.classList.add("cb-decide-row");
+  cards.querySelector(".cb-choices")?.after(tagsLine);
+  cards.querySelector(".cb-close-comment .kit-btn.fill")?.after(
+    tag(
+      "posts",
+      `posts a public comment${it.public ? " · on a public repo" : ""}`
+    )
+  );
+  section.append(cards);
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    section.setAttribute("aria-label", kv?.question ?? "");
+  });
+  return section;
+}
+function renderRec(ctx, detail, hooks) {
+  const it = detail.item;
+  const p = it.proposal && it.proposal.state === "pending" ? it.proposal : null;
+  if (!p) return null;
+  const who = h10("p", { class: "cb-rec-who" });
+  const label = h10("p", { class: "cb-rec-label" }, p.disposition);
+  const el2 = h10(
+    "section",
+    { class: "cb-rec" },
+    who,
+    label,
+    p.note ? h10("p", { class: "cb-rec-note" }, p.note) : null,
+    p.until ? h10("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
+  );
+  void getVocab(ctx).then((vocab2) => {
+    const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
+    const rec = asNotNow(p.disposition);
+    label.textContent = kv?.choices?.find((c) => c.disposition === rec)?.label ?? p.disposition;
+    who.textContent = recommendsWho(
+      vocab2,
+      p.source,
+      hooks.sourceName?.(p.source) ?? ""
+    );
+  });
+  return el2;
+}
+function renderHolds(detail) {
+  const holds = detail.item.holds ?? [];
+  if (!holds.length) return null;
+  return h10(
+    "section",
+    { class: "cb-hold" },
+    h10("p", { class: "cb-hold-who" }, "in the way"),
+    ...holds.flatMap((hd) => [
+      h10(
+        "p",
+        { class: "cb-hold-line" },
+        hd.text,
+        hd.by ? h10(
+          "a",
+          { class: "cb-link", href: `#/decide/${pathEscape(hd.by)}` },
+          keyWithoutKind(hd.by)
+        ) : null
+      ),
+      hd.fix ? h10("p", { class: "cb-hold-sub" }, hd.fix) : null
+    ])
+  );
+}
+function renderWhere(detail) {
+  const copies = detail.item.copies ?? [];
+  if (!copies.length) return null;
+  return h10(
+    "section",
+    { class: "cb-where" },
+    h10("h3", { class: "kit-label" }, "where it is"),
+    ...copies.map((c) => {
+      const [label, text] = copyRow(c);
+      return h10(
+        "div",
+        { class: c.absent ? "cb-wrow cb-wno" : "cb-wrow" },
+        h10("span", { class: "cb-wm" }, label),
+        h10("span", null, text)
+      );
+    })
+  );
+}
+function cameBack(vocab2, it) {
+  const status = vocab2.came_back?.[it.status ?? ""];
+  if (status) return it.due_reason || status;
+  return it.new_activity ? it.due_reason ?? "" : "";
+}
+function itemHead(detail, ctx) {
+  const it = detail.item;
+  const displayKey = keyWithoutKind(it.key);
+  const keyEl = it.url ? h10("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : displayKey;
+  const kicker = h10("p", { class: "cb-kicker kit-kick" });
+  const parts = [it.kind, keyEl, it.relation].filter(
+    (part) => !!part
+  );
+  parts.forEach((part, i) => {
+    if (i > 0) kicker.append(" · ");
+    kicker.append(part);
+  });
+  const title = it.title ?? keyWithoutKind(it.key);
+  const titleEl = h10("h1", { class: "cb-title kit-h1", title }, title);
+  const factPairs = [];
+  if (it.status)
+    factPairs.push([
+      "status",
+      detail.done_how ? `${it.status}: ${detail.done_how}` : it.status
+    ]);
+  if (it.repo) factPairs.push(["repo", it.repo]);
+  if (it.author)
+    factPairs.push(["author", it.author + (it.author_is_bot ? " (bot)" : "")]);
+  if (it.created_at) factPairs.push(["opened", fmtDate(it.created_at)]);
+  if (it.updated_at) factPairs.push(["updated", fmtDate(it.updated_at)]);
+  if (it.labels && it.labels.length > 0)
+    factPairs.push(["labels", it.labels.join(", ")]);
+  if (it.landed) factPairs.push(["landed", it.landed_how ?? it.landed]);
+  const factsEl = facts3(factPairs);
+  factsEl.title = factsEl.textContent ?? "";
+  if (ctx)
+    void getVocab(ctx).then((vocab2) => {
+      const why = cameBack(vocab2, it);
+      if (!why) return;
+      const line = vocab2.came_back_fact.replaceAll("{reason}", why);
+      factsEl.prepend(h10("span", { class: "cb-came-back", title: line }, line));
+      factsEl.title = factsEl.textContent ?? "";
+    });
+  return [kicker, titleEl, factsEl];
+}
+function renderItem(ctx, detail, hooks = {}) {
+  const it = detail.item;
+  const el2 = h10(
+    "article",
+    { class: "cb-item", dataset: { key: it.key } },
+    ...itemHead(detail, ctx)
+  );
+  el2.append(renderDecideRow(ctx, detail, hooks));
+  const looking = lookingLine(it.looking);
+  const reading = h10(
+    "div",
+    { class: "cb-reading" },
+    h10("p", { class: "cb-looking", hidden: !looking }, looking),
+    renderHolds(detail),
+    renderWhere(detail),
+    renderRec(ctx, detail, hooks)
+  );
+  if (it.body) {
+    const excerpt = it.body.slice(0, BODY_CAP);
+    const rest = it.body.slice(BODY_CAP);
+    reading.append(
+      h10(
+        "section",
+        { class: "cb-body" },
+        h10("p", null, excerpt),
+        rest ? fold("read more", h10("p", null, rest)) : null
+      )
+    );
+  }
+  reading.append(
+    h10(
+      "div",
+      { class: "cb-trail" },
+      renderEvidence(detail.evidence ?? []),
+      renderHistory(detail.history ?? [], detail.decisions ?? [], it.key)
+    )
+  );
+  el2.append(reading);
+  return h10("div", { class: "kit-doc cb-item-doc" }, hooks.nav ?? null, el2);
+}
 
 // proposals.ts
 import { sheet as sheet2, h as h11 } from "/_kit/kit.js";

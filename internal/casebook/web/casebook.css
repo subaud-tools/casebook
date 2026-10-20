@@ -3274,8 +3274,25 @@ button.cb-cond-menu-row[aria-disabled='true'] {
   padding: 6px 14px;
   overflow: hidden;
 }
-.cb-plan .kit-tr.cb-plan-step:has(> .cb-publine) {
-  height: 60px;
+/* A post's comment: a fixed 44px line of its own under its step, the
+ * comment whole on up to two lines, "…" past them and whole on hover. */
+.cb-plan .kit-tr.cb-plan-pub {
+  display: block;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  overflow: hidden;
+}
+.cb-plan .cb-plan-pub > .cb-publine {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: normal;
 }
 .cb-plan .cb-plan-step > .cb-step-k,
 .cb-plan .cb-plan-step > code.cb-cmd,

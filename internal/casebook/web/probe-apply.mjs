@@ -953,6 +953,26 @@ async function changedPlanScenario(context, t, s) {
           e.textContent.includes('first note'),
         ),
     );
+    // A step with a public comment is a 44px row like the rest, its
+    // comment on a fixed line of its own under it, there before it runs.
+    const pub = await pg.evaluate(() => {
+      const rows = [...document.querySelectorAll('.cb-plan .cb-plan-step')];
+      const lines = [...document.querySelectorAll('.cb-plan .cb-plan-pub')];
+      const h = (e) => Math.round(e.getBoundingClientRect().height);
+      return {
+        rows: rows.map(h),
+        lines: lines.map(h),
+        text: lines.map((e) => e.textContent).join(' | '),
+      };
+    });
+    check(
+      `review: a step with a comment is a 44px row, its comment whole on a fixed 44px line under it (rows ${pub.rows.join('/')}, lines ${pub.lines.join('/')}: ${pub.text})`,
+      pub.rows.length > 0 &&
+        pub.rows.every((x) => x === 44) &&
+        pub.lines.length === 1 &&
+        pub.lines.every((x) => x === 44) &&
+        pub.text.includes('first note'),
+    );
     // Another tab re-decides it with a new closing comment: the command
     // changes, and this page still shows the first. The list reloads on
     // the event (its buttons off until it is in); the press waits for it.
@@ -1372,6 +1392,18 @@ async function frameScenario(context, t, s) {
           undefined,
           8000,
         )),
+    );
+    const ranHead = await pg.evaluate(() =>
+      ['.cb-mid-kick', '.cb-mid-title', '.cb-mid-ctx'].map((q) =>
+        Math.round(
+          document.querySelector(`.cb-ran ${q}`)?.getBoundingClientRect()
+            .height ?? -1,
+        ),
+      ),
+    );
+    check(
+      `frame: the run item's head is the fixed lines, 16, 30 and 20px (${ranHead.join(', ')})`,
+      ranHead.join(',') === '16,30,20',
     );
     const neighbours = await pg.evaluate(() => {
       const rows = [

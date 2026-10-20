@@ -1727,7 +1727,7 @@ export function makeApply(ctx: Ctx): Section {
             'data-action': p.action,
             'data-lane': p.lane,
           },
-          ...p.steps.map((s) =>
+          ...p.steps.flatMap((s) => [
             h(
               'div',
               { class: 'kit-tr cb-plan-step', 'data-key': s.key },
@@ -1748,15 +1748,21 @@ export function makeApply(ctx: Ctx): Section {
                     )
                   : null,
               ),
-              s.posts && s.comment
-                ? h(
-                    'span',
-                    { class: 'cb-publine', title: publicLine(s) },
-                    publicLine(s),
-                  )
-                : null,
             ),
-          ),
+            // A post's comment: whole, on a fixed line of its own under its
+            // step (two lines at most, "…" past them, whole on hover).
+            s.posts && s.comment
+              ? h(
+                  'div',
+                  {
+                    class: 'kit-tr cb-plan-pub',
+                    'data-key': s.key,
+                    title: publicLine(s),
+                  },
+                  h('span', { class: 'cb-publine' }, publicLine(s)),
+                )
+              : null,
+          ]),
         ),
       );
     }

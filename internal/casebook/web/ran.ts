@@ -30,7 +30,7 @@ import {
   resumeVerb,
   stepMark,
 } from './apply-text.ts';
-import { itemHead } from './item.ts';
+import { midHead } from './mid.ts';
 
 // A destructive verb reads in danger text (delete, close, archive).
 const dangerVerb = (verb: string) =>
@@ -365,6 +365,24 @@ function stepRow(
   );
 }
 
+// ranHead is a run item's head in the middle's fixed lines: the small line
+// (its kind and key), its title, and a context line (how it stands, its
+// repo), each one line, whole on hover. Its buttons are below it, on the
+// needs-you cards and the steps.
+function ranHead(detail: ItemDetailView): HTMLElement[] {
+  const it = detail.item;
+  const key = keyWithoutKind(it.key);
+  const status = detail.done_how
+    ? `${it.status}: ${detail.done_how}`
+    : (it.status ?? '');
+  return midHead({
+    kick: [it.kind, key, it.relation].filter(Boolean).join(' \u00b7 '),
+    title: it.title || key,
+    ctx: [status, it.repo].filter(Boolean).join(' \u00b7 '),
+    acts: [],
+  });
+}
+
 /**
  * renderRan draws an item run lists: its head; what ran on it, every step
  * on it from every job that ran, each with its result, its job and undo,
@@ -384,7 +402,7 @@ export function renderRan(
   const doc = h(
     'article',
     { class: 'cb-apply-doc cb-ran', 'data-key': key },
-    ...itemHead(detail, ctx),
+    ...ranHead(detail),
   );
   doc.append(
     h('h3', { class: 'kit-label' }, 'what ran on this item'),
