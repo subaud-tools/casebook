@@ -1746,9 +1746,6 @@ code.cb-cmd {
   font: 12px var(--kit-mono);
   color: var(--kit-agent);
 }
-.cb-cmd-if {
-  color: var(--kit-muted);
-}
 .cb-wait-h,
 .cb-waits .cb-step-k,
 .cb-waits .cb-cmd {

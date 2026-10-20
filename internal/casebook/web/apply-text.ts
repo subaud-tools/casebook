@@ -617,6 +617,34 @@ export function reviewLine(
   return { text: done.toLowerCase(), tone: 'muted' };
 }
 
+/**
+ * stepLine is a step's command as it reads to Court: what it does to what,
+ * and the commit it insists on, rather than the GraphQL or git it runs
+ * (Court, 2026-10-20). The exact command stays in the title (hover).
+ */
+export function stepLine(s: {
+  action: string;
+  key: string;
+  command: string;
+  expected_tip?: string;
+}): string {
+  const tip = s.expected_tip
+    ? `, if it is still at ${s.expected_tip.slice(0, 7)}`
+    : '';
+  const branch = s.key.slice(s.key.indexOf('@') + 1);
+  switch (s.action) {
+    case 'branch-delete-remote':
+      return `delete ${branch} on GitHub${tip}`;
+    case 'branch-delete-local':
+      return `delete ${branch} here${tip}`;
+    case 'worktree-remove': {
+      const q = s.command.match(/'([^']*)'\s*$/);
+      return `remove worktree ${q ? q[1] : s.key.slice(s.key.indexOf(':', 9) + 1)}`;
+    }
+  }
+  return s.command;
+}
+
 /** untickHidden is the ticked keys a filter or a search no longer shows. */
 export function untickHidden(ticked: string[], shown: Set<string>): string[] {
   return ticked.filter((k) => !shown.has(k));

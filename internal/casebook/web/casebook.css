@@ -2145,9 +2145,6 @@ code.cb-cmd {
   font: 12px var(--kit-mono);
   color: var(--kit-agent);
 }
-.cb-cmd-if {
-  color: var(--kit-muted);
-}
 /* What waits for the other Mac (muted), and what is held (amber). */
 .cb-wait-h,
 .cb-waits .cb-step-k,

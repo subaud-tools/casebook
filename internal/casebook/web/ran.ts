@@ -29,6 +29,7 @@ import {
   progress,
   resumeVerb,
   stepMark,
+  stepLine,
 } from './apply-text.ts';
 import { midHead } from './mid.ts';
 
@@ -264,7 +265,13 @@ export function needsCard(
           'div',
           null,
           h('p', null, c.question),
-          step ? h('code', { class: 'cb-cmd' }, step.command) : null,
+          step
+            ? h(
+                'code',
+                { class: 'cb-cmd', title: step.command },
+                stepLine(step),
+              )
+            : null,
         ),
         actions: bs,
       });

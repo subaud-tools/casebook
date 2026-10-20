@@ -114,6 +114,7 @@ import {
   planTitle,
   isRunning,
   type StepGroup,
+  stepLine,
 } from './apply-text.ts';
 import { pathEscape } from './router-helpers.ts';
 import { getVocab } from './decide.ts';
@@ -1739,14 +1740,7 @@ export function makeApply(ctx: Ctx): Section {
               h(
                 'code',
                 { class: 'cb-cmd', 'data-cmd': s.command, title: s.command },
-                s.command,
-                github && s.expected_tip
-                  ? h(
-                      'span',
-                      { class: 'cb-cmd-if' },
-                      ` (if still at ${s.expected_tip.slice(0, 7)})`,
-                    )
-                  : null,
+                stepLine(s),
               ),
             ),
             // A post's comment: whole, on a fixed line of its own under its

@@ -1740,6 +1740,21 @@ function reviewLine(it, done) {
     return part.kind === "other-mac" ? { text: `waits for ${part.machine}`, tone: "muted" } : { text: `held: ${part.text}`, tone: "agent" };
   return { text: done.toLowerCase(), tone: "muted" };
 }
+function stepLine(s) {
+  const tip = s.expected_tip ? `, if it is still at ${s.expected_tip.slice(0, 7)}` : "";
+  const branch = s.key.slice(s.key.indexOf("@") + 1);
+  switch (s.action) {
+    case "branch-delete-remote":
+      return `delete ${branch} on GitHub${tip}`;
+    case "branch-delete-local":
+      return `delete ${branch} here${tip}`;
+    case "worktree-remove": {
+      const q = s.command.match(/'([^']*)'\s*$/);
+      return `remove worktree ${q ? q[1] : s.key.slice(s.key.indexOf(":", 9) + 1)}`;
+    }
+  }
+  return s.command;
+}
 function untickHidden(ticked, shown) {
   return ticked.filter((k) => !shown.has(k));
 }
@@ -3819,7 +3834,11 @@ function needsCard(c, step, j, agent, hooks) {
           "div",
           null,
           h8("p", null, c.question),
-          step ? h8("code", { class: "cb-cmd" }, step.command) : null
+          step ? h8(
+            "code",
+            { class: "cb-cmd", title: step.command },
+            stepLine(step)
+          ) : null
         ),
         actions: bs
       });
@@ -5241,12 +5260,7 @@ function makeApply(ctx) {
               h9(
                 "code",
                 { class: "cb-cmd", "data-cmd": s.command, title: s.command },
-                s.command,
-                github && s.expected_tip ? h9(
-                  "span",
-                  { class: "cb-cmd-if" },
-                  ` (if still at ${s.expected_tip.slice(0, 7)})`
-                ) : null
+                stepLine(s)
               )
             ),
             // A post's comment: whole, on a fixed line of its own under its
