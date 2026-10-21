@@ -132,6 +132,8 @@ type builder struct {
 	branchPRs    map[string][]item.Key      // branch item ID → open PRs whose head it is
 	remoteTips   map[string]string          // branch item ID → first upstream tip a snapshot saw
 	longLived    map[string]bool            // branch item ID → a snapshot called it long-lived
+	orgRepos     map[string]bool            // repo item ID → the user is its admin, for each repo another owner lists
+	cloned       map[string]bool            // lower-case owner/name → some snapshot has a clone of it
 }
 
 func (b *builder) get(k item.Key) *Item {
@@ -169,6 +171,8 @@ func Build(in Input) Result {
 		branchPRs:    map[string][]item.Key{},
 		remoteTips:   map[string]string{},
 		longLived:    map[string]bool{},
+		orgRepos:     map[string]bool{},
+		cloned:       map[string]bool{},
 	}
 	b.f.items = b.items
 	var res Result
@@ -190,6 +194,9 @@ func Build(in Input) Result {
 	// Holds read other items' statuses (a worktree decided Remove it), so
 	// they come after every status.
 	for _, it := range b.items {
+		if !b.involved(it) {
+			continue
+		}
 		it.Holds, it.Needs = b.holds(it)
 		it.Copies = b.copies(it)
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && it.Kind != item.KindBranch && it.Kind != item.KindWorktree {
@@ -238,6 +245,9 @@ func (b *builder) owners(res *Result) {
 				it.Evidence = append(it.Evidence, fmt.Sprintf("%d open PRs", n))
 			}
 			b.f.repos[k.String()] = r
+			if key != b.user {
+				b.orgRepos[k.String()] = r.Admin
+			}
 			for _, p := range r.PRs {
 				b.pr(item.PRKey(p.Repo, p.Number), p, b.direction(p), isFresh)
 			}
@@ -246,6 +256,16 @@ func (b *builder) owners(res *Result) {
 			}
 		}
 	}
+}
+
+// involved reports whether it is an item: a repository another owner lists
+// is one only when the user is its admin or has a clone of it, since
+// casebook can't act on the others (Court, 2026-10-20). Such a repo still
+// feeds its PRs, issues and branches, and its decision file stays: it
+// shows again once the repo qualifies.
+func (b *builder) involved(it *Item) bool {
+	admin, listed := b.orgRepos[it.ID]
+	return it.Kind != item.KindRepo || !listed || admin || b.cloned[strings.ToLower(it.Repo)]
 }
 
 func (b *builder) direction(p observe.PRObs) string {
@@ -306,6 +326,9 @@ func (b *builder) snapshots() {
 		b.snaps[snap.Machine] = true
 		for _, c := range snap.Clones {
 			where := snap.Machine + ":" + c.Path
+			if c.Repo != "" {
+				b.cloned[strings.ToLower(c.Repo)] = true
+			}
 			branches := map[string]observe.Branch{}
 			for _, br := range c.Branches {
 				branches[br.Name] = br
