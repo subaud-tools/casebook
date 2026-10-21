@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.19.0
+
+- casebook tracks a repository only when it can act on it: an org's repo is an item when you're its admin or a clone of it is on one of your Macs. The rest of an org's repos no longer ask for a decision. Each still feeds its pull requests, issues and branches, and what holds them (an archived repo still stops a close or a merge). A decision recorded for such a repo stays in the casebook data and shows again once the repo qualifies. Repos under your own account are unchanged.
+- casebook knows when you're asked to review a pull request or one is assigned to you, and when an issue is assigned to you, from the open-pulls and issue reads a sync already makes. A row and the item page say "you're asked to review" or "assigned to you", and rules match them with two new fields: `review-requested` (pull requests) and `assigned` (pull requests and issues). A review asked of one of your teams is not read yet.
+
 ## 0.18.4
 
 - casebook reads GitHub through REST only. One GraphQL query for an org's repos with their open PRs and issues failed with HTTP 502 on Fundamental-Technologies (344 open PRs) at every sync, and GraphQL's hourly budget ran out twice in a day. Each owner's repos, open PRs and issues, the authored PRs, the merged-PR lists, the item lookups, and apply's checks and verifications are now REST reads. GraphQL stays for the GitHub branch delete and its undo, the one write that needs its expected-commit guard.
