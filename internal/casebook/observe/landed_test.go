@@ -3,7 +3,9 @@ package observe
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,12 +15,15 @@ import (
 
 // recordRunner captures gh invocations for inspection.
 type recordRunner struct {
+	mu    sync.Mutex // merged lists are read several at a time
 	calls []string
 	reply func(args []string) ([]byte, error)
 }
 
 func (r *recordRunner) Gh(_ context.Context, args ...string) ([]byte, error) {
+	r.mu.Lock()
 	r.calls = append(r.calls, strings.Join(args, " "))
+	r.mu.Unlock()
 	if r.reply != nil {
 		return r.reply(args)
 	}
@@ -192,10 +197,11 @@ func TestLandedUnknownWhenMergedListUnavailable(t *testing.T) {
 func TestFetchMergedPRsOnlyForReposWithUnlandedCandidates(t *testing.T) {
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 
-	prJSON := `[{"number":7,"headRefName":"feat","headRefOid":"abc123"}]`
+	// GitHub's closed PRs: #7 merged, #8 closed without merging.
+	prJSON := `[{"number":7,"merged_at":"2026-09-20T00:00:00Z","head":{"ref":"feat","sha":"abc123"}},{"number":8,"merged_at":null,"head":{"ref":"nope","sha":"def"}}]`
 	runner := &recordRunner{reply: func(args []string) ([]byte, error) {
 		j := strings.Join(args, " ")
-		if strings.Contains(j, "acme/repo-b") {
+		if strings.Contains(j, "repos/acme/repo-b/pulls?state=closed") {
 			return []byte(prJSON), nil
 		}
 		return nil, fmt.Errorf("unexpected repo: %s", j)
@@ -207,14 +213,14 @@ func TestFetchMergedPRsOnlyForReposWithUnlandedCandidates(t *testing.T) {
 	}
 
 	// Only pass repo-b to FetchMergedPRs (repo-a not included, caller filtered it)
-	result := FetchMergedPRs(ctx, runner, []string{"acme/repo-b"}, prev, now)
+	result := FetchMergedPRs(ctx, runner, []string{"acme/repo-b"}, prev, now, &RefreshReport{})
 
 	// repo-a should still be there unchanged (from prev)
 	if a, ok := result["acme/repo-a"]; !ok || !a.Fetched {
 		t.Errorf("repo-a missing or Fetched changed: %+v", result)
 	}
 	// repo-b should be fetched
-	if b, ok := result["acme/repo-b"]; !ok || !b.Fetched || len(b.PRs) != 1 || b.PRs[0].Number != 7 {
+	if b, ok := result["acme/repo-b"]; !ok || !b.Fetched || len(b.PRs) != 1 || b.PRs[0] != (MergedPR{Number: 7, HeadRefName: "feat", HeadRefOid: "abc123"}) {
 		t.Errorf("repo-b not fetched correctly: %+v", result)
 	}
 	// Runner should only have been called for repo-b
@@ -366,7 +372,7 @@ func TestReposWithUnlandedBranches(t *testing.T) {
 	runner := &recordRunner{reply: func(args []string) ([]byte, error) {
 		return []byte("[]"), nil
 	}}
-	FetchMergedPRs(ctx, runner, unlanded, nil, time.Now())
+	FetchMergedPRs(ctx, runner, unlanded, nil, time.Now(), &RefreshReport{})
 	for _, call := range runner.calls {
 		if strings.Contains(call, "acme/repo-a") {
 			t.Errorf("FetchMergedPRs called for repo-a (already landed): %s", call)
@@ -432,6 +438,117 @@ func TestLongLivedBranchesAreNeverLanded(t *testing.T) {
 		}
 		if !long && b.LandedState != "yes" {
 			t.Errorf("feat: landed %q, want yes", b.LandedState)
+		}
+	}
+}
+
+// closedPage is page n of a repo's closed PRs, 100 to a page: none merged
+// except mergedNum, if it is on the page.
+func closedPage(n, mergedNum int, head, sha string) string {
+	var prs []string
+	for i := 0; i < 100; i++ {
+		num := (n-1)*100 + i + 1
+		if num == mergedNum {
+			prs = append(prs, fmt.Sprintf(`{"number":%d,"merged_at":"2026-09-20T00:00:00Z","head":{"ref":%q,"sha":%q}}`, num, head, sha))
+		} else {
+			prs = append(prs, fmt.Sprintf(`{"number":%d,"merged_at":null,"head":{"ref":"x","sha":"y"}}`, num))
+		}
+	}
+	return "[" + strings.Join(prs, ",") + "]"
+}
+
+// Closed PRs are paged until 1000 merged ones or the pages run out, as gh pr
+// list --limit 1000 did: a merged PR on page 21 still proves its branch
+// landed. A read stopped short (an error) is not a list: the previous one
+// stays.
+func TestMergedPRsPageUntilTheyRunOut(t *testing.T) {
+	dir, featTip := setupDivergedRepo(t)
+	page := func(a []string) int { n, _ := strconv.Atoi(apiQuery(a).Get("page")); return n }
+	runner := &recordRunner{reply: func(a []string) ([]byte, error) {
+		switch n := page(a); {
+		case n >= 1 && n <= 21:
+			return []byte(closedPage(n, 2050, "feat", featTip)), nil
+		case n == 22:
+			return []byte("[]"), nil
+		}
+		return nil, fmt.Errorf("unexpected %v", a)
+	}}
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	merged := FetchMergedPRs(ctx, runner, []string{"acme/proj"}, nil, now, &RefreshReport{})
+	snap := makeSnapForDir(dir, "acme/proj", "origin")
+	addBranch(&snap, 0, "feat", featTip)
+	ComputeLanded(ctx, &snap, map[string]RepoObs{"acme/proj": {Repo: "acme/proj", DefaultBranch: "main"}}, merged)
+	if b := snap.Clones[0].Branches[0]; b.Landed != "merged #2050" {
+		t.Errorf("branch %+v, want merged #2050 (merged %+v)", b, merged["acme/proj"])
+	}
+
+	prev := map[string]MergedPRList{"acme/proj": {Fetched: true, At: now.Add(-time.Hour), PRs: []MergedPR{{Number: 1}}}}
+	failing := &recordRunner{reply: func(a []string) ([]byte, error) {
+		if page(a) == 3 {
+			return nil, &GhError{Code: 1, Stderr: "gh: HTTP 502"}
+		}
+		return []byte(closedPage(page(a), 0, "", "")), nil
+	}}
+	out := FetchMergedPRs(ctx, failing, []string{"acme/proj"}, prev, now, &RefreshReport{})
+	if ml := out["acme/proj"]; !ml.Fetched || !ml.At.Equal(now.Add(-time.Hour)) || len(ml.PRs) != 1 {
+		t.Errorf("a read stopped short replaced the previous list: %+v", ml)
+	}
+}
+
+// A rate limit earlier in the sync starts no merged-PR read, and every
+// previous list stays.
+func TestFetchMergedPRsAfterARateLimitAsksNothing(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	prev := map[string]MergedPRList{"o/a": {Fetched: true, At: now.Add(-time.Hour), PRs: []MergedPR{{Number: 1}}}}
+	runner := &recordRunner{}
+	rep := RefreshReport{RateLimited: true}
+	out := FetchMergedPRs(ctx, runner, []string{"o/a", "o/b"}, prev, now, &rep)
+	if len(runner.calls) != 0 {
+		t.Errorf("calls after a rate limit: %v", runner.calls)
+	}
+	if a := out["o/a"]; !a.Fetched || !a.At.Equal(now.Add(-time.Hour)) || len(a.PRs) != 1 {
+		t.Errorf("o/a %+v", a)
+	}
+	if _, ok := out["o/b"]; ok {
+		t.Errorf("o/b written: %+v", out["o/b"])
+	}
+}
+
+// A rate limit partway through merged-PR reads is reported, and the repos
+// whose read was refused or never started keep their previous lists.
+func TestFetchMergedPRsRateLimitPartway(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	then := now.Add(-time.Hour)
+	repos := []string{"o/r0", "o/r1", "o/r2", "o/r3", "o/r4"}
+	prev := map[string]MergedPRList{}
+	for _, r := range repos {
+		prev[r] = MergedPRList{Fetched: true, At: then, PRs: []MergedPR{{Number: 9}}}
+	}
+	// One read at a time: the third is rate limited, so two lists are read
+	// whole and nothing starts after the third.
+	var mu sync.Mutex
+	asked := map[string]bool{}
+	runner := &recordRunner{reply: func(a []string) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(asked) == 2 {
+			return nil, &GhError{Code: 1, Stderr: "gh: API rate limit exceeded (HTTP 403)"}
+		}
+		asked[strings.Split(apiPath(a), "/")[2]] = true
+		return []byte(`[]`), nil
+	}}
+	var rep RefreshReport
+	out := fetchMergedPRs(ctx, runner, repos, prev, now, 1, &rep)
+	if !rep.RateLimited || len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0], "rate limited") {
+		t.Errorf("report %+v", rep)
+	}
+	if len(runner.calls) != 3 {
+		t.Errorf("calls %v, want three", runner.calls)
+	}
+	for _, r := range repos {
+		ml := out[r]
+		if fresh := asked[strings.TrimPrefix(r, "o/")]; !ml.Fetched || fresh != ml.At.Equal(now) || fresh == (len(ml.PRs) == 1) {
+			t.Errorf("%s = %+v (read whole: %v)", r, ml, fresh)
 		}
 	}
 }

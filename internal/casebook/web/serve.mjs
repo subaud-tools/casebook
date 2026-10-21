@@ -312,7 +312,7 @@ function setupHome(seedRepos = [], seedClones = []) {
 // ---- hermetic executors ------------------------------------------------------
 //
 // serve runs gh for one thing in these probes: verifying an agent-lane step
-// the agent reported (a fresh `gh pr view`, `gh repo view`). The Go tests
+// the agent reported (a fresh REST read of the PR, issue or repo). The Go tests
 // give serve apptest.FakeGh for it; the binary has no such seam, so every
 // serve the probe starts finds a fake gh first on its PATH, answering the
 // verification reads the way apptest.FakeGh does and refusing anything else.
@@ -332,10 +332,9 @@ const GH_FAIL_CLOSED = {
 };
 const FAKE_GH = `#!/bin/sh
 case "$*" in
-  "pr view "*"--json state"*) echo '{"state":"CLOSED"}' ;;
-  "issue view "*"--json state"*) echo '{"state":"CLOSED"}' ;;
-  "repo view "*"--json isArchived"*) echo '{"isArchived":true}' ;;
-  "repo view "*) echo '{}' ;;
+  "api repos/"*"/pulls/"*) echo '{"state":"closed","merged_at":null}' ;;
+  "api repos/"*"/issues/"*) echo '{"state":"closed"}' ;;
+  "api repos/"*) echo '{"archived":true}' ;;
   *) echo "probe fake gh: unexpected: $*" >&2; exit 1 ;;
 esac
 `;

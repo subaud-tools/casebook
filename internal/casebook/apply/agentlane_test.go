@@ -22,7 +22,7 @@ var _ observe.Runner = staticGh{}
 
 func TestObserveGhPRClose(t *testing.T) {
 	step := JobStep{Key: "pr:schuettc/hail#7", Action: "pr-close"}
-	gh := staticGh{out: []byte(`{"state":"CLOSED"}`)}
+	gh := staticGh{out: []byte(`{"state":"closed","merged_at":null}`)}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known {
 		t.Fatal("ObserveGh: observation should be known")
@@ -37,7 +37,7 @@ func TestObserveGhPRClose(t *testing.T) {
 
 func TestObserveGhPRMerge(t *testing.T) {
 	step := JobStep{Key: "pr:schuettc/hail#7", Action: "pr-merge"}
-	gh := staticGh{out: []byte(`{"state":"MERGED"}`)}
+	gh := staticGh{out: []byte(`{"state":"closed","merged_at":"2026-10-20T00:00:00Z"}`)}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known || obs.State != "MERGED" {
 		t.Fatalf("ObserveGh: %+v", obs)
@@ -49,7 +49,7 @@ func TestObserveGhPRMerge(t *testing.T) {
 
 func TestObserveGhIssueClose(t *testing.T) {
 	step := JobStep{Key: "issue:schuettc/hail#4", Action: "issue-close"}
-	gh := staticGh{out: []byte(`{"state":"CLOSED"}`)}
+	gh := staticGh{out: []byte(`{"state":"closed"}`)}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known || obs.State != "CLOSED" {
 		t.Fatalf("ObserveGh: %+v", obs)
@@ -61,7 +61,7 @@ func TestObserveGhIssueClose(t *testing.T) {
 
 func TestObserveGhRepoArchive(t *testing.T) {
 	step := JobStep{Key: "repo:schuettc/hail", Action: "repo-archive"}
-	gh := staticGh{out: []byte(`{"isArchived":true}`)}
+	gh := staticGh{out: []byte(`{"archived":true}`)}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known || !obs.Archived {
 		t.Fatalf("ObserveGh: %+v", obs)
@@ -73,7 +73,7 @@ func TestObserveGhRepoArchive(t *testing.T) {
 
 func TestObserveGhRepoNotYetArchived(t *testing.T) {
 	step := JobStep{Key: "repo:schuettc/hail", Action: "repo-archive"}
-	gh := staticGh{out: []byte(`{"isArchived":false}`)}
+	gh := staticGh{out: []byte(`{"archived":false}`)}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known || obs.Archived {
 		t.Fatalf("ObserveGh: %+v", obs)
@@ -86,8 +86,8 @@ func TestObserveGhRepoNotYetArchived(t *testing.T) {
 
 func TestObserveGhRepoDeleteGone(t *testing.T) {
 	step := JobStep{Key: "repo:schuettc/hail", Action: "repo-delete"}
-	// gh returns the canonical "not found" error for a missing repo.
-	gh := staticGh{err: errors.New("Could not resolve to a Repository with the name 'schuettc/hail'")}
+	// GitHub answers 404 for a missing repo.
+	gh := staticGh{err: &observe.GhError{Code: 1, Stderr: "gh: Not Found (HTTP 404)"}}
 	obs := ObserveGh(context.Background(), step, gh)
 	if !obs.Known || obs.Exists {
 		t.Fatalf("ObserveGh delete gone: %+v", obs)

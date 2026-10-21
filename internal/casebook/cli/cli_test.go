@@ -14,23 +14,34 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
 
+// fakeGh serves one repo, schuettc/hail, through REST, with nothing open;
+// any other read is GitHub's 404.
 type fakeGh struct{}
 
 func (fakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
 	j := strings.Join(args, " ")
+	p := ""
+	for i := 1; i < len(args) && args[0] == "api" && p == ""; i++ {
+		switch a := args[i]; {
+		case a == "-H" || a == "--jq":
+			i++
+		case !strings.HasPrefix(a, "-"):
+			p, _, _ = strings.Cut(a, "?")
+		}
+	}
 	switch {
 	case j == "api user --jq .login":
 		return []byte("schuettc"), nil
 	case strings.HasPrefix(j, "api user/orgs"), strings.HasPrefix(j, "auth status"):
 		return nil, nil
-	case strings.Contains(j, "repositoryOwner("):
-		return []byte(`{"data":{"repositoryOwner":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[
-		 {"nameWithOwner":"schuettc/hail","pushedAt":"2026-09-20T00:00:00Z","defaultBranchRef":{"name":"main"},
-		  "pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]},"issues":{"pageInfo":{"hasNextPage":false},"nodes":[]}}]}}}}`), nil
-	case strings.Contains(j, "search("):
-		return []byte(`{"data":{"search":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}`), nil
-	case strings.Contains(j, "k0:"):
-		return []byte(`{"data":{}}`), nil
+	case p == "user/repos":
+		return []byte(`[{"full_name":"schuettc/hail","pushed_at":"2026-09-20T00:00:00Z","default_branch":"main"}]`), nil
+	case p == "search/issues":
+		return []byte(`{"total_count":0,"items":[]}`), nil
+	case p == "repos/schuettc/hail/pulls":
+		return []byte(`[]`), nil
+	case strings.HasPrefix(p, "repos/"):
+		return nil, &observe.GhError{Code: 1, Stderr: "gh: Not Found (HTTP 404)"}
 	}
 	return nil, &observe.GhError{Code: 1, Stderr: "unexpected " + j}
 }

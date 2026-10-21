@@ -61,7 +61,7 @@ func (it Item) Fields(now time.Time) Fields {
 		owner = it.Repo[:i]
 	}
 
-	// Bot: derived from AuthorIsBot (set from GraphQL __typename == "Bot").
+	// Bot: derived from AuthorIsBot (set from GitHub's user type "Bot").
 	// No suffix check — GitHub Bot accounts may not carry the [bot] login suffix.
 	bot := it.AuthorIsBot
 

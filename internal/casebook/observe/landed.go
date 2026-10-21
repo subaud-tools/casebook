@@ -2,7 +2,7 @@ package observe
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,27 +25,75 @@ func AllRepos(g *GitHub) map[string]RepoObs {
 
 // FetchMergedPRs fetches the list of merged pull requests for each repo in
 // repos, returning an updated map. Repos not in repos keep their previous
-// entry from prev unchanged. A failed fetch sets Fetched=false.
-func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time) map[string]MergedPRList {
+// entry from prev unchanged, and so does a repo whose list didn't come back
+// whole (an error, or the page cap): only a complete read is Fetched.
+//
+// rep is the sync's GitHub report, carried on from Refresh: once it says
+// rate limited no read starts, and a rate limit or failed read here is added
+// to it.
+func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, rep *RefreshReport) map[string]MergedPRList {
+	return fetchMergedPRs(ctx, r, repos, prev, now, poolSize, rep)
+}
+
+// fetchMergedPRs is FetchMergedPRs with size gh calls at once.
+func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, size int, rep *RefreshReport) map[string]MergedPRList {
 	out := make(map[string]MergedPRList, len(prev)+len(repos))
 	for k, v := range prev {
 		out[k] = v
 	}
-	for _, repo := range repos {
-		key := strings.ToLower(repo)
-		b, err := r.Gh(ctx, "pr", "list", "-R", repo, "--state", "merged", "--limit", "1000", "--json", "number,headRefName,headRefOid")
-		if err != nil {
-			out[key] = MergedPRList{Fetched: false}
-			continue
-		}
+	if rep.RateLimited {
+		return out
+	}
+	c := rest{ctx, newLimiter(r, size)}
+	lists := make([]MergedPRList, len(repos))
+	errs := make([]error, len(repos))
+	each(len(repos), func(i int) {
 		var prs []MergedPR
-		if err := json.Unmarshal(b, &prs); err != nil {
-			out[key] = MergedPRList{Fetched: false}
-			continue
+		if prs, errs[i] = fetchMerged(c, repos[i]); errs[i] == nil {
+			lists[i] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
 		}
-		out[key] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
+	})
+	limited := false
+	for i, repo := range repos {
+		switch err := errs[i]; {
+		case err == nil:
+			out[strings.ToLower(repo)] = lists[i]
+		case rateLimited(err):
+			limited = true // reported once below, as a serial run would have stopped
+		default:
+			rep.Errors = append(rep.Errors, fmt.Sprintf("%s: merged pull requests: %v", repo, err))
+		}
+	}
+	if limited {
+		rep.RateLimited = true
+		rep.Errors = append(rep.Errors, "merged pull requests: rate limited; retry next sync")
 	}
 	return out
+}
+
+// fetchMerged lists a repo's merged PRs, newest first: its closed PRs that
+// were merged, paged until there are 1000 of them or the pages run out (what
+// gh pr list --limit 1000 gave). Reaching maxMergedPages first is an error:
+// the list would not be whole.
+func fetchMerged(c rest, repo string) ([]MergedPR, error) {
+	var prs []MergedPR
+	for page := 1; ; page++ {
+		if page > maxMergedPages {
+			return nil, fmt.Errorf("stopped at %d pages of closed ones", maxMergedPages)
+		}
+		var closed []restPull
+		if err := c.get(repoPath(repo)+"/pulls?state=closed&per_page=100&page="+strconv.Itoa(page), &closed); err != nil {
+			return nil, err
+		}
+		for _, p := range closed {
+			if p.MergedAt != nil && len(prs) < maxMerged {
+				prs = append(prs, MergedPR{Number: p.Number, HeadRefName: p.Head.Ref, HeadRefOid: p.Head.SHA})
+			}
+		}
+		if len(closed) < 100 || len(prs) >= maxMerged {
+			return prs, nil
+		}
+	}
 }
 
 // cloneRemote picks the remote name whose value matches the clone's repo.
