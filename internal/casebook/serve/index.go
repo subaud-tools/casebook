@@ -20,6 +20,7 @@ type Index struct {
 	mu      sync.RWMutex
 	res     engine.Result
 	byKey   map[string]engine.Item
+	hidden  map[string]engine.Item // the build's hidden repos: only their item page reads them
 	builtAt time.Time
 	head    string
 	gen     uint64 // bumped on every set: which build a cached count belongs to
@@ -40,8 +41,12 @@ func (x *Index) set(r engine.Result, head string, at time.Time) {
 	for _, it := range r.Items {
 		m[it.ID] = it
 	}
+	h := make(map[string]engine.Item, len(r.Hidden))
+	for _, it := range r.Hidden {
+		h[it.ID] = it
+	}
 	x.mu.Lock()
-	x.res, x.byKey, x.head, x.builtAt = r, m, head, at
+	x.res, x.byKey, x.hidden, x.head, x.builtAt = r, m, h, head, at
 	x.gen++
 	x.mu.Unlock()
 }
@@ -58,6 +63,18 @@ func (x *Index) Item(key string) (engine.Item, bool) {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
 	it, ok := x.byKey[key]
+	return it, ok
+}
+
+// Page returns one item for its item page: an item, or a repo hidden from
+// the lists, so a link to it still opens.
+func (x *Index) Page(key string) (engine.Item, bool) {
+	x.mu.RLock()
+	defer x.mu.RUnlock()
+	if it, ok := x.byKey[key]; ok {
+		return it, true
+	}
+	it, ok := x.hidden[key]
 	return it, ok
 }
 

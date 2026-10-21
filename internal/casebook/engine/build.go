@@ -74,6 +74,9 @@ type Item struct {
 type Result struct {
 	Items   []Item   `json:"items"`
 	Notices []string `json:"notices,omitempty"`
+	// Hidden is the repos that aren't items (involved says why), in key
+	// order: no list, count or run reads them, but their item page opens.
+	Hidden []Item `json:"-"`
 }
 
 // Find returns the item with key text id.
@@ -81,6 +84,15 @@ func (r Result) Find(id string) (Item, bool) {
 	i := sort.Search(len(r.Items), func(i int) bool { return r.Items[i].ID >= id })
 	if i < len(r.Items) && r.Items[i].ID == id {
 		return r.Items[i], true
+	}
+	return Item{}, false
+}
+
+// FindHidden returns the hidden repo with key text id.
+func (r Result) FindHidden(id string) (Item, bool) {
+	i := sort.Search(len(r.Hidden), func(i int) bool { return r.Hidden[i].ID >= id })
+	if i < len(r.Hidden) && r.Hidden[i].ID == id {
+		return r.Hidden[i], true
 	}
 	return Item{}, false
 }
@@ -198,17 +210,19 @@ func Build(in Input) Result {
 	// Holds read other items' statuses (a worktree decided Remove it), so
 	// they come after every status.
 	for _, it := range b.items {
-		if !b.involved(it) {
-			continue
-		}
 		it.Holds, it.Needs = b.holds(it)
 		it.Copies = b.copies(it)
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && it.Kind != item.KindBranch && it.Kind != item.KindWorktree {
 			it.Public = !r.Private
 		}
+		if !b.involved(it) {
+			res.Hidden = append(res.Hidden, *it)
+			continue
+		}
 		res.Items = append(res.Items, *it)
 	}
 	sort.Slice(res.Items, func(i, j int) bool { return res.Items[i].ID < res.Items[j].ID })
+	sort.Slice(res.Hidden, func(i, j int) bool { return res.Hidden[i].ID < res.Hidden[j].ID })
 	sort.Strings(res.Notices)
 	return res
 }
@@ -270,9 +284,21 @@ func (b *builder) owners(res *Result) {
 // casebook can't act on the others (Court, 2026-10-20). Such a repo still
 // feeds its PRs, issues and branches, and its decision file stays: it
 // shows again once the repo qualifies. Admin not observed counts as
-// involved.
+// involved, and so does work pending: only a repo that is new or decided to
+// run nothing (keep, ignore, wait, watch) hides; one decided archive or
+// delete always shows.
 func (b *builder) involved(it *Item) bool {
-	return it.Kind != item.KindRepo || !b.notAdmin[it.ID] || b.cloned[strings.ToLower(it.Repo)]
+	if it.Kind != item.KindRepo || !b.notAdmin[it.ID] || b.cloned[strings.ToLower(it.Repo)] {
+		return true
+	}
+	if it.Status == item.StatusNew {
+		return false
+	}
+	switch it.Decision.Disposition {
+	case item.Keep, item.Ignore, item.Wait, item.Watch:
+		return false
+	}
+	return true
 }
 
 func (b *builder) direction(p observe.PRObs) string {

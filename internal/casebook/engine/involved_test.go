@@ -140,3 +140,38 @@ func TestRepoWhoseOwnerListingFailedKeepsShowing(t *testing.T) {
 	ow.Reachable, ow.Reason = false, "SAML SSO"
 	mustFind(t, Build(in), "repo:ft/team")
 }
+
+// TestRepoDecidedArchiveShowsWithoutAdminOrClone: a repo with work pending
+// (decided archive or delete) always shows, whatever its admin and clone;
+// one decided to run nothing hides like an undecided one.
+func TestRepoDecidedArchiveShowsWithoutAdminOrClone(t *testing.T) {
+	for _, d := range []item.Disposition{item.Archive, item.Delete} {
+		in := orgFixture()
+		decide(in, "repo:ft/team", d, "")
+		r := Build(in)
+		it := mustFind(t, r, "repo:ft/team")
+		if it.Decision == nil || it.Decision.Disposition != d {
+			t.Errorf("%s: decision %+v", d, it.Decision)
+		}
+		if _, hidden := r.FindHidden("repo:ft/team"); hidden {
+			t.Errorf("%s: also hidden", d)
+		}
+	}
+	for _, d := range []item.Disposition{item.Keep, item.Ignore, item.Wait, item.Watch} {
+		in := orgFixture()
+		decide(in, "repo:ft/team", d, "")
+		if _, ok := Build(in).Find("repo:ft/team"); ok {
+			t.Errorf("%s: a repo decided to run nothing shows", d)
+		}
+	}
+}
+
+// TestHiddenRepoIsKeptAside: a hidden repo is not in Items but Result keeps
+// it, so its item page still opens.
+func TestHiddenRepoIsKeptAside(t *testing.T) {
+	r := Build(orgFixture())
+	it, ok := r.FindHidden("repo:ft/team")
+	if !ok || it.Status != item.StatusNew {
+		t.Fatalf("hidden %+v %v", it, ok)
+	}
+}

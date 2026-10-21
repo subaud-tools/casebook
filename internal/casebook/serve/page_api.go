@@ -316,7 +316,7 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, bad("%v", err))
 		return
 	}
-	it, ok := s.Index.Item(k.String())
+	it, ok := s.Index.Page(k.String())
 	if !ok {
 		reply(w, nil, httpError{code: http.StatusNotFound, msg: k.String() + " is not a known item"})
 		return
