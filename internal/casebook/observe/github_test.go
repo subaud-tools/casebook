@@ -687,3 +687,38 @@ func TestRefreshIncompleteSearchKeepsPrevious(t *testing.T) {
 		t.Errorf("report %v, want the incomplete search", rep.Errors)
 	}
 }
+
+// A repo's open-pulls list decides which of its PRs are open: a PR search
+// missed is added, and one search still shows but the list doesn't is
+// dropped.
+func TestRefreshOpenPullsDecideTheOpenPRs(t *testing.T) {
+	gh := &fakeGh{handle: func(a []string) (string, error) {
+		j := strings.Join(a, " ")
+		switch p, q := apiPath(a), searchQ(a); {
+		case j == "api user --jq .login":
+			return "schuettc", nil
+		case p == "user/repos":
+			return "[" + repoJSON("schuettc/hail", 2) + "]", nil
+		case q == "is:open is:pr user:schuettc":
+			return searchJSON(2, issueJSON("schuettc/hail", 1, "bob", "User", 0, true), issueJSON("schuettc/hail", 3, "bob", "User", 0, true)), nil
+		case q != "":
+			return searchJSON(0), nil
+		case p == "repos/schuettc/hail/pulls":
+			return `[{"number":1,"head":{"ref":"one","repo":{"full_name":"schuettc/hail"}}},{"number":2,"head":{"ref":"two","repo":{"full_name":"schuettc/hail"}}}]`, nil
+		case p == "repos/schuettc/hail/issues/2":
+			return issueJSON("schuettc/hail", 2, "eve", "User", 0, true), nil
+		}
+		return "", fmt.Errorf("unexpected gh %s", j)
+	}}
+	g, rep := Refresh(ctx, gh, NewGitHub(), RefreshOptions{Owners: []string{"schuettc"}, Now: time.Now()})
+	if len(rep.Errors) != 0 {
+		t.Fatalf("errors %v", rep.Errors)
+	}
+	heads := map[int]string{}
+	for _, p := range g.Owners["schuettc"].Repos[0].PRs {
+		heads[p.Number] = p.HeadRef
+	}
+	if len(heads) != 2 || heads[1] != "one" || heads[2] != "two" {
+		t.Errorf("open PRs %v, want #1 one and #2 two", heads)
+	}
+}

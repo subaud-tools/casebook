@@ -559,6 +559,9 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 			heads[repo][p.Number] = p
 		}
 	}
+	if prs, err = f.reconcile(prs, withPRs, pulls, heads, byName); err != nil {
+		return nil, nil, err
+	}
 	// Each PR and issue is made at once (its last comment, a merge state);
 	// they join their repos in order.
 	items := append(append([]restIssue{}, prs...), issues...)
@@ -605,6 +608,52 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 		byUpdated(repos[i].Issues)
 	}
 	return repos, listed, nil
+}
+
+// reconcile lets each repo whose open pulls were listed decide which of its
+// PRs are open: a PR search still shows but the list doesn't is dropped, and
+// one the list has but search missed (its index lags) is read on its own.
+// Search alone decides only for the repos whose pulls weren't listed.
+func (f ownerFetch) reconcile(prs []restIssue, withPRs []string, pulls [][]restPull, heads map[string]map[int]restPull, byName map[string]*RepoObs) ([]restIssue, error) {
+	found := map[string]map[int]bool{}
+	var kept []restIssue
+	for _, it := range prs {
+		repo := strings.ToLower(it.repo())
+		if h, ok := heads[repo]; ok {
+			if _, open := h[it.Number]; !open {
+				continue
+			}
+		}
+		if found[repo] == nil {
+			found[repo] = map[int]bool{}
+		}
+		found[repo][it.Number] = true
+		kept = append(kept, it)
+	}
+	type miss struct {
+		repo string
+		n    int
+	}
+	var missed []miss
+	for i, repo := range withPRs {
+		for _, p := range pulls[i] {
+			if !found[repo][p.Number] {
+				missed = append(missed, miss{byName[repo].Repo, p.Number})
+			}
+		}
+	}
+	got := make([]restIssue, len(missed))
+	errs := make([]error, len(missed))
+	each(len(missed), func(i int) {
+		path := fmt.Sprintf("%s/issues/%d", repoPath(missed[i].repo), missed[i].n)
+		if errs[i] = f.c.get(path, &got[i], textJSON); errs[i] == nil && got[i].RepositoryURL == "" {
+			got[i].RepositoryURL = "https://api.github.com/repos/" + missed[i].repo
+		}
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, err
+	}
+	return append(kept, got...), nil
 }
 
 // open finds the owner's open PRs and issues: one search each, or, when
