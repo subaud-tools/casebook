@@ -219,12 +219,15 @@ func list[T any](c rest, path string, header ...string) ([]T, error) {
 }
 
 // search runs one search query: every result, or more=true when GitHub has
-// more than searchCap of them (the caller splits the query).
+// more than searchCap of them (the caller splits the query). A page GitHub
+// marks incomplete_results (its search timed out) is an error, unless the query is split anyway: a read that
+// didn't come back whole never replaces what was observed before.
 func (c rest) search(q string) (items []restIssue, more bool, err error) {
 	for page := 1; ; page++ {
 		var resp struct {
-			Total int         `json:"total_count"`
-			Items []restIssue `json:"items"`
+			Total      int         `json:"total_count"`
+			Incomplete bool        `json:"incomplete_results"`
+			Items      []restIssue `json:"items"`
 		}
 		path := "search/issues?" + url.Values{"q": {q}, "per_page": {strconv.Itoa(searchPage)}, "page": {strconv.Itoa(page)}}.Encode()
 		if err := c.get(path, &resp, textJSON); err != nil {
@@ -232,6 +235,9 @@ func (c rest) search(q string) (items []restIssue, more bool, err error) {
 		}
 		if resp.Total > searchCap {
 			return nil, true, nil
+		}
+		if resp.Incomplete {
+			return nil, false, fmt.Errorf("search %q: GitHub returned incomplete results", q)
 		}
 		items = append(items, resp.Items...)
 		if len(resp.Items) < searchPage || len(items) >= resp.Total {

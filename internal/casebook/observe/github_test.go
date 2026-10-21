@@ -656,3 +656,34 @@ func TestRefreshOwnerWithoutReposSearchesNothing(t *testing.T) {
 		t.Fatalf("errors %v, empty %+v", rep.Errors, g.Owners["empty"])
 	}
 }
+
+// A search GitHub answers with incomplete_results is not a whole read: the
+// owner keeps its previous open PRs, and the incompleteness is reported.
+func TestRefreshIncompleteSearchKeepsPrevious(t *testing.T) {
+	then := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	prev := NewGitHub()
+	prev.Owners["schuettc"] = &Owner{Login: "schuettc", Reachable: true, FetchedAt: then,
+		Repos: []RepoObs{{Repo: "schuettc/hail", PRs: []PRObs{{Repo: "schuettc/hail", Number: 3, State: "OPEN"}}}}}
+	gh := &fakeGh{handle: func(a []string) (string, error) {
+		j := strings.Join(a, " ")
+		switch p, q := apiPath(a), searchQ(a); {
+		case j == "api user --jq .login":
+			return "schuettc", nil
+		case p == "user/repos":
+			return "[" + repoJSON("schuettc/hail", 1) + "]", nil
+		case q == "is:open is:pr user:schuettc":
+			return `{"total_count":0,"incomplete_results":true,"items":[]}`, nil
+		case q != "":
+			return searchJSON(0), nil
+		}
+		return "", fmt.Errorf("unexpected gh %s", j)
+	}}
+	g, rep := Refresh(ctx, gh, prev, RefreshOptions{Owners: []string{"schuettc"}, Now: then.Add(time.Hour)})
+	own := g.Owners["schuettc"]
+	if !own.Stale || !own.FetchedAt.Equal(then) || len(own.Repos) != 1 || len(own.Repos[0].PRs) != 1 || own.Repos[0].PRs[0].Number != 3 {
+		t.Errorf("owner replaced by an incomplete search: %+v", own)
+	}
+	if len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0], "incomplete") {
+		t.Errorf("report %v, want the incomplete search", rep.Errors)
+	}
+}

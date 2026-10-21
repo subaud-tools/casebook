@@ -13,6 +13,7 @@ name, as they were there. The format follows
 - A PR's merge state (behind, blocked, conflicts) is read only for PRs decided merge, the only ones its hold stops; a repo's latest release only for repos a `released()` condition names; a PR's or issue's last comment only when it has comments and changed since the last sync.
 - Open PRs and issues are no longer cut at 50 per repo; past GitHub's search cap of 1000 per owner, each repo with anything open lists its own.
 - A sync's GitHub reads run 8 at a time instead of one by one, so a full refresh of about 640 reads takes about 1¼ minutes instead of about 6½ (1m6s for the refresh and 11s for the merged-PR lists, measured on Court's owners), and serve's push and branch re-read wait that much less for the sync lock. The cache comes out the same, in the same order. Search still runs one at a time and never more than 30 a minute, GitHub's search limit, and after a rate limit no new read starts.
+- A read that didn't come back whole never replaces what casebook saw before. A search GitHub answers with `incomplete_results` leaves that owner as it was, and the sync reports it.
 
 ## 0.18.3
 
