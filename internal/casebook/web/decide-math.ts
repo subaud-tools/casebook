@@ -349,26 +349,29 @@ export function involvedLine(it: {
  * or its new activity (signal); its recommendation (muted). Grouped, the
  * head names the choice and the row gives its reason; flat, the row names
  * both ("delete it · landed"). A left-open row says when it was left open.
- * What is asked of you (involvedLine) leads the reason or recommendation.
+ * What is asked of you (involvedLine) leads every one of these.
  */
 export function standsLine(
   vocab: DecisionVocabView | null,
   it: ItemView,
   flat: boolean,
 ): { text: string; tone: Tone } {
+  // What is asked of you leads whatever follows.
+  const lead = (text: string) =>
+    [involvedLine(it), text].filter(Boolean).join(' \u00b7 ');
   const looking = lookingLine(it.looking);
-  if (looking) return { text: looking, tone: 'agent' };
+  if (looking) return { text: lead(looking), tone: 'agent' };
   if (it.status === 'left-open')
-    return { text: leftOpenMeta(it.decision?.decided_at), tone: 'muted' };
+    return {
+      text: lead(leftOpenMeta(it.decision?.decided_at)),
+      tone: 'muted',
+    };
   const back =
     it.group === CAME_BACK
       ? it.due_reason || vocab?.came_back?.[it.status]
       : it.new_activity
         ? it.due_reason
         : '';
-  // What is asked of you leads whatever follows.
-  const lead = (text: string) =>
-    [involvedLine(it), text].filter(Boolean).join(' \u00b7 ');
   if (back) return { text: lead(back), tone: 'signal' };
   const p = it.proposal?.state === 'pending' ? it.proposal : undefined;
   if (!p) return { text: lead('not recommended yet'), tone: 'muted' };

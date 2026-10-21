@@ -555,6 +555,26 @@ describe('standsLine', () => {
       { text: 'assigned to you \u00b7 its decision came due', tone: 'signal' },
     );
   });
+  test('what is asked of you leads a looking or left-open row too', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          review_requested: true,
+          looking: { session: { id: 's1', name: 'pi' } },
+        } as unknown as Partial<ItemView>),
+        false,
+      ),
+      {
+        text: "you're asked to review \u00b7 pi is looking into it",
+        tone: 'agent',
+      },
+    );
+    assert.deepEqual(
+      standsLine(vocab, br({ assigned: true, status: 'left-open' }), false),
+      { text: 'assigned to you \u00b7 left open', tone: 'muted' },
+    );
+  });
 });
 
 describe('involvedLine', () => {

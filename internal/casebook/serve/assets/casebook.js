@@ -1180,12 +1180,15 @@ function involvedLine(it) {
   ].filter(Boolean).join(" · ");
 }
 function standsLine(vocab2, it, flat) {
-  const looking = lookingLine(it.looking);
-  if (looking) return { text: looking, tone: "agent" };
-  if (it.status === "left-open")
-    return { text: leftOpenMeta(it.decision?.decided_at), tone: "muted" };
-  const back = it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : "";
   const lead = (text2) => [involvedLine(it), text2].filter(Boolean).join(" · ");
+  const looking = lookingLine(it.looking);
+  if (looking) return { text: lead(looking), tone: "agent" };
+  if (it.status === "left-open")
+    return {
+      text: lead(leftOpenMeta(it.decision?.decided_at)),
+      tone: "muted"
+    };
+  const back = it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : "";
   if (back) return { text: lead(back), tone: "signal" };
   const p = it.proposal?.state === "pending" ? it.proposal : void 0;
   if (!p) return { text: lead("not recommended yet"), tone: "muted" };
