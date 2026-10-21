@@ -35,26 +35,30 @@ type Item struct {
 	DueReason string      `json:"due_reason,omitempty"` // why a Not now or a Leave it open came back
 	// NewActivity: due because someone else's activity on the PR or issue is
 	// newer than its keep, wait or watch decision. It waits on the user.
-	NewActivity bool              `json:"new_activity,omitempty"`
-	Decision    *item.Decision    `json:"decision,omitempty"`
-	Observed    item.Observed     `json:"observed"`
-	Stale       bool              `json:"stale,omitempty"`
-	Locations   []string          `json:"locations,omitempty"`
-	Evidence    []string          `json:"evidence,omitempty"`
-	Author      string            `json:"author,omitempty"`
-	AuthorIsBot bool              `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
-	CreatedAt   time.Time         `json:"created_at,omitzero"`
-	UpdatedAt   time.Time         `json:"updated_at,omitzero"`
-	Labels      []string          `json:"labels,omitempty"`
-	Body        string            `json:"body,omitempty"`
-	Landed      string            `json:"landed,omitempty"`      // combined across machines: "all-machines", "some-machines", "none", "unknown"
-	LandedHow   string            `json:"landed_how,omitempty"`  // human-readable: "in main", "merged #N", or "; "-joined when both
-	LandedVia   []string          `json:"landed_via,omitempty"`  // machine codes: "default-branch", "merged-pr" (multi-valued)
-	LandedTips  map[string]string `json:"landed_tips,omitempty"` // machine → tip checked
-	Holds       []Hold            `json:"holds,omitempty"`       // what stands in the way of its decision
-	Copies      []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
-	Needs       []string          `json:"needs,omitempty"`       // keys that run first in the same job
-	Public      bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
+	NewActivity bool           `json:"new_activity,omitempty"`
+	Decision    *item.Decision `json:"decision,omitempty"`
+	Observed    item.Observed  `json:"observed"`
+	Stale       bool           `json:"stale,omitempty"`
+	Locations   []string       `json:"locations,omitempty"`
+	Evidence    []string       `json:"evidence,omitempty"`
+	Author      string         `json:"author,omitempty"`
+	AuthorIsBot bool           `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
+	// ReviewRequested: a PR you're one of the requested reviewers of.
+	// Assigned: a PR or issue you're one of the assignees of.
+	ReviewRequested bool              `json:"review_requested,omitempty"`
+	Assigned        bool              `json:"assigned,omitempty"`
+	CreatedAt       time.Time         `json:"created_at,omitzero"`
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"`
+	Labels          []string          `json:"labels,omitempty"`
+	Body            string            `json:"body,omitempty"`
+	Landed          string            `json:"landed,omitempty"`      // combined across machines: "all-machines", "some-machines", "none", "unknown"
+	LandedHow       string            `json:"landed_how,omitempty"`  // human-readable: "in main", "merged #N", or "; "-joined when both
+	LandedVia       []string          `json:"landed_via,omitempty"`  // machine codes: "default-branch", "merged-pr" (multi-valued)
+	LandedTips      map[string]string `json:"landed_tips,omitempty"` // machine → tip checked
+	Holds           []Hold            `json:"holds,omitempty"`       // what stands in the way of its decision
+	Copies          []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
+	Needs           []string          `json:"needs,omitempty"`       // keys that run first in the same job
+	Public          bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
 
 	fresh          bool      // observed from a fresh owner listing
 	othersAt       time.Time // pr/issue: latest activity by anyone but the user (zero: none known)
@@ -70,6 +74,9 @@ type Item struct {
 type Result struct {
 	Items   []Item   `json:"items"`
 	Notices []string `json:"notices,omitempty"`
+	// Hidden is the repos that aren't items (involved says why), in key
+	// order: no list, count or run reads them, but their item page opens.
+	Hidden []Item `json:"-"`
 }
 
 // Find returns the item with key text id.
@@ -77,6 +84,15 @@ func (r Result) Find(id string) (Item, bool) {
 	i := sort.Search(len(r.Items), func(i int) bool { return r.Items[i].ID >= id })
 	if i < len(r.Items) && r.Items[i].ID == id {
 		return r.Items[i], true
+	}
+	return Item{}, false
+}
+
+// FindHidden returns the hidden repo with key text id.
+func (r Result) FindHidden(id string) (Item, bool) {
+	i := sort.Search(len(r.Hidden), func(i int) bool { return r.Hidden[i].ID >= id })
+	if i < len(r.Hidden) && r.Hidden[i].ID == id {
+		return r.Hidden[i], true
 	}
 	return Item{}, false
 }
@@ -132,6 +148,8 @@ type builder struct {
 	branchPRs    map[string][]item.Key      // branch item ID → open PRs whose head it is
 	remoteTips   map[string]string          // branch item ID → first upstream tip a snapshot saw
 	longLived    map[string]bool            // branch item ID → a snapshot called it long-lived
+	notAdmin     map[string]bool            // repo item ID → another owner's fresh listing says the user is not its admin
+	cloned       map[string]bool            // lower-case owner/name → some snapshot has a clone of it
 }
 
 func (b *builder) get(k item.Key) *Item {
@@ -169,6 +187,8 @@ func Build(in Input) Result {
 		branchPRs:    map[string][]item.Key{},
 		remoteTips:   map[string]string{},
 		longLived:    map[string]bool{},
+		notAdmin:     map[string]bool{},
+		cloned:       map[string]bool{},
 	}
 	b.f.items = b.items
 	var res Result
@@ -195,9 +215,14 @@ func Build(in Input) Result {
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && it.Kind != item.KindBranch && it.Kind != item.KindWorktree {
 			it.Public = !r.Private
 		}
+		if !b.involved(it) {
+			res.Hidden = append(res.Hidden, *it)
+			continue
+		}
 		res.Items = append(res.Items, *it)
 	}
 	sort.Slice(res.Items, func(i, j int) bool { return res.Items[i].ID < res.Items[j].ID })
+	sort.Slice(res.Hidden, func(i, j int) bool { return res.Hidden[i].ID < res.Hidden[j].ID })
 	sort.Strings(res.Notices)
 	return res
 }
@@ -238,6 +263,12 @@ func (b *builder) owners(res *Result) {
 				it.Evidence = append(it.Evidence, fmt.Sprintf("%d open PRs", n))
 			}
 			b.f.repos[k.String()] = r
+			// Admin is known only from a fresh listing that carried
+			// permissions, and "another owner" only with a known login:
+			// unknown is not "not an admin".
+			if b.user != "" && key != b.user && isFresh && r.Admin != nil && !*r.Admin {
+				b.notAdmin[k.String()] = true
+			}
 			for _, p := range r.PRs {
 				b.pr(item.PRKey(p.Repo, p.Number), p, b.direction(p), isFresh)
 			}
@@ -246,6 +277,28 @@ func (b *builder) owners(res *Result) {
 			}
 		}
 	}
+}
+
+// involved reports whether it is an item: a repository another owner lists
+// is one only when the user is its admin or has a clone of it, since
+// casebook can't act on the others (Court, 2026-10-20). Such a repo still
+// feeds its PRs, issues and branches, and its decision file stays: it
+// shows again once the repo qualifies. Admin not observed counts as
+// involved, and so does work pending: only a repo that is new or decided to
+// run nothing (keep, ignore, wait, watch) hides; one decided archive or
+// delete always shows.
+func (b *builder) involved(it *Item) bool {
+	if it.Kind != item.KindRepo || !b.notAdmin[it.ID] || b.cloned[strings.ToLower(it.Repo)] {
+		return true
+	}
+	if it.Status == item.StatusNew {
+		return false
+	}
+	switch it.Decision.Disposition {
+	case item.Keep, item.Ignore, item.Wait, item.Watch:
+		return false
+	}
+	return true
 }
 
 func (b *builder) direction(p observe.PRObs) string {
@@ -275,6 +328,7 @@ func (b *builder) pr(k item.Key, p observe.PRObs, dir string, fresh bool) {
 	it.fresh, it.Stale = fresh, !fresh
 	it.Title, it.URL, it.Relation = p.Title, p.URL, dir
 	it.Author, it.AuthorIsBot, it.CreatedAt, it.UpdatedAt, it.Labels, it.Body = p.Author, p.AuthorIsBot, p.CreatedAt, p.UpdatedAt, p.Labels, p.Body
+	it.ReviewRequested, it.Assigned = k.Kind == item.KindPR && p.ReviewRequested, p.Assigned
 	// Someone else's latest activity: the cache holds each PR's and issue's
 	// last comment (author and time) and its creation, nothing about
 	// commits or reviews, and its updated_at names no actor. So this is the
@@ -306,6 +360,9 @@ func (b *builder) snapshots() {
 		b.snaps[snap.Machine] = true
 		for _, c := range snap.Clones {
 			where := snap.Machine + ":" + c.Path
+			if c.Repo != "" {
+				b.cloned[strings.ToLower(c.Repo)] = true
+			}
 			branches := map[string]observe.Branch{}
 			for _, br := range c.Branches {
 				branches[br.Name] = br

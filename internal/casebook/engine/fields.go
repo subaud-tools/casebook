@@ -22,6 +22,10 @@ type Fields struct {
 	Bot      bool     // author ends "[bot]" (GitHub's convention for bot accounts)
 	Labels   []string // PR/issue labels
 
+	// Involvement
+	ReviewRequested bool // PR: you're one of its requested reviewers
+	Assigned        bool // PR/issue: you're one of its assignees
+
 	// Age / activity (durations from now; 0 when the underlying time is zero)
 	Age     time.Duration // now - CreatedAt
 	Updated time.Duration // now - UpdatedAt (repo: pushedAt; branch: tipAt)
@@ -112,28 +116,30 @@ func (it Item) Fields(now time.Time) Fields {
 	}
 
 	return Fields{
-		Kind:         string(it.Kind),
-		Repo:         it.Repo,
-		Owner:        owner,
-		Relation:     relation,
-		Status:       string(it.Status),
-		Author:       it.Author,
-		Title:        it.Title,
-		Bot:          bot,
-		Labels:       it.Labels,
-		Age:          age,
-		Updated:      updated,
-		CreatedAt:    it.CreatedAt,
-		UpdatedAt:    it.UpdatedAt,
-		Landed:       it.Landed,
-		LandedHow:    it.LandedVia,
-		Tip:          tip,
-		GoneUpstream: it.goneUpstream,
-		Unpushed:     !it.oldestUnpushed.IsZero(),
-		Worktree:     worktree,
-		Archived:     it.Observed.Archived,
-		Ownership:    ownership,
-		OpenPRs:      it.openPRs,
-		OpenIssues:   it.openIssues,
+		Kind:            string(it.Kind),
+		Repo:            it.Repo,
+		Owner:           owner,
+		Relation:        relation,
+		Status:          string(it.Status),
+		Author:          it.Author,
+		Title:           it.Title,
+		Bot:             bot,
+		Labels:          it.Labels,
+		ReviewRequested: it.ReviewRequested,
+		Assigned:        it.Assigned,
+		Age:             age,
+		Updated:         updated,
+		CreatedAt:       it.CreatedAt,
+		UpdatedAt:       it.UpdatedAt,
+		Landed:          it.Landed,
+		LandedHow:       it.LandedVia,
+		Tip:             tip,
+		GoneUpstream:    it.goneUpstream,
+		Unpushed:        !it.oldestUnpushed.IsZero(),
+		Worktree:        worktree,
+		Archived:        it.Observed.Archived,
+		Ownership:       ownership,
+		OpenPRs:         it.openPRs,
+		OpenIssues:      it.openIssues,
 	}
 }

@@ -19,6 +19,7 @@ import {
   navTargets,
   shortKey,
   standsLine,
+  involvedLine,
   decideSummary,
   splitTicked,
   tickedWords,
@@ -539,6 +540,57 @@ describe('standsLine', () => {
       text: 'not recommended yet',
       tone: 'muted',
     });
+  });
+  test('a review asked of you or an assignment leads the line', () => {
+    assert.deepEqual(standsLine(vocab, br({ review_requested: true }), false), {
+      text: "you're asked to review \u00b7 landed",
+      tone: 'muted',
+    });
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({ assigned: true, status: 'due', group: 'came-back' }),
+        true,
+      ),
+      { text: 'assigned to you \u00b7 its decision came due', tone: 'signal' },
+    );
+  });
+  test('what is asked of you leads a looking or left-open row too', () => {
+    assert.deepEqual(
+      standsLine(
+        vocab,
+        br({
+          review_requested: true,
+          looking: { session: { id: 's1', name: 'pi' } },
+        } as unknown as Partial<ItemView>),
+        false,
+      ),
+      {
+        text: "you're asked to review \u00b7 pi is looking into it",
+        tone: 'agent',
+      },
+    );
+    assert.deepEqual(
+      standsLine(vocab, br({ assigned: true, status: 'left-open' }), false),
+      { text: 'assigned to you \u00b7 left open', tone: 'muted' },
+    );
+  });
+});
+
+describe('involvedLine', () => {
+  const it = (over: Partial<ItemView> = {}): ItemView =>
+    ({ key: 'pr:o/r#1', kind: 'pr', status: 'new', ...over }) as ItemView;
+  test('says what is asked of you, or nothing', () => {
+    assert.equal(involvedLine(it()), '');
+    assert.equal(
+      involvedLine(it({ review_requested: true })),
+      "you're asked to review",
+    );
+    assert.equal(involvedLine(it({ assigned: true })), 'assigned to you');
+    assert.equal(
+      involvedLine(it({ review_requested: true, assigned: true })),
+      "you're asked to review \u00b7 assigned to you",
+    );
   });
 });
 

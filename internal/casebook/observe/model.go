@@ -17,6 +17,7 @@ type RepoObs struct {
 	Archived        bool      `json:"archived,omitempty"`
 	Fork            bool      `json:"fork,omitempty"`
 	Private         bool      `json:"private,omitempty"`
+	Admin           *bool     `json:"admin,omitempty"` // the user is an admin of it (the listing's permissions.admin); nil when not observed
 	PushedAt        time.Time `json:"pushed_at,omitzero"`
 	Parent          string    `json:"parent,omitempty"`
 	DefaultBranch   string    `json:"default_branch,omitempty"`
@@ -42,10 +43,12 @@ type PRObs struct {
 	LastCommentAt     time.Time `json:"last_comment_at,omitzero"`
 	URL               string    `json:"url,omitempty"`
 	Labels            []string  `json:"labels,omitempty"`
-	Body              string    `json:"body,omitempty"`        // first 600 chars of GitHub's body_text
-	MergeState        string    `json:"merge_state,omitempty"` // GitHub's mergeable_state upper-cased (BEHIND, BLOCKED, CLEAN, DIRTY, ...); set only for a PR decided merge
-	HeadRef           string    `json:"head_ref,omitempty"`    // the PR's branch
-	HeadRepo          string    `json:"head_repo,omitempty"`   // the repo that branch is in, lower case owner/name ("" when GitHub has none)
+	Body              string    `json:"body,omitempty"`             // first 600 chars of GitHub's body_text
+	MergeState        string    `json:"merge_state,omitempty"`      // GitHub's mergeable_state upper-cased (BEHIND, BLOCKED, CLEAN, DIRTY, ...); set only for a PR decided merge
+	HeadRef           string    `json:"head_ref,omitempty"`         // the PR's branch
+	HeadRepo          string    `json:"head_repo,omitempty"`        // the repo that branch is in, lower case owner/name ("" when GitHub has none)
+	ReviewRequested   bool      `json:"review_requested,omitempty"` // a PR: the user is one of its requested reviewers (teams are not read)
+	Assigned          bool      `json:"assigned,omitempty"`         // the user is one of its assignees
 }
 
 // Owner is one account's or org's observation. A failed or blocked fetch

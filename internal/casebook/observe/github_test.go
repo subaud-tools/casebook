@@ -335,7 +335,7 @@ func TestRefreshWithoutGh(t *testing.T) {
 // 600 runes (not 600 bytes), producing valid UTF-8.
 func TestBodyTruncationIsRuneSafe(t *testing.T) {
 	body601 := strings.Repeat("é", 601)
-	p := toPR(restIssue{BodyText: body601}, "owner/repo")
+	p := toPR(restIssue{BodyText: body601}, "owner/repo", "schuettc")
 	runes := []rune(p.Body)
 	if len(runes) != 600 {
 		t.Errorf("Body has %d runes, want exactly 600", len(runes))

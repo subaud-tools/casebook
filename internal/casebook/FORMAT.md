@@ -177,6 +177,8 @@ A field may appear in one condition only (several values of one field are one `i
 | `bot` | bool | pr, issue | `true` \| `false` |
 | `title` | text | pr, issue, worktree | supports `matches` (regex) |
 | `label` | text | pr, issue | label name |
+| `review-requested` | bool | pr | `true` \| `false`; you're one of its requested reviewers (a team asked is not read) |
+| `assigned` | bool | pr, issue | `true` \| `false`; you're one of its assignees |
 | `age` | duration | pr, issue | time since created; use `older-than`/`newer-than` |
 | `updated` | duration | all | time since last activity: last comment or update, push (repo), or commit (branch) |
 | `landed` | enum | branch | `all-machines` \| `some-machines` \| `none` \| `unknown` |

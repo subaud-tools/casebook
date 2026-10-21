@@ -7,9 +7,9 @@ import (
 
 func TestVocabularyHasEveryFieldWithOps(t *testing.T) {
 	fields := Vocabulary()
-	// 20 fields; each must have at least one operator.
-	if len(fields) != 20 {
-		t.Errorf("got %d fields, want 20", len(fields))
+	// 22 fields; each must have at least one operator.
+	if len(fields) != 22 {
+		t.Errorf("got %d fields, want 22", len(fields))
 	}
 	names := make(map[string]bool, len(fields))
 	for _, f := range fields {
@@ -169,6 +169,8 @@ func TestVocabularyLabels(t *testing.T) {
 		{"updated", "last activity", "last comment or update, push, or commit"},
 		{"gone-upstream", "upstream deleted", "the branch's remote branch was deleted"},
 		{"open-prs", "open PRs", ""},
+		{"review-requested", "asked to review", "pull requests: you're one of its requested reviewers"},
+		{"assigned", "assigned to you", "pull requests and issues: you're one of its assignees"},
 	} {
 		if f := by[c.field]; f.Label != c.label || f.Help != c.help {
 			t.Errorf("%s: label %q help %q, want %q %q", c.field, f.Label, f.Help, c.label, c.help)

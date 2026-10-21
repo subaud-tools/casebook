@@ -353,6 +353,8 @@ export interface ItemView {
   evidence?: string[];
   author?: string;
   author_is_bot?: boolean;
+  review_requested?: boolean;
+  assigned?: boolean;
   created_at?: string;
   updated_at?: string;
   labels?: string[];

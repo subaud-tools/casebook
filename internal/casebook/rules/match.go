@@ -76,6 +76,10 @@ func (c Condition) Eval(f engine.Fields) (bool, error) {
 		return evalString(c.Op, f.Title, c.Value)
 	case "label":
 		return evalPatterns(c.Op, f.Labels, c.Value)
+	case "review-requested":
+		return evalBool(c.Op, f.ReviewRequested, c.Value)
+	case "assigned":
+		return evalBool(c.Op, f.Assigned, c.Value)
 	case "age":
 		return evalTime(c.Op, f.Age, f.CreatedAt, c.Value)
 	case "updated":

@@ -22,9 +22,9 @@ func everyKind() engine.Result {
 	g := observe.NewGitHub()
 	g.User = "court"
 	pr := observe.PRObs{Repo: "court/hail", Number: 1, Title: "deps", Author: "renovate", AuthorIsBot: true,
-		State: "OPEN", CreatedAt: ago(9), UpdatedAt: ago(3), Labels: []string{"deps"}}
+		State: "OPEN", CreatedAt: ago(9), UpdatedAt: ago(3), Labels: []string{"deps"}, ReviewRequested: true, Assigned: true}
 	issue := observe.PRObs{Repo: "court/hail", Number: 2, Title: "bug", Author: "bob", State: "OPEN",
-		CreatedAt: ago(8), UpdatedAt: ago(2), Labels: []string{"bug"}}
+		CreatedAt: ago(8), UpdatedAt: ago(2), Labels: []string{"bug"}, Assigned: true}
 	g.Owners["court"] = &observe.Owner{Login: "court", Reachable: true, FetchedAt: kindsNow, Repos: []observe.RepoObs{
 		{Repo: "court/hail", Archived: true, Fork: true, Parent: "up/hail", PushedAt: ago(1), DefaultBranch: "main",
 			PRs: []observe.PRObs{pr}, Issues: []observe.PRObs{issue}},
@@ -87,6 +87,10 @@ func fieldIsZero(t *testing.T, f engine.Fields, name string) bool {
 		return f.OpenPRs == 0
 	case "open-issues":
 		return f.OpenIssues == 0
+	case "review-requested":
+		return !f.ReviewRequested
+	case "assigned":
+		return !f.Assigned
 	}
 	t.Fatalf("field %q has no zero check", name)
 	return false
@@ -122,7 +126,7 @@ func TestFieldKinds(t *testing.T) {
 	want := map[string][]string{
 		"kind": nil, "repo": nil, "owner": nil, "status": nil, "updated": nil,
 		"relation": {"pr", "issue"}, "author": {"pr", "issue"}, "bot": {"pr", "issue"},
-		"label": {"pr", "issue"}, "title": {"pr", "issue", "worktree"}, "age": {"pr", "issue"},
+		"label": {"pr", "issue"}, "review-requested": {"pr"}, "assigned": {"pr", "issue"}, "title": {"pr", "issue", "worktree"}, "age": {"pr", "issue"},
 		"landed": {"branch"}, "landed-how": {"branch"}, "gone-upstream": {"branch"},
 		"unpushed": {"branch", "worktree"}, "worktree": {"branch", "worktree"},
 		"archived": {"repo"}, "ownership": {"repo"}, "open-prs": {"repo"}, "open-issues": {"repo"},
