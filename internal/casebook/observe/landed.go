@@ -2,6 +2,7 @@ package observe
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,7 +25,8 @@ func AllRepos(g *GitHub) map[string]RepoObs {
 
 // FetchMergedPRs fetches the list of merged pull requests for each repo in
 // repos, returning an updated map. Repos not in repos keep their previous
-// entry from prev unchanged. A failed fetch sets Fetched=false.
+// entry from prev unchanged, and so does a repo whose list didn't come back
+// whole (an error, or the page cap): only a complete read is Fetched.
 func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time) map[string]MergedPRList {
 	return fetchMergedPRs(ctx, r, repos, prev, now, poolSize)
 }
@@ -37,36 +39,44 @@ func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[stri
 	}
 	c := rest{ctx, newLimiter(r, size)}
 	lists := make([]MergedPRList, len(repos))
+	errs := make([]error, len(repos))
 	each(len(repos), func(i int) {
-		if prs, err := fetchMerged(c, repos[i]); err == nil {
+		var prs []MergedPR
+		if prs, errs[i] = fetchMerged(c, repos[i]); errs[i] == nil {
 			lists[i] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
 		}
 	})
 	for i, repo := range repos {
-		out[strings.ToLower(repo)] = lists[i]
+		if errs[i] == nil {
+			out[strings.ToLower(repo)] = lists[i]
+		}
 	}
 	return out
 }
 
 // fetchMerged lists a repo's merged PRs, newest first: its closed PRs that
-// were merged, up to 1000 of them (what gh pr list --limit 1000 gave).
+// were merged, paged until there are 1000 of them or the pages run out (what
+// gh pr list --limit 1000 gave). Reaching maxMergedPages first is an error:
+// the list would not be whole.
 func fetchMerged(c rest, repo string) ([]MergedPR, error) {
 	var prs []MergedPR
-	for page := 1; page <= maxMergedPages && len(prs) < 1000; page++ {
+	for page := 1; ; page++ {
+		if page > maxMergedPages {
+			return nil, fmt.Errorf("%s: merged pull requests: stopped at %d pages of closed ones", repo, maxMergedPages)
+		}
 		var closed []restPull
 		if err := c.get(repoPath(repo)+"/pulls?state=closed&per_page=100&page="+strconv.Itoa(page), &closed); err != nil {
 			return nil, err
 		}
 		for _, p := range closed {
-			if p.MergedAt != nil && len(prs) < 1000 {
+			if p.MergedAt != nil && len(prs) < maxMerged {
 				prs = append(prs, MergedPR{Number: p.Number, HeadRefName: p.Head.Ref, HeadRefOid: p.Head.SHA})
 			}
 		}
-		if len(closed) < 100 {
-			break
+		if len(closed) < 100 || len(prs) >= maxMerged {
+			return prs, nil
 		}
 	}
-	return prs, nil
 }
 
 // cloneRemote picks the remote name whose value matches the clone's repo.

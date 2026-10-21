@@ -3,6 +3,7 @@ package observe
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -438,5 +439,58 @@ func TestLongLivedBranchesAreNeverLanded(t *testing.T) {
 		if !long && b.LandedState != "yes" {
 			t.Errorf("feat: landed %q, want yes", b.LandedState)
 		}
+	}
+}
+
+// closedPage is page n of a repo's closed PRs, 100 to a page: none merged
+// except mergedNum, if it is on the page.
+func closedPage(n, mergedNum int, head, sha string) string {
+	var prs []string
+	for i := 0; i < 100; i++ {
+		num := (n-1)*100 + i + 1
+		if num == mergedNum {
+			prs = append(prs, fmt.Sprintf(`{"number":%d,"merged_at":"2026-09-20T00:00:00Z","head":{"ref":%q,"sha":%q}}`, num, head, sha))
+		} else {
+			prs = append(prs, fmt.Sprintf(`{"number":%d,"merged_at":null,"head":{"ref":"x","sha":"y"}}`, num))
+		}
+	}
+	return "[" + strings.Join(prs, ",") + "]"
+}
+
+// Closed PRs are paged until 1000 merged ones or the pages run out, as gh pr
+// list --limit 1000 did: a merged PR on page 21 still proves its branch
+// landed. A read stopped short (an error) is not a list: the previous one
+// stays.
+func TestMergedPRsPageUntilTheyRunOut(t *testing.T) {
+	dir, featTip := setupDivergedRepo(t)
+	page := func(a []string) int { n, _ := strconv.Atoi(apiQuery(a).Get("page")); return n }
+	runner := &recordRunner{reply: func(a []string) ([]byte, error) {
+		switch n := page(a); {
+		case n >= 1 && n <= 21:
+			return []byte(closedPage(n, 2050, "feat", featTip)), nil
+		case n == 22:
+			return []byte("[]"), nil
+		}
+		return nil, fmt.Errorf("unexpected %v", a)
+	}}
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	merged := FetchMergedPRs(ctx, runner, []string{"acme/proj"}, nil, now)
+	snap := makeSnapForDir(dir, "acme/proj", "origin")
+	addBranch(&snap, 0, "feat", featTip)
+	ComputeLanded(ctx, &snap, map[string]RepoObs{"acme/proj": {Repo: "acme/proj", DefaultBranch: "main"}}, merged)
+	if b := snap.Clones[0].Branches[0]; b.Landed != "merged #2050" {
+		t.Errorf("branch %+v, want merged #2050 (merged %+v)", b, merged["acme/proj"])
+	}
+
+	prev := map[string]MergedPRList{"acme/proj": {Fetched: true, At: now.Add(-time.Hour), PRs: []MergedPR{{Number: 1}}}}
+	failing := &recordRunner{reply: func(a []string) ([]byte, error) {
+		if page(a) == 3 {
+			return nil, &GhError{Code: 1, Stderr: "gh: HTTP 502"}
+		}
+		return []byte(closedPage(page(a), 0, "", "")), nil
+	}}
+	out := FetchMergedPRs(ctx, failing, []string{"acme/proj"}, prev, now)
+	if ml := out["acme/proj"]; !ml.Fetched || !ml.At.Equal(now.Add(-time.Hour)) || len(ml.PRs) != 1 {
+		t.Errorf("a read stopped short replaced the previous list: %+v", ml)
 	}
 }

@@ -26,8 +26,9 @@ import (
 const (
 	searchCap       = 1000 // GitHub search returns at most this many results per query
 	searchPage      = 100
-	maxMergedPages  = 20
-	branchListAbove = 2 // a repo with more branch keys than this lists its refs once
+	maxMerged       = 1000 // merged PRs kept per repo, what gh pr list --limit 1000 gave
+	maxMergedPages  = 100  // closed-PR pages read at most per repo; past it the list is not whole
+	branchListAbove = 2    // a repo with more branch keys than this lists its refs once
 )
 
 // textJSON asks for body_text, GitHub's plain-text rendering of a body (what
