@@ -26,19 +26,24 @@ func AllRepos(g *GitHub) map[string]RepoObs {
 // repos, returning an updated map. Repos not in repos keep their previous
 // entry from prev unchanged. A failed fetch sets Fetched=false.
 func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time) map[string]MergedPRList {
+	return fetchMergedPRs(ctx, r, repos, prev, now, poolSize)
+}
+
+// fetchMergedPRs is FetchMergedPRs with size gh calls at once.
+func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, size int) map[string]MergedPRList {
 	out := make(map[string]MergedPRList, len(prev)+len(repos))
 	for k, v := range prev {
 		out[k] = v
 	}
-	c := rest{ctx, r}
-	for _, repo := range repos {
-		key := strings.ToLower(repo)
-		prs, err := fetchMerged(c, repo)
-		if err != nil {
-			out[key] = MergedPRList{Fetched: false}
-			continue
+	c := rest{ctx, newLimiter(r, size)}
+	lists := make([]MergedPRList, len(repos))
+	each(len(repos), func(i int) {
+		if prs, err := fetchMerged(c, repos[i]); err == nil {
+			lists[i] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
 		}
-		out[key] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
+	})
+	for i, repo := range repos {
+		out[strings.ToLower(repo)] = lists[i]
 	}
 	return out
 }

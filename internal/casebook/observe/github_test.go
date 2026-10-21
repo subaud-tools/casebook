@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -17,11 +18,14 @@ var ctx = context.Background()
 // fakeGh answers gh invocations from a handler.
 type fakeGh struct {
 	handle func(args []string) (string, error)
+	mu     sync.Mutex // reads run several at a time
 	calls  [][]string
 }
 
 func (f *fakeGh) Gh(_ context.Context, args ...string) ([]byte, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, args)
+	f.mu.Unlock()
 	out, err := f.handle(args)
 	return []byte(out), err
 }
@@ -248,36 +252,39 @@ func TestRefreshAbsenceIsNotEvidence(t *testing.T) {
 	}
 }
 
+// A rate limit stops the refresh: the owner listings already running
+// finish (both owners are listed at once), nothing else starts, and every
+// owner keeps its previous repos.
 func TestRefreshRateLimitStopsFetching(t *testing.T) {
 	prev := NewGitHub()
 	prev.Owners["zeta"] = &Owner{Login: "zeta", Reachable: true, Repos: []RepoObs{{Repo: "zeta/q"}}}
-	n := 0
 	gh := &fakeGh{handle: func(a []string) (string, error) {
 		j := strings.Join(a, " ")
 		switch p := apiPath(a); {
 		case j == "api user --jq .login":
 			return "schuettc", nil
 		case p == "user/repos", p == "orgs/zeta/repos":
-			n++
 			return "", &GhError{Code: 1, Stderr: "gh: API rate limit exceeded for user ID 1. (HTTP 403)"}
 		}
 		return "", fmt.Errorf("unexpected gh %s", j)
 	}}
 	g, rep := Refresh(ctx, gh, prev, RefreshOptions{Owners: []string{"schuettc", "zeta"}, Keys: []item.Key{item.RepoKey("a/b")}, Now: time.Now()})
-	if !rep.RateLimited || n != 1 {
+	n := countCalls(gh, func(c []string) bool { p := apiPath(c); return p == "user/repos" || p == "orgs/zeta/repos" })
+	if !rep.RateLimited || n < 1 || n > 2 {
 		t.Fatalf("rate limited=%v, owner listings=%d", rep.RateLimited, n)
 	}
 	if z := g.Owners["zeta"]; !z.Stale || len(z.Repos) != 1 || !strings.Contains(z.Reason, "rate") {
 		t.Errorf("zeta %+v", z)
 	}
-	if len(gh.calls) != 2 {
+	if len(gh.calls) != 1+n {
 		t.Errorf("calls after the rate limit: %v", gh.calls)
 	}
 }
 
 func TestRefreshLookupStopsOnRateLimit(t *testing.T) {
-	// 46 repo keys. The first lookup is rate limited: no other lookup is
-	// made, and every previous Ref is left as it was.
+	// 46 repo keys, every lookup rate limited: at most the lookups already
+	// running when the first answer came (one pool's worth) are made, and
+	// every previous Ref is left as it was.
 	prev := NewGitHub()
 	prev.Refs["repo:z/z45"] = Ref{Exists: true}
 
@@ -301,11 +308,14 @@ func TestRefreshLookupStopsOnRateLimit(t *testing.T) {
 	if !rep.RateLimited {
 		t.Fatalf("expected RateLimited=true")
 	}
-	if n := countCalls(gh, func(c []string) bool { return strings.HasPrefix(apiPath(c), "repos/") }); n != 1 {
-		t.Fatalf("expected exactly 1 lookup call, got %d", n)
+	if n := countCalls(gh, func(c []string) bool { return strings.HasPrefix(apiPath(c), "repos/") }); n < 1 || n > poolSize {
+		t.Fatalf("expected 1 to %d lookup calls, got %d", poolSize, n)
 	}
 	if r := g.Refs["repo:z/z45"]; r != (Ref{Exists: true}) {
 		t.Errorf("prev Ref was mutated or lost: %+v", r)
+	}
+	if len(rep.Errors) != 1 {
+		t.Errorf("errors %v, want the one rate limit", rep.Errors)
 	}
 }
 

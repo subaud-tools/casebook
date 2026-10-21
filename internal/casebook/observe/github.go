@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/item"
@@ -277,7 +278,15 @@ type sweep struct {
 // fetched keeps its previous observation, marked stale: absence is not
 // evidence.
 func Refresh(ctx context.Context, r Runner, prev *GitHub, o RefreshOptions) (*GitHub, RefreshReport) {
+	return refresh(ctx, r, prev, o, poolSize)
+}
+
+// refresh is Refresh with size gh calls at once (1 in tests, for the serial
+// result to compare with).
+func refresh(ctx context.Context, gh Runner, prev *GitHub, o RefreshOptions, size int) (*GitHub, RefreshReport) {
 	g := clone(prev)
+	lim := newLimiter(gh, size)
+	r := Runner(lim)
 	c := rest{ctx, r}
 	var rep RefreshReport
 	fail := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }
@@ -312,21 +321,36 @@ func Refresh(ctx context.Context, r Runner, prev *GitHub, o RefreshOptions) (*Gi
 	prevPRs := prevItems(prev)
 	merge := keySet(o.Merge)
 	sw := sweep{repos: map[string]restRepo{}, open: map[string]PRObs{}}
-	for _, login := range owners {
+	// Every owner is listed at once; their results are merged in order.
+	type listing struct {
+		repos  []RepoObs
+		listed []restRepo
+		err    error
+	}
+	got := make([]listing, len(owners))
+	each(len(owners), func(i int) {
+		key := strings.ToLower(owners[i])
+		var prevRepos []RepoObs
+		if ow := g.Owners[key]; ow != nil { // read only until every owner is listed
+			prevRepos = ow.Repos
+		}
+		f := ownerFetch{c: c, login: owners[i], self: key == strings.ToLower(user), prev: prevRepos, prevPRs: prevPRs, merge: merge}
+		got[i].repos, got[i].listed, got[i].err = f.fetch()
+	})
+	for i, login := range owners {
 		key := strings.ToLower(login)
 		ow := g.Owners[key]
 		if ow == nil {
 			ow = &Owner{Login: login}
 			g.Owners[key] = ow
 		}
-		if rep.RateLimited {
-			ow.Stale, ow.Reason = true, "rate limited; retry next sync"
-			continue
-		}
-		f := ownerFetch{c: c, login: login, self: key == strings.ToLower(user), prev: ow.Repos, prevPRs: prevPRs, merge: merge}
-		repos, listed, err := f.fetch()
+		repos, listed, err := got[i].repos, got[i].listed, got[i].err
 		if err != nil {
 			if rateLimited(err) {
+				if rep.RateLimited { // a serial run would not have asked
+					ow.Stale, ow.Reason = true, "rate limited; retry next sync"
+					continue
+				}
 				rep.RateLimited = true
 				err = errors.New("rate limited; retry next sync")
 			}
@@ -353,10 +377,12 @@ func Refresh(ctx context.Context, r Runner, prev *GitHub, o RefreshOptions) (*Gi
 			}
 		}
 	}
+	// A rate limit behind another error still stops the refresh.
+	rep.RateLimited = rep.RateLimited || lim.limited()
 
 	if !rep.RateLimited {
 		if prs, err := fetchAuthored(c, user, sw, prevPRs, merge); err != nil {
-			if rateLimited(err) {
+			if rateLimited(err) || lim.limited() {
 				rep.RateLimited = true
 			}
 			fail("authored pull requests: %v", err)
@@ -472,8 +498,10 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 		}
 	}
 	byName := map[string]*RepoObs{}
-	repos := make([]RepoObs, 0, len(listed))
-	for _, lr := range listed {
+	repos := make([]RepoObs, len(listed))
+	errs := make([]error, len(listed))
+	each(len(listed), func(i int) {
+		lr := listed[i]
 		rr := RepoObs{Repo: lr.FullName, Archived: lr.Archived, Fork: lr.Fork, Private: lr.Private, PushedAt: lr.PushedAt, DefaultBranch: lr.DefaultBranch}
 		if lr.Fork {
 			// The list has no parent; a fork's parent never changes, so it
@@ -482,15 +510,15 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 				rr.Parent = p
 			} else {
 				var one restRepo
-				if err := f.c.get(repoPath(lr.FullName), &one); err != nil {
-					return nil, nil, err
-				}
-				if one.Parent != nil {
+				if errs[i] = f.c.get(repoPath(lr.FullName), &one); one.Parent != nil {
 					rr.Parent = one.Parent.FullName
 				}
 			}
 		}
-		repos = append(repos, rr)
+		repos[i] = rr
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, nil, err
 	}
 	for i := range repos {
 		byName[strings.ToLower(repos[i].Repo)] = &repos[i]
@@ -501,50 +529,70 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 		return nil, nil, err
 	}
 	// Each repo with open PRs lists them once more for their branches.
-	heads := map[string]map[int]restPull{}
+	var withPRs []string
+	seen := map[string]bool{}
 	for _, it := range prs {
 		repo := strings.ToLower(it.repo())
-		if _, ok := byName[repo]; !ok || heads[repo] != nil {
-			continue
+		if _, ok := byName[repo]; ok && !seen[repo] {
+			seen[repo] = true
+			withPRs = append(withPRs, repo)
 		}
-		pulls, err := list[restPull](f.c, repoPath(byName[repo].Repo)+"/pulls?state=open&per_page=100")
-		if err != nil {
-			return nil, nil, err
-		}
+	}
+	pulls := make([][]restPull, len(withPRs))
+	errs = make([]error, len(withPRs))
+	each(len(withPRs), func(i int) {
+		pulls[i], errs[i] = list[restPull](f.c, repoPath(byName[withPRs[i]].Repo)+"/pulls?state=open&per_page=100")
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, nil, err
+	}
+	heads := map[string]map[int]restPull{}
+	for i, repo := range withPRs {
 		heads[repo] = map[int]restPull{}
-		for _, p := range pulls {
+		for _, p := range pulls[i] {
 			heads[repo][p.Number] = p
 		}
 	}
-	for _, it := range prs {
+	// Each PR and issue is made at once (its last comment, a merge state);
+	// they join their repos in order.
+	items := append(append([]restIssue{}, prs...), issues...)
+	made := make([]PRObs, len(items))
+	errs = make([]error, len(items))
+	each(len(items), func(i int) {
+		it, isPR := items[i], i < len(prs)
 		rr := byName[strings.ToLower(it.repo())]
 		if rr == nil {
-			continue
+			return
+		}
+		if !isPR {
+			made[i], errs[i] = toItem(f.c, it, rr.Repo, item.IssueKey(rr.Repo, it.Number), f.prevPRs)
+			return
 		}
 		p, err := toItem(f.c, it, rr.Repo, item.PRKey(rr.Repo, it.Number), f.prevPRs)
 		if err != nil {
-			return nil, nil, err
+			errs[i] = err
+			return
 		}
 		if h, ok := heads[strings.ToLower(rr.Repo)][it.Number]; ok {
 			withHead(&p, h)
 		}
 		if f.merge[item.PRKey(rr.Repo, it.Number).String()] {
-			if err := mergeState(f.c, &p); err != nil {
-				return nil, nil, err
-			}
+			errs[i] = mergeState(f.c, &p)
 		}
-		rr.PRs = append(rr.PRs, p)
+		made[i] = p
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, nil, err
 	}
-	for _, it := range issues {
+	for i, it := range items {
 		rr := byName[strings.ToLower(it.repo())]
-		if rr == nil {
-			continue
+		switch {
+		case rr == nil:
+		case i < len(prs):
+			rr.PRs = append(rr.PRs, made[i])
+		default:
+			rr.Issues = append(rr.Issues, made[i])
 		}
-		p, err := toItem(f.c, it, rr.Repo, item.IssueKey(rr.Repo, it.Number), f.prevPRs)
-		if err != nil {
-			return nil, nil, err
-		}
-		rr.Issues = append(rr.Issues, p)
 	}
 	for i := range repos {
 		byUpdated(repos[i].PRs)
@@ -572,15 +620,18 @@ func (f ownerFetch) open(qual string, listed []restRepo) (prs, issues []restIssu
 		return prs, issues, nil
 	}
 	var sPRs, sIssues []restIssue
-	for _, lr := range listed {
-		if lr.OpenIssuesCount == 0 {
-			continue
+	all := make([][]restIssue, len(listed))
+	errs := make([]error, len(listed))
+	each(len(listed), func(i int) {
+		if listed[i].OpenIssuesCount > 0 {
+			all[i], errs[i] = list[restIssue](f.c, repoPath(listed[i].FullName)+"/issues?state=open&per_page=100", textJSON)
 		}
-		all, err := list[restIssue](f.c, repoPath(lr.FullName)+"/issues?state=open&per_page=100", textJSON)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, it := range all {
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, nil, err
+	}
+	for i, lr := range listed {
+		for _, it := range all[i] {
 			if it.RepositoryURL == "" {
 				it.RepositoryURL = "https://api.github.com/repos/" + lr.FullName
 			}
@@ -686,28 +737,36 @@ func fetchAuthored(c rest, user string, sw sweep, prevPRs map[string]PRObs, merg
 	if more {
 		return nil, fmt.Errorf("more than %d authored pull requests", searchCap)
 	}
-	prs := make([]PRObs, 0, len(items))
-	for _, it := range items {
+	made := make([]PRObs, len(items))
+	errs := make([]error, len(items))
+	each(len(items), func(i int) {
+		it := items[i]
 		repo := it.repo()
 		if repo == "" {
-			continue
+			return
 		}
 		k := item.PRKey(repo, it.Number)
 		if seen, ok := sw.open[k.String()]; ok {
-			prs = append(prs, seen)
-			continue
+			made[i] = seen
+			return
 		}
 		p, err := toItem(c, it, repo, k, prevPRs)
-		if err != nil {
-			return nil, err
-		}
-		if err := mergeState(c, &p); err != nil {
-			return nil, err
+		if err == nil {
+			err = mergeState(c, &p)
 		}
 		if !merge[k.String()] {
 			p.MergeState = ""
 		}
-		prs = append(prs, p)
+		made[i], errs[i] = p, err
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, err
+	}
+	prs := make([]PRObs, 0, len(items))
+	for i, it := range items {
+		if it.repo() != "" {
+			prs = append(prs, made[i])
+		}
 	}
 	return prs, nil
 }
@@ -720,7 +779,7 @@ func LookupRefs(ctx context.Context, r Runner, prev *GitHub, keys []item.Key, no
 	g := clone(prev)
 	var rep RefreshReport
 	var errs []string
-	lookupRefs(rest{ctx, r}, g, keys, nil, sweep{}, now, &rep, func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) })
+	lookupRefs(rest{ctx, newLimiter(r, poolSize)}, g, keys, nil, sweep{}, now, &rep, func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) })
 	if prev != nil {
 		g.RefsAt = prev.RefsAt
 	}
@@ -734,182 +793,65 @@ func LookupRefs(ctx context.Context, r Runner, prev *GitHub, keys []item.Key, no
 // Ref from there; the rest ask GitHub, a branch's repo once for all its
 // branches. A key whose read failed for any reason but a 404 keeps its
 // previous Ref; a rate limit stops the lookups.
+//
+// The reads run at once, each into its own outcome; the outcomes are applied
+// in the order a serial run would have made them, so the Refs, the errors
+// and their order never depend on which read finished first.
 func lookupRefs(c rest, g *GitHub, keys []item.Key, releases map[string]bool, sw sweep, now time.Time, rep *RefreshReport, fail func(string, ...any)) {
-	anyOK, failed := false, 0
-	set := func(k item.Key, ref Ref) {
-		g.Refs[k.String()] = ref
-		anyOK = true
-	}
-	// stop reports whether err ends this key's lookup; a rate limit ends them all.
-	stop := func(k item.Key, err error) bool {
-		if err == nil {
-			return false
-		}
-		if rateLimited(err) {
-			rep.RateLimited = true
-		}
-		failed++
-		if failed <= 3 {
-			fail("looking up %s: %v", k, err)
-		}
-		return true
-	}
-	repoInfo := map[string]restRepo{}
-	repoGone := map[string]bool{}
-	readRepo := func(repo string) (restRepo, bool, error) {
-		lk := strings.ToLower(repo)
-		if lr, ok := sw.repos[lk]; ok {
-			return lr, true, nil
-		}
-		if lr, ok := repoInfo[lk]; ok {
-			return lr, true, nil
-		}
-		if repoGone[lk] {
-			return restRepo{}, false, nil
-		}
-		var lr restRepo
-		err := c.get(repoPath(repo), &lr)
-		if notFound(err) {
-			repoGone[lk] = true
-			return restRepo{}, false, nil
-		}
-		if err != nil {
-			return restRepo{}, false, err
-		}
-		repoInfo[lk] = lr
-		return lr, true, nil
-	}
+	repos := &repoReads{c: c, sw: sw, reads: map[string]*repoRead{}}
 
+	// The serial order: every key but branches as given, then each branch
+	// repo's keys, repos in the order their first key came.
 	branches := map[string][]item.Key{}
+	var others []item.Key
 	var order []string
 	for _, k := range keys {
-		if rep.RateLimited {
-			break
+		if k.Kind != item.KindBranch {
+			others = append(others, k)
+			continue
 		}
-		switch k.Kind {
-		case item.KindRepo:
-			lr, ok, err := readRepo(k.Repo())
-			if stop(k, err) {
-				continue
-			}
-			if !ok {
-				set(k, Ref{Exists: false})
-				continue
-			}
-			ref := Ref{Exists: true, Archived: lr.Archived, UpdatedAt: lr.PushedAt}
-			if releases[k.String()] {
-				var rel struct {
-					PublishedAt time.Time `json:"published_at"`
+		lk := strings.ToLower(k.Repo())
+		if branches[lk] == nil {
+			order = append(order, lk)
+		}
+		branches[lk] = append(branches[lk], k)
+	}
+	single := make([]outcome, len(others))
+	grouped := make([][]outcome, len(order))
+	each(len(others)+len(order), func(i int) {
+		if i < len(others) {
+			single[i] = lookupOne(c, others[i], releases, sw, repos)
+			return
+		}
+		grouped[i-len(others)] = lookupBranches(c, branches[order[i-len(others)]], repos)
+	})
+
+	anyOK, failed := false, 0
+	apply := func(o outcome) {
+		if o.err != nil {
+			if rateLimited(o.err) {
+				if rep.RateLimited {
+					return // a serial run would not have asked
 				}
-				err := c.get(repoPath(k.Repo())+"/releases/latest", &rel)
-				if !notFound(err) && stop(k, err) {
-					continue
-				}
-				ref.LatestRelease = rel.PublishedAt
+				rep.RateLimited = true
 			}
-			set(k, ref)
-		case item.KindPR:
-			if p, ok := sw.open[k.String()]; ok {
-				set(k, Ref{Exists: true, State: p.State, UpdatedAt: p.UpdatedAt})
-				continue
+			failed++
+			if failed <= 3 {
+				fail("looking up %s: %v", o.k, o.err)
 			}
-			var pr restPull
-			err := c.get(fmt.Sprintf("%s/pulls/%d", repoPath(k.Repo()), k.Number), &pr)
-			if notFound(err) {
-				set(k, Ref{Exists: false})
-				continue
-			}
-			if stop(k, err) {
-				continue
-			}
-			st := strings.ToUpper(pr.State)
-			if pr.MergedAt != nil {
-				st = "MERGED"
-			}
-			set(k, Ref{Exists: true, State: st, UpdatedAt: pr.UpdatedAt})
-		case item.KindIssue:
-			if p, ok := sw.open[k.String()]; ok {
-				set(k, Ref{Exists: true, State: p.State, UpdatedAt: p.UpdatedAt})
-				continue
-			}
-			var is restIssue
-			err := c.get(fmt.Sprintf("%s/issues/%d", repoPath(k.Repo()), k.Number), &is)
-			// The issues endpoint answers a PR's number too; as an issue
-			// key, that PR doesn't exist.
-			if notFound(err) || (err == nil && is.PullRequest != nil) {
-				set(k, Ref{Exists: false})
-				continue
-			}
-			if stop(k, err) {
-				continue
-			}
-			set(k, Ref{Exists: true, State: strings.ToUpper(is.State), UpdatedAt: is.UpdatedAt})
-		case item.KindBranch:
-			lk := strings.ToLower(k.Repo())
-			if branches[lk] == nil {
-				order = append(order, lk)
-			}
-			branches[lk] = append(branches[lk], k)
+			return
+		}
+		if o.set {
+			g.Refs[o.k.String()] = o.ref
+			anyOK = true
 		}
 	}
-	for _, lk := range order {
-		if rep.RateLimited {
-			break
-		}
-		ks := branches[lk]
-		lr, ok, err := readRepo(ks[0].Repo())
-		if stop(ks[0], err) {
-			continue
-		}
-		if !ok {
-			for _, k := range ks {
-				set(k, Ref{Exists: false})
-			}
-			continue
-		}
-		branchRef := func(tip string) Ref {
-			if tip == "" {
-				return Ref{Exists: false}
-			}
-			return Ref{Exists: true, Tip: tip, RepoID: lr.NodeID, Permission: lr.permission()}
-		}
-		type gitRef struct {
-			Ref    string `json:"ref"`
-			Object struct {
-				SHA string `json:"sha"`
-			} `json:"object"`
-		}
-		if len(ks) > branchListAbove {
-			all, err := list[gitRef](c, repoPath(ks[0].Repo())+"/git/matching-refs/heads/?per_page=100")
-			if empty(err) {
-				all, err = nil, nil
-			}
-			if stop(ks[0], err) {
-				continue
-			}
-			tips := map[string]string{}
-			for _, r := range all {
-				tips[strings.TrimPrefix(r.Ref, "refs/heads/")] = r.Object.SHA
-			}
-			for _, k := range ks {
-				set(k, branchRef(tips[k.Branch]))
-			}
-			continue
-		}
-		for _, k := range ks {
-			var r gitRef
-			err := c.get(repoPath(k.Repo())+"/git/ref/heads/"+refPath(k.Branch), &r)
-			if notFound(err) || empty(err) {
-				set(k, Ref{Exists: false})
-				continue
-			}
-			if stop(k, err) {
-				if rep.RateLimited {
-					break
-				}
-				continue
-			}
-			set(k, branchRef(r.Object.SHA))
+	for _, o := range single {
+		apply(o)
+	}
+	for _, os := range grouped {
+		for _, o := range os {
+			apply(o)
 		}
 	}
 	if failed > 3 {
@@ -918,6 +860,182 @@ func lookupRefs(c rest, g *GitHub, keys []item.Key, releases map[string]bool, sw
 	if anyOK {
 		g.RefsAt = now.UTC()
 	}
+}
+
+// outcome is one key's lookup: a Ref to set, an error that keeps its
+// previous Ref, or neither.
+type outcome struct {
+	k   item.Key
+	ref Ref
+	set bool
+	err error
+}
+
+func found(k item.Key, ref Ref) outcome { return outcome{k: k, ref: ref, set: true} }
+
+// repoReads reads each repo at most once for all the keys that need it, as
+// a serial run's cache did. A failed read is not kept: the next key asks
+// again.
+type repoReads struct {
+	c     rest
+	sw    sweep
+	mu    sync.Mutex
+	reads map[string]*repoRead
+}
+
+type repoRead struct {
+	mu   sync.Mutex
+	done bool
+	lr   restRepo
+	ok   bool
+}
+
+func (rs *repoReads) read(repo string) (restRepo, bool, error) {
+	lk := strings.ToLower(repo)
+	if lr, ok := rs.sw.repos[lk]; ok {
+		return lr, true, nil
+	}
+	rs.mu.Lock()
+	rd := rs.reads[lk]
+	if rd == nil {
+		rd = &repoRead{}
+		rs.reads[lk] = rd
+	}
+	rs.mu.Unlock()
+	rd.mu.Lock()
+	defer rd.mu.Unlock()
+	if rd.done {
+		return rd.lr, rd.ok, nil
+	}
+	var lr restRepo
+	err := rs.c.get(repoPath(repo), &lr)
+	if notFound(err) {
+		rd.done = true
+		return restRepo{}, false, nil
+	}
+	if err != nil {
+		return restRepo{}, false, err
+	}
+	rd.done, rd.lr, rd.ok = true, lr, true
+	return lr, true, nil
+}
+
+// lookupOne looks up a repo, PR or issue key.
+func lookupOne(c rest, k item.Key, releases map[string]bool, sw sweep, repos *repoReads) outcome {
+	switch k.Kind {
+	case item.KindRepo:
+		lr, ok, err := repos.read(k.Repo())
+		if err != nil {
+			return outcome{k: k, err: err}
+		}
+		if !ok {
+			return found(k, Ref{Exists: false})
+		}
+		ref := Ref{Exists: true, Archived: lr.Archived, UpdatedAt: lr.PushedAt}
+		if releases[k.String()] {
+			var rel struct {
+				PublishedAt time.Time `json:"published_at"`
+			}
+			if err := c.get(repoPath(k.Repo())+"/releases/latest", &rel); err != nil && !notFound(err) {
+				return outcome{k: k, err: err}
+			}
+			ref.LatestRelease = rel.PublishedAt
+		}
+		return found(k, ref)
+	case item.KindPR:
+		if p, ok := sw.open[k.String()]; ok {
+			return found(k, Ref{Exists: true, State: p.State, UpdatedAt: p.UpdatedAt})
+		}
+		var pr restPull
+		err := c.get(fmt.Sprintf("%s/pulls/%d", repoPath(k.Repo()), k.Number), &pr)
+		if notFound(err) {
+			return found(k, Ref{Exists: false})
+		}
+		if err != nil {
+			return outcome{k: k, err: err}
+		}
+		st := strings.ToUpper(pr.State)
+		if pr.MergedAt != nil {
+			st = "MERGED"
+		}
+		return found(k, Ref{Exists: true, State: st, UpdatedAt: pr.UpdatedAt})
+	case item.KindIssue:
+		if p, ok := sw.open[k.String()]; ok {
+			return found(k, Ref{Exists: true, State: p.State, UpdatedAt: p.UpdatedAt})
+		}
+		var is restIssue
+		err := c.get(fmt.Sprintf("%s/issues/%d", repoPath(k.Repo()), k.Number), &is)
+		// The issues endpoint answers a PR's number too; as an issue
+		// key, that PR doesn't exist.
+		if notFound(err) || (err == nil && is.PullRequest != nil) {
+			return found(k, Ref{Exists: false})
+		}
+		if err != nil {
+			return outcome{k: k, err: err}
+		}
+		return found(k, Ref{Exists: true, State: strings.ToUpper(is.State), UpdatedAt: is.UpdatedAt})
+	}
+	return outcome{k: k}
+}
+
+// lookupBranches looks up one repo's branch keys: the repo once, then its
+// branch list once, or each branch at once when there are only a couple.
+// A failure of the repo or the list is the first key's.
+func lookupBranches(c rest, ks []item.Key, repos *repoReads) []outcome {
+	lr, ok, err := repos.read(ks[0].Repo())
+	if err != nil {
+		return []outcome{{k: ks[0], err: err}}
+	}
+	outs := make([]outcome, len(ks))
+	if !ok {
+		for i, k := range ks {
+			outs[i] = found(k, Ref{Exists: false})
+		}
+		return outs
+	}
+	branchRef := func(tip string) Ref {
+		if tip == "" {
+			return Ref{Exists: false}
+		}
+		return Ref{Exists: true, Tip: tip, RepoID: lr.NodeID, Permission: lr.permission()}
+	}
+	type gitRef struct {
+		Ref    string `json:"ref"`
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if len(ks) > branchListAbove {
+		all, err := list[gitRef](c, repoPath(ks[0].Repo())+"/git/matching-refs/heads/?per_page=100")
+		if empty(err) {
+			all, err = nil, nil
+		}
+		if err != nil {
+			return []outcome{{k: ks[0], err: err}}
+		}
+		tips := map[string]string{}
+		for _, r := range all {
+			tips[strings.TrimPrefix(r.Ref, "refs/heads/")] = r.Object.SHA
+		}
+		for i, k := range ks {
+			outs[i] = found(k, branchRef(tips[k.Branch]))
+		}
+		return outs
+	}
+	each(len(ks), func(i int) {
+		k := ks[i]
+		var r gitRef
+		err := c.get(repoPath(k.Repo())+"/git/ref/heads/"+refPath(k.Branch), &r)
+		switch {
+		case notFound(err) || empty(err):
+			outs[i] = found(k, Ref{Exists: false})
+		case err != nil:
+			outs[i] = outcome{k: k, err: err}
+		default:
+			outs[i] = found(k, branchRef(r.Object.SHA))
+		}
+	})
+	return outs
 }
 
 // empty reports GitHub's 409 for a repository with no commits: it has no

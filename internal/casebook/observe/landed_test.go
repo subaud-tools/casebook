@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,12 +14,15 @@ import (
 
 // recordRunner captures gh invocations for inspection.
 type recordRunner struct {
+	mu    sync.Mutex // merged lists are read several at a time
 	calls []string
 	reply func(args []string) ([]byte, error)
 }
 
 func (r *recordRunner) Gh(_ context.Context, args ...string) ([]byte, error) {
+	r.mu.Lock()
 	r.calls = append(r.calls, strings.Join(args, " "))
+	r.mu.Unlock()
 	if r.reply != nil {
 		return r.reply(args)
 	}

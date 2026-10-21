@@ -12,6 +12,7 @@ name, as they were there. The format follows
 - A lookup a listing already answers asks GitHub nothing: an open PR or issue, or a listed repo, takes its state from the listing. A repo with more than two decided branches lists its branches once instead of a read per branch.
 - A PR's merge state (behind, blocked, conflicts) is read only for PRs decided merge, the only ones its hold stops; a repo's latest release only for repos a `released()` condition names; a PR's or issue's last comment only when it has comments and changed since the last sync.
 - Open PRs and issues are no longer cut at 50 per repo; past GitHub's search cap of 1000 per owner, each repo with anything open lists its own.
+- A sync's GitHub reads run 8 at a time instead of one by one, so a full refresh of about 640 reads takes about 1¼ minutes instead of about 6½ (1m6s for the refresh and 11s for the merged-PR lists, measured on Court's owners), and serve's push and branch re-read wait that much less for the sync lock. The cache comes out the same, in the same order. Search still runs one at a time and never more than 30 a minute, GitHub's search limit, and after a rate limit no new read starts.
 
 ## 0.18.3
 
