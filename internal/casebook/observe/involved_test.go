@@ -2,15 +2,18 @@ package observe
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
 // TestRefreshRecordsAdmin: a listed repo says whether the user is its admin,
-// from the listing's permissions.
+// from the listing's permissions, and nothing when they're missing.
 func TestRefreshRecordsAdmin(t *testing.T) {
 	member := strings.Replace(repoJSON("ft/team", 0), `"admin":true`, `"admin":false`, 1)
+	// A listing with no permissions object says nothing about admin.
+	open := regexp.MustCompile(`,"permissions":\{[^}]*\}`).ReplaceAllString(repoJSON("ft/open", 0), "")
 	gh := &fakeGh{handle: func(a []string) (string, error) {
 		j := strings.Join(a, " ")
 		switch p, q := apiPath(a), searchQ(a); {
@@ -19,7 +22,7 @@ func TestRefreshRecordsAdmin(t *testing.T) {
 		case p == "user/repos":
 			return "[]", nil
 		case p == "orgs/ft/repos":
-			return "[" + repoJSON("ft/mine", 0) + "," + member + "]", nil
+			return "[" + repoJSON("ft/mine", 0) + "," + member + "," + open + "]", nil
 		case q != "":
 			return searchJSON(0), nil
 		}
@@ -29,12 +32,15 @@ func TestRefreshRecordsAdmin(t *testing.T) {
 	if len(rep.Errors) != 0 {
 		t.Fatal(rep.Errors)
 	}
-	admin := map[string]bool{}
+	admin := map[string]string{}
 	for _, r := range g.Owners["ft"].Repos {
-		admin[r.Repo] = r.Admin
+		admin[r.Repo] = "unknown"
+		if r.Admin != nil {
+			admin[r.Repo] = fmt.Sprint(*r.Admin)
+		}
 	}
-	if !admin["ft/mine"] || admin["ft/team"] {
-		t.Errorf("admin %v, want ft/mine only", admin)
+	if want := map[string]string{"ft/mine": "true", "ft/team": "false", "ft/open": "unknown"}; fmt.Sprint(admin) != fmt.Sprint(want) {
+		t.Errorf("admin %v, want %v", admin, want)
 	}
 }
 

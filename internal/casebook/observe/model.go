@@ -17,7 +17,7 @@ type RepoObs struct {
 	Archived        bool      `json:"archived,omitempty"`
 	Fork            bool      `json:"fork,omitempty"`
 	Private         bool      `json:"private,omitempty"`
-	Admin           bool      `json:"admin,omitempty"` // the user is an admin of it (the listing's permissions.admin)
+	Admin           *bool     `json:"admin,omitempty"` // the user is an admin of it (the listing's permissions.admin); nil when not observed
 	PushedAt        time.Time `json:"pushed_at,omitzero"`
 	Parent          string    `json:"parent,omitempty"`
 	DefaultBranch   string    `json:"default_branch,omitempty"`

@@ -136,7 +136,7 @@ type builder struct {
 	branchPRs    map[string][]item.Key      // branch item ID → open PRs whose head it is
 	remoteTips   map[string]string          // branch item ID → first upstream tip a snapshot saw
 	longLived    map[string]bool            // branch item ID → a snapshot called it long-lived
-	orgRepos     map[string]bool            // repo item ID → the user is its admin, for each repo another owner lists
+	notAdmin     map[string]bool            // repo item ID → another owner's fresh listing says the user is not its admin
 	cloned       map[string]bool            // lower-case owner/name → some snapshot has a clone of it
 }
 
@@ -175,7 +175,7 @@ func Build(in Input) Result {
 		branchPRs:    map[string][]item.Key{},
 		remoteTips:   map[string]string{},
 		longLived:    map[string]bool{},
-		orgRepos:     map[string]bool{},
+		notAdmin:     map[string]bool{},
 		cloned:       map[string]bool{},
 	}
 	b.f.items = b.items
@@ -249,8 +249,11 @@ func (b *builder) owners(res *Result) {
 				it.Evidence = append(it.Evidence, fmt.Sprintf("%d open PRs", n))
 			}
 			b.f.repos[k.String()] = r
-			if key != b.user {
-				b.orgRepos[k.String()] = r.Admin
+			// Admin is known only from a fresh listing that carried
+			// permissions, and "another owner" only with a known login:
+			// unknown is not "not an admin".
+			if b.user != "" && key != b.user && isFresh && r.Admin != nil && !*r.Admin {
+				b.notAdmin[k.String()] = true
 			}
 			for _, p := range r.PRs {
 				b.pr(item.PRKey(p.Repo, p.Number), p, b.direction(p), isFresh)
@@ -266,10 +269,10 @@ func (b *builder) owners(res *Result) {
 // is one only when the user is its admin or has a clone of it, since
 // casebook can't act on the others (Court, 2026-10-20). Such a repo still
 // feeds its PRs, issues and branches, and its decision file stays: it
-// shows again once the repo qualifies.
+// shows again once the repo qualifies. Admin not observed counts as
+// involved.
 func (b *builder) involved(it *Item) bool {
-	admin, listed := b.orgRepos[it.ID]
-	return it.Kind != item.KindRepo || !listed || admin || b.cloned[strings.ToLower(it.Repo)]
+	return it.Kind != item.KindRepo || !b.notAdmin[it.ID] || b.cloned[strings.ToLower(it.Repo)]
 }
 
 func (b *builder) direction(p observe.PRObs) string {

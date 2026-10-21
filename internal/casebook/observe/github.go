@@ -525,8 +525,10 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 	errs := make([]error, len(listed))
 	each(len(listed), func(i int) {
 		lr := listed[i]
-		rr := RepoObs{Repo: lr.FullName, Archived: lr.Archived, Fork: lr.Fork, Private: lr.Private, PushedAt: lr.PushedAt, DefaultBranch: lr.DefaultBranch,
-			Admin: lr.Permissions != nil && lr.Permissions.Admin}
+		rr := RepoObs{Repo: lr.FullName, Archived: lr.Archived, Fork: lr.Fork, Private: lr.Private, PushedAt: lr.PushedAt, DefaultBranch: lr.DefaultBranch}
+		if lr.Permissions != nil {
+			rr.Admin = &lr.Permissions.Admin
+		}
 		if lr.Fork {
 			// The list has no parent; a fork's parent never changes, so it
 			// is asked once.

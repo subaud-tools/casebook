@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -13,11 +14,13 @@ import (
 func orgFixture() Input {
 	in := fixture()
 	in.GitHub.Owners["ft"] = &observe.Owner{Login: "ft", Reachable: true, FetchedAt: now, Repos: []observe.RepoObs{
-		{Repo: "ft/team", PushedAt: days(3), DefaultBranch: "main",
+		{Repo: "ft/team", PushedAt: days(3), DefaultBranch: "main", Admin: ptr(false),
 			PRs: []observe.PRObs{{Repo: "ft/team", Number: 7, Author: "alice", State: "OPEN", CreatedAt: days(5), UpdatedAt: days(5)}}},
 	}}
 	return in
 }
+
+func ptr[T any](v T) *T { return &v }
 
 func TestOrgRepoWithoutCloneOrAdminIsNoItem(t *testing.T) {
 	r := Build(orgFixture())
@@ -44,7 +47,7 @@ func TestOrgRepoWithACloneIsAnItem(t *testing.T) {
 
 func TestOrgRepoYouAdminIsAnItem(t *testing.T) {
 	in := orgFixture()
-	in.GitHub.Owners["ft"].Repos[0].Admin = true
+	in.GitHub.Owners["ft"].Repos[0].Admin = ptr(true)
 	mustFind(t, Build(in), "repo:ft/team")
 }
 
@@ -74,7 +77,7 @@ func TestDecidedRepoThatQualifiesAgainShowsItsDecision(t *testing.T) {
 	if _, ok := Build(in).Find("repo:ft/team"); ok {
 		t.Fatal("a decided repo with no clone and no admin shows")
 	}
-	in.GitHub.Owners["ft"].Repos[0].Admin = true
+	in.GitHub.Owners["ft"].Repos[0].Admin = ptr(true)
 	it := mustFind(t, Build(in), "repo:ft/team")
 	if it.Decision == nil || it.Decision.Disposition != item.Keep {
 		t.Errorf("decision %+v, want keep", it.Decision)
@@ -97,4 +100,43 @@ func TestBuildCarriesReviewRequestsAndAssignments(t *testing.T) {
 	if is.ReviewRequested || !is.Assigned || !is.Fields(now).Assigned {
 		t.Errorf("issue: review requested %v assigned %v", is.ReviewRequested, is.Assigned)
 	}
+}
+
+// orgRepos sets ft's repos from cache JSON, as an older or newer casebook
+// wrote them.
+func orgRepos(t *testing.T, in Input, js string) {
+	t.Helper()
+	var repos []observe.RepoObs
+	if err := json.Unmarshal([]byte(js), &repos); err != nil {
+		t.Fatal(err)
+	}
+	in.GitHub.Owners["ft"].Repos = repos
+}
+
+// TestRepoWithUnknownAdminIsAnItem: a cache from before 0.19.0 has no admin
+// field; not knowing is not "not an admin", so the repo shows.
+func TestRepoWithUnknownAdminIsAnItem(t *testing.T) {
+	in := orgFixture()
+	orgRepos(t, in, `[{"repo":"ft/team","pushed_at":"2026-09-21T12:00:00Z"}]`)
+	mustFind(t, Build(in), "repo:ft/team")
+	// Known false hides it.
+	orgRepos(t, in, `[{"repo":"ft/team","admin":false}]`)
+	if _, ok := Build(in).Find("repo:ft/team"); ok {
+		t.Error("a repo known not to be the user's admin, with no clone, shows")
+	}
+	// With no login there is no own account to tell from an org: it shows.
+	in.GitHub.User = ""
+	mustFind(t, Build(in), "repo:ft/team")
+}
+
+// TestRepoWhoseOwnerListingFailedKeepsShowing: the listing errors, so the
+// previous observations stay (stale) and admin is not known now: it shows.
+func TestRepoWhoseOwnerListingFailedKeepsShowing(t *testing.T) {
+	in := orgFixture()
+	orgRepos(t, in, `[{"repo":"ft/team","admin":false}]`)
+	ow := in.GitHub.Owners["ft"]
+	ow.Stale, ow.Reason = true, "HTTP 502"
+	mustFind(t, Build(in), "repo:ft/team")
+	ow.Reachable, ow.Reason = false, "SAML SSO"
+	mustFind(t, Build(in), "repo:ft/team")
 }

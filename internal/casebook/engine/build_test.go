@@ -27,7 +27,7 @@ func fixture() Input {
 		{Repo: "schuettc/old", PushedAt: days(800)},
 	}}
 	g.Owners["acme"] = &observe.Owner{Login: "Acme", Reachable: false, Stale: true, Reason: "SAML SSO", FetchedAt: days(30),
-		Repos: []observe.RepoObs{{Repo: "Acme/widget", PushedAt: days(40), Admin: true}}}
+		Repos: []observe.RepoObs{{Repo: "Acme/widget", PushedAt: days(40), Admin: ptr(true)}}}
 	g.Authored = []observe.PRObs{{Repo: "elidickinson/pi-claude-bridge", Number: 97, Author: "schuettc", State: "OPEN", CreatedAt: days(30), UpdatedAt: days(20)}}
 	g.Refs["pr:up/stream#5"] = observe.Ref{Exists: true, State: "MERGED"}
 	snap := observe.Snapshot{Version: 1, Machine: "mbp", Clones: []observe.Clone{{
