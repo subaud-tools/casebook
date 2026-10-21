@@ -80,3 +80,21 @@ func TestDecidedRepoThatQualifiesAgainShowsItsDecision(t *testing.T) {
 		t.Errorf("decision %+v, want keep", it.Decision)
 	}
 }
+
+// TestBuildCarriesReviewRequestsAndAssignments: an item says when you're
+// asked to review it or it is assigned to you, and its fields match on it.
+func TestBuildCarriesReviewRequestsAndAssignments(t *testing.T) {
+	in := orgFixture()
+	p := &in.GitHub.Owners["ft"].Repos[0].PRs[0]
+	p.ReviewRequested = true
+	in.GitHub.Owners["schuettc"].Repos[0].Issues[0].Assigned = true
+	r := Build(in)
+	pr := mustFind(t, r, "pr:ft/team#7")
+	if !pr.ReviewRequested || pr.Assigned || !pr.Fields(now).ReviewRequested {
+		t.Errorf("pr: review requested %v assigned %v", pr.ReviewRequested, pr.Assigned)
+	}
+	is := mustFind(t, r, "issue:schuettc/hail#4")
+	if is.ReviewRequested || !is.Assigned || !is.Fields(now).Assigned {
+		t.Errorf("issue: review requested %v assigned %v", is.ReviewRequested, is.Assigned)
+	}
+}

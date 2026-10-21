@@ -20,7 +20,12 @@ import type { ItemDetailView, Evidence, Event, LogEntry } from './wire.d.ts';
 import type { Ctx } from './app.ts';
 import { getVocab } from './decide.ts';
 import { renderChoices, asNotNow } from './choices.ts';
-import { keyLabel, recommendsWho, stripOwnKey } from './decide-math.ts';
+import {
+  involvedLine,
+  keyLabel,
+  recommendsWho,
+  stripOwnKey,
+} from './decide-math.ts';
 import type { DecisionVocabView } from './wire.d.ts';
 import { lookingLine } from './sessions.ts';
 import { tagText } from './apply-text.ts';
@@ -325,7 +330,8 @@ function cameBack(
 // ---- public -----------------------------------------------------------------
 
 /**
- * itemHead is an item's head: its kicker (kind, key, relation), its title
+ * itemHead is an item's head: its kicker (kind, key, relation, what is
+ * asked of you), its title
  * (the key when it has none) and its facts; with ctx, why it came back
  * leads the facts.
  */
@@ -341,7 +347,7 @@ export function itemHead(detail: ItemDetailView, ctx?: Ctx): HTMLElement[] {
     ? h('a', { href: it.url, target: '_blank', rel: 'noopener' }, displayKey)
     : h('span', { title: it.key }, displayKey);
   const kicker = h('p', { class: 'cb-kicker kit-kick' });
-  const parts = [it.kind, keyEl, it.relation].filter(
+  const parts = [it.kind, keyEl, it.relation, involvedLine(it)].filter(
     (part): part is Node | string => !!part,
   );
   parts.forEach((part, i) => {

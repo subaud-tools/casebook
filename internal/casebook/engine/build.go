@@ -35,26 +35,30 @@ type Item struct {
 	DueReason string      `json:"due_reason,omitempty"` // why a Not now or a Leave it open came back
 	// NewActivity: due because someone else's activity on the PR or issue is
 	// newer than its keep, wait or watch decision. It waits on the user.
-	NewActivity bool              `json:"new_activity,omitempty"`
-	Decision    *item.Decision    `json:"decision,omitempty"`
-	Observed    item.Observed     `json:"observed"`
-	Stale       bool              `json:"stale,omitempty"`
-	Locations   []string          `json:"locations,omitempty"`
-	Evidence    []string          `json:"evidence,omitempty"`
-	Author      string            `json:"author,omitempty"`
-	AuthorIsBot bool              `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
-	CreatedAt   time.Time         `json:"created_at,omitzero"`
-	UpdatedAt   time.Time         `json:"updated_at,omitzero"`
-	Labels      []string          `json:"labels,omitempty"`
-	Body        string            `json:"body,omitempty"`
-	Landed      string            `json:"landed,omitempty"`      // combined across machines: "all-machines", "some-machines", "none", "unknown"
-	LandedHow   string            `json:"landed_how,omitempty"`  // human-readable: "in main", "merged #N", or "; "-joined when both
-	LandedVia   []string          `json:"landed_via,omitempty"`  // machine codes: "default-branch", "merged-pr" (multi-valued)
-	LandedTips  map[string]string `json:"landed_tips,omitempty"` // machine → tip checked
-	Holds       []Hold            `json:"holds,omitempty"`       // what stands in the way of its decision
-	Copies      []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
-	Needs       []string          `json:"needs,omitempty"`       // keys that run first in the same job
-	Public      bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
+	NewActivity bool           `json:"new_activity,omitempty"`
+	Decision    *item.Decision `json:"decision,omitempty"`
+	Observed    item.Observed  `json:"observed"`
+	Stale       bool           `json:"stale,omitempty"`
+	Locations   []string       `json:"locations,omitempty"`
+	Evidence    []string       `json:"evidence,omitempty"`
+	Author      string         `json:"author,omitempty"`
+	AuthorIsBot bool           `json:"author_is_bot,omitempty"` // true when GitHub says the author is a Bot
+	// ReviewRequested: a PR you're one of the requested reviewers of.
+	// Assigned: a PR or issue you're one of the assignees of.
+	ReviewRequested bool              `json:"review_requested,omitempty"`
+	Assigned        bool              `json:"assigned,omitempty"`
+	CreatedAt       time.Time         `json:"created_at,omitzero"`
+	UpdatedAt       time.Time         `json:"updated_at,omitzero"`
+	Labels          []string          `json:"labels,omitempty"`
+	Body            string            `json:"body,omitempty"`
+	Landed          string            `json:"landed,omitempty"`      // combined across machines: "all-machines", "some-machines", "none", "unknown"
+	LandedHow       string            `json:"landed_how,omitempty"`  // human-readable: "in main", "merged #N", or "; "-joined when both
+	LandedVia       []string          `json:"landed_via,omitempty"`  // machine codes: "default-branch", "merged-pr" (multi-valued)
+	LandedTips      map[string]string `json:"landed_tips,omitempty"` // machine → tip checked
+	Holds           []Hold            `json:"holds,omitempty"`       // what stands in the way of its decision
+	Copies          []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
+	Needs           []string          `json:"needs,omitempty"`       // keys that run first in the same job
+	Public          bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
 
 	fresh          bool      // observed from a fresh owner listing
 	othersAt       time.Time // pr/issue: latest activity by anyone but the user (zero: none known)
@@ -295,6 +299,7 @@ func (b *builder) pr(k item.Key, p observe.PRObs, dir string, fresh bool) {
 	it.fresh, it.Stale = fresh, !fresh
 	it.Title, it.URL, it.Relation = p.Title, p.URL, dir
 	it.Author, it.AuthorIsBot, it.CreatedAt, it.UpdatedAt, it.Labels, it.Body = p.Author, p.AuthorIsBot, p.CreatedAt, p.UpdatedAt, p.Labels, p.Body
+	it.ReviewRequested, it.Assigned = k.Kind == item.KindPR && p.ReviewRequested, p.Assigned
 	// Someone else's latest activity: the cache holds each PR's and issue's
 	// last comment (author and time) and its creation, nothing about
 	// commits or reviews, and its updated_at names no actor. So this is the

@@ -53,6 +53,16 @@ func (u *restUser) name() (string, bool) {
 	return u.Login, false
 }
 
+// includes reports whether login is one of users, without case.
+func includes(users []restUser, login string) bool {
+	for _, u := range users {
+		if login != "" && strings.EqualFold(u.Login, login) {
+			return true
+		}
+	}
+	return false
+}
+
 type restLabel struct {
 	Name string `json:"name"`
 }
@@ -70,6 +80,7 @@ type restIssue struct {
 	User          *restUser   `json:"user"`
 	BodyText      string      `json:"body_text"`
 	Labels        []restLabel `json:"labels"`
+	Assignees     []restUser  `json:"assignees"`
 	Comments      int         `json:"comments"`
 	RepositoryURL string      `json:"repository_url"`
 	PullRequest   *struct {
@@ -94,7 +105,11 @@ type restPull struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	MergeableState string     `json:"mergeable_state"` // single-PR endpoint only
-	Head           struct {
+	// Who is asked to review it (users only: requested_teams is not read)
+	// and who it is assigned to.
+	RequestedReviewers []restUser `json:"requested_reviewers"`
+	Assignees          []restUser `json:"assignees"`
+	Head               struct {
 		Ref  string `json:"ref"`
 		SHA  string `json:"sha"`
 		Repo *struct {
@@ -341,7 +356,7 @@ func refresh(ctx context.Context, gh Runner, prev *GitHub, o RefreshOptions, siz
 		if ow := g.Owners[key]; ow != nil { // read only until every owner is listed
 			prevRepos = ow.Repos
 		}
-		f := ownerFetch{c: c, login: owners[i], self: key == strings.ToLower(user), prev: prevRepos, prevPRs: prevPRs, merge: merge}
+		f := ownerFetch{c: c, user: user, login: owners[i], self: key == strings.ToLower(user), prev: prevRepos, prevPRs: prevPRs, merge: merge}
 		got[i].repos, got[i].listed, got[i].err = f.fetch()
 	})
 	for i, login := range owners {
@@ -471,6 +486,7 @@ func clone(prev *GitHub) *GitHub {
 // ownerFetch lists one owner's repos with their open PRs and issues.
 type ownerFetch struct {
 	c       rest
+	user    string // the user's login: who review requests and assignments are for
 	login   string
 	self    bool             // the user's own account
 	prev    []RepoObs        // the owner's previous repos: a fork keeps its parent
@@ -576,19 +592,19 @@ func (f ownerFetch) fetch() ([]RepoObs, []restRepo, error) {
 			return
 		}
 		if !isPR {
-			made[i], errs[i] = toItem(f.c, it, rr.Repo, item.IssueKey(rr.Repo, it.Number), f.prevPRs)
+			made[i], errs[i] = toItem(f.c, f.user, it, rr.Repo, item.IssueKey(rr.Repo, it.Number), f.prevPRs)
 			return
 		}
-		p, err := toItem(f.c, it, rr.Repo, item.PRKey(rr.Repo, it.Number), f.prevPRs)
+		p, err := toItem(f.c, f.user, it, rr.Repo, item.PRKey(rr.Repo, it.Number), f.prevPRs)
 		if err != nil {
 			errs[i] = err
 			return
 		}
 		if h, ok := heads[strings.ToLower(rr.Repo)][it.Number]; ok {
-			withHead(&p, h)
+			withHead(&p, h, f.user)
 		}
 		if f.merge[item.PRKey(rr.Repo, it.Number).String()] {
-			errs[i] = mergeState(f.c, &p)
+			errs[i] = mergeState(f.c, f.user, &p)
 		}
 		made[i] = p
 	})
@@ -714,8 +730,8 @@ func byUpdated(ps []PRObs) {
 
 // toItem turns a listed PR or issue into a PRObs, with its last comment: the
 // previous one when the item hasn't changed since, else asked for.
-func toItem(c rest, it restIssue, repo string, k item.Key, prevPRs map[string]PRObs) (PRObs, error) {
-	p := toPR(it, repo)
+func toItem(c rest, user string, it restIssue, repo string, k item.Key, prevPRs map[string]PRObs) (PRObs, error) {
+	p := toPR(it, repo, user)
 	if it.Comments == 0 {
 		return p, nil
 	}
@@ -738,9 +754,9 @@ func toItem(c rest, it restIssue, repo string, k item.Key, prevPRs map[string]PR
 	return p, nil
 }
 
-func toPR(it restIssue, repo string) PRObs {
+func toPR(it restIssue, repo, user string) PRObs {
 	p := PRObs{Repo: repo, Number: it.Number, Title: it.Title, State: strings.ToUpper(it.State), Draft: it.Draft,
-		CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt, URL: it.HTMLURL}
+		CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt, URL: it.HTMLURL, Assigned: includes(it.Assignees, user)}
 	if it.PullRequest != nil && it.PullRequest.MergedAt != nil {
 		p.State = "MERGED"
 	}
@@ -761,9 +777,12 @@ func toPR(it restIssue, repo string) PRObs {
 }
 
 // withHead takes a PR's branch from GitHub's PR read, and its creation: the
-// search index can have it a second off.
-func withHead(p *PRObs, h restPull) {
+// search index can have it a second off. Whether user is asked to review it
+// is only in that read; whether it is assigned to them is there too, newer
+// than search's.
+func withHead(p *PRObs, h restPull, user string) {
 	p.Draft, p.HeadRef = h.Draft, h.Head.Ref
+	p.ReviewRequested, p.Assigned = includes(h.RequestedReviewers, user), includes(h.Assignees, user)
 	if !h.CreatedAt.IsZero() {
 		p.CreatedAt = h.CreatedAt
 	}
@@ -774,12 +793,12 @@ func withHead(p *PRObs, h restPull) {
 
 // mergeState asks for a PR on its own: only that endpoint has GitHub's
 // mergeable_state.
-func mergeState(c rest, p *PRObs) error {
+func mergeState(c rest, user string, p *PRObs) error {
 	var one restPull
 	if err := c.get(fmt.Sprintf("%s/pulls/%d", repoPath(p.Repo), p.Number), &one); err != nil {
 		return err
 	}
-	withHead(p, one)
+	withHead(p, one, user)
 	p.MergeState = strings.ToUpper(one.MergeableState)
 	return nil
 }
@@ -807,9 +826,9 @@ func fetchAuthored(c rest, user string, sw sweep, prevPRs map[string]PRObs, merg
 			made[i] = seen
 			return
 		}
-		p, err := toItem(c, it, repo, k, prevPRs)
+		p, err := toItem(c, user, it, repo, k, prevPRs)
 		if err == nil {
-			err = mergeState(c, &p)
+			err = mergeState(c, user, &p)
 		}
 		if !merge[k.String()] {
 			p.MergeState = ""

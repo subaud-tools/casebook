@@ -328,11 +328,28 @@ export function recommendsWho(
 export const CAME_BACK = 'came-back';
 
 /**
+ * involvedLine is what is asked of you on a pull request or issue: you're
+ * asked to review it, it is assigned to you, or both; '' when neither.
+ */
+export function involvedLine(it: {
+  review_requested?: boolean;
+  assigned?: boolean;
+}): string {
+  return [
+    it.review_requested ? "you're asked to review" : '',
+    it.assigned ? 'assigned to you' : '',
+  ]
+    .filter(Boolean)
+    .join(' \u00b7 ');
+}
+
+/**
  * standsLine is a decide row's second line, where the item stands, the
  * first that applies: a session looking into it (agent); why it came back,
  * or its new activity (signal); its recommendation (muted). Grouped, the
  * head names the choice and the row gives its reason; flat, the row names
  * both ("delete it · landed"). A left-open row says when it was left open.
+ * What is asked of you (involvedLine) leads the reason or recommendation.
  */
 export function standsLine(
   vocab: DecisionVocabView | null,
@@ -349,14 +366,17 @@ export function standsLine(
       : it.new_activity
         ? it.due_reason
         : '';
-  if (back) return { text: back, tone: 'signal' };
+  // What is asked of you leads whatever follows.
+  const lead = (text: string) =>
+    [involvedLine(it), text].filter(Boolean).join(' \u00b7 ');
+  if (back) return { text: lead(back), tone: 'signal' };
   const p = it.proposal?.state === 'pending' ? it.proposal : undefined;
-  if (!p) return { text: 'not recommended yet', tone: 'muted' };
+  if (!p) return { text: lead('not recommended yet'), tone: 'muted' };
   const label = choiceLabel(vocab, it.key, p.disposition);
   const text = flat
     ? [label, p.note].filter(Boolean).join(' \u00b7 ')
     : p.note || label;
-  return { text, tone: 'muted' };
+  return { text: lead(text), tone: 'muted' };
 }
 
 /**

@@ -76,6 +76,7 @@ var (
 // The item types fields apply to (Field.Kinds).
 var (
 	prIssue        = []string{"pr", "issue"}
+	prOnly         = []string{"pr"}
 	branchOnly     = []string{"branch"}
 	branchWorktree = []string{"branch", "worktree"}
 	repoOnly       = []string{"repo"}
@@ -113,6 +114,10 @@ var vocab = []Field{
 		Type: FieldTypeText, Ops: titleOps}, // only field that allows "matches"
 	{Name: "label", Kinds: prIssue, Label: "label", Help: "a GitHub label on it",
 		Type: FieldTypeText, Ops: textOps},
+	{Name: "review-requested", Kinds: prOnly, Label: "asked to review", Help: "pull requests: you're one of its requested reviewers",
+		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
+	{Name: "assigned", Kinds: prIssue, Label: "assigned to you", Help: "pull requests and issues: you're one of its assignees",
+		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
 
 	// Age / activity fields
 	{Name: "age", Kinds: prIssue, Label: "opened", Help: "when it was opened or created",

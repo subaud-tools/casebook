@@ -1173,18 +1173,25 @@ function recommendsWho(vocab2, source, ruleName = "") {
   return vocab2.recommends;
 }
 var CAME_BACK = "came-back";
+function involvedLine(it) {
+  return [
+    it.review_requested ? "you're asked to review" : "",
+    it.assigned ? "assigned to you" : ""
+  ].filter(Boolean).join(" · ");
+}
 function standsLine(vocab2, it, flat) {
   const looking = lookingLine(it.looking);
   if (looking) return { text: looking, tone: "agent" };
   if (it.status === "left-open")
     return { text: leftOpenMeta(it.decision?.decided_at), tone: "muted" };
   const back = it.group === CAME_BACK ? it.due_reason || vocab2?.came_back?.[it.status] : it.new_activity ? it.due_reason : "";
-  if (back) return { text: back, tone: "signal" };
+  const lead = (text2) => [involvedLine(it), text2].filter(Boolean).join(" · ");
+  if (back) return { text: lead(back), tone: "signal" };
   const p = it.proposal?.state === "pending" ? it.proposal : void 0;
-  if (!p) return { text: "not recommended yet", tone: "muted" };
+  if (!p) return { text: lead("not recommended yet"), tone: "muted" };
   const label = choiceLabel(vocab2, it.key, p.disposition);
   const text = flat ? [label, p.note].filter(Boolean).join(" · ") : p.note || label;
-  return { text, tone: "muted" };
+  return { text: lead(text), tone: "muted" };
 }
 function decideSummary(groups, total, rules, vocab2) {
   const w = vocab2.summary;
@@ -5947,7 +5954,7 @@ function itemHead(detail, ctx) {
   const displayKey = keyLabel(it.key);
   const keyEl = it.url ? h10("a", { href: it.url, target: "_blank", rel: "noopener" }, displayKey) : h10("span", { title: it.key }, displayKey);
   const kicker = h10("p", { class: "cb-kicker kit-kick" });
-  const parts = [it.kind, keyEl, it.relation].filter(
+  const parts = [it.kind, keyEl, it.relation, involvedLine(it)].filter(
     (part) => !!part
   );
   parts.forEach((part, i) => {
