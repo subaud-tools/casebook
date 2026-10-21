@@ -213,7 +213,7 @@ func TestFetchMergedPRsOnlyForReposWithUnlandedCandidates(t *testing.T) {
 	}
 
 	// Only pass repo-b to FetchMergedPRs (repo-a not included, caller filtered it)
-	result := FetchMergedPRs(ctx, runner, []string{"acme/repo-b"}, prev, now)
+	result := FetchMergedPRs(ctx, runner, []string{"acme/repo-b"}, prev, now, &RefreshReport{})
 
 	// repo-a should still be there unchanged (from prev)
 	if a, ok := result["acme/repo-a"]; !ok || !a.Fetched {
@@ -372,7 +372,7 @@ func TestReposWithUnlandedBranches(t *testing.T) {
 	runner := &recordRunner{reply: func(args []string) ([]byte, error) {
 		return []byte("[]"), nil
 	}}
-	FetchMergedPRs(ctx, runner, unlanded, nil, time.Now())
+	FetchMergedPRs(ctx, runner, unlanded, nil, time.Now(), &RefreshReport{})
 	for _, call := range runner.calls {
 		if strings.Contains(call, "acme/repo-a") {
 			t.Errorf("FetchMergedPRs called for repo-a (already landed): %s", call)
@@ -474,7 +474,7 @@ func TestMergedPRsPageUntilTheyRunOut(t *testing.T) {
 		return nil, fmt.Errorf("unexpected %v", a)
 	}}
 	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
-	merged := FetchMergedPRs(ctx, runner, []string{"acme/proj"}, nil, now)
+	merged := FetchMergedPRs(ctx, runner, []string{"acme/proj"}, nil, now, &RefreshReport{})
 	snap := makeSnapForDir(dir, "acme/proj", "origin")
 	addBranch(&snap, 0, "feat", featTip)
 	ComputeLanded(ctx, &snap, map[string]RepoObs{"acme/proj": {Repo: "acme/proj", DefaultBranch: "main"}}, merged)
@@ -489,8 +489,66 @@ func TestMergedPRsPageUntilTheyRunOut(t *testing.T) {
 		}
 		return []byte(closedPage(page(a), 0, "", "")), nil
 	}}
-	out := FetchMergedPRs(ctx, failing, []string{"acme/proj"}, prev, now)
+	out := FetchMergedPRs(ctx, failing, []string{"acme/proj"}, prev, now, &RefreshReport{})
 	if ml := out["acme/proj"]; !ml.Fetched || !ml.At.Equal(now.Add(-time.Hour)) || len(ml.PRs) != 1 {
 		t.Errorf("a read stopped short replaced the previous list: %+v", ml)
+	}
+}
+
+// A rate limit earlier in the sync starts no merged-PR read, and every
+// previous list stays.
+func TestFetchMergedPRsAfterARateLimitAsksNothing(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	prev := map[string]MergedPRList{"o/a": {Fetched: true, At: now.Add(-time.Hour), PRs: []MergedPR{{Number: 1}}}}
+	runner := &recordRunner{}
+	rep := RefreshReport{RateLimited: true}
+	out := FetchMergedPRs(ctx, runner, []string{"o/a", "o/b"}, prev, now, &rep)
+	if len(runner.calls) != 0 {
+		t.Errorf("calls after a rate limit: %v", runner.calls)
+	}
+	if a := out["o/a"]; !a.Fetched || !a.At.Equal(now.Add(-time.Hour)) || len(a.PRs) != 1 {
+		t.Errorf("o/a %+v", a)
+	}
+	if _, ok := out["o/b"]; ok {
+		t.Errorf("o/b written: %+v", out["o/b"])
+	}
+}
+
+// A rate limit partway through merged-PR reads is reported, and the repos
+// whose read was refused or never started keep their previous lists.
+func TestFetchMergedPRsRateLimitPartway(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	then := now.Add(-time.Hour)
+	repos := []string{"o/r0", "o/r1", "o/r2", "o/r3", "o/r4"}
+	prev := map[string]MergedPRList{}
+	for _, r := range repos {
+		prev[r] = MergedPRList{Fetched: true, At: then, PRs: []MergedPR{{Number: 9}}}
+	}
+	// One read at a time: the third is rate limited, so two lists are read
+	// whole and nothing starts after the third.
+	var mu sync.Mutex
+	asked := map[string]bool{}
+	runner := &recordRunner{reply: func(a []string) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(asked) == 2 {
+			return nil, &GhError{Code: 1, Stderr: "gh: API rate limit exceeded (HTTP 403)"}
+		}
+		asked[strings.Split(apiPath(a), "/")[2]] = true
+		return []byte(`[]`), nil
+	}}
+	var rep RefreshReport
+	out := fetchMergedPRs(ctx, runner, repos, prev, now, 1, &rep)
+	if !rep.RateLimited || len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0], "rate limited") {
+		t.Errorf("report %+v", rep)
+	}
+	if len(runner.calls) != 3 {
+		t.Errorf("calls %v, want three", runner.calls)
+	}
+	for _, r := range repos {
+		ml := out[r]
+		if fresh := asked[strings.TrimPrefix(r, "o/")]; !ml.Fetched || fresh != ml.At.Equal(now) || fresh == (len(ml.PRs) == 1) {
+			t.Errorf("%s = %+v (read whole: %v)", r, ml, fresh)
+		}
 	}
 }

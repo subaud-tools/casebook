@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/config"
 	"github.com/subaud-tools/casebook/internal/casebook/journal"
+	"github.com/subaud-tools/casebook/internal/casebook/observe"
 	"github.com/subaud-tools/casebook/internal/casebook/spool"
 	"github.com/subaud-tools/casebook/internal/casebook/testgit"
 )
@@ -295,5 +298,54 @@ func TestQuickSyncKeepsLanded(t *testing.T) {
 	}
 	if quick := landed(); !maps.Equal(quick, full) {
 		t.Fatalf("quick sync landed %v, want the full sync's %v", quick, full)
+	}
+}
+
+// rateLimitGh is fakeGh with a rate limit on the reads match picks.
+type rateLimitGh struct {
+	fakeGh
+	match  func(path string) bool
+	closed int // merged-PR reads asked
+}
+
+func (f *rateLimitGh) Gh(c context.Context, args ...string) ([]byte, error) {
+	p, q := restCall(args)
+	if q.Get("state") == "closed" {
+		f.closed++
+	}
+	if f.match(p) {
+		return nil, &observe.GhError{Code: 1, Stderr: "gh: API rate limit exceeded (HTTP 403)"}
+	}
+	return f.fakeGh.Gh(c, args...)
+}
+
+// A rate limit in the refs phase stops the merged-PR reads of the same
+// sync: none is asked, every previous merged list stays, and the report
+// says rate limited.
+func TestSyncRateLimitInRefsSkipsMergedPRs(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.app.Sync(ctx, SyncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := observe.LoadGitHub(config.CachePath())
+	if err != nil || !before.MergedPRs["schuettc/hail"].Fetched {
+		t.Fatalf("first sync merged lists %+v %v", before.MergedPRs, err)
+	}
+	if _, _, err := r.app.Decide(ctx, "pr:a/b#1", "wait", DecideOptions{Until: "date(2026-10-01)", By: "court"}); err != nil {
+		t.Fatal(err)
+	}
+	gh := &rateLimitGh{match: func(p string) bool { return p == "repos/a/b/pulls/1" }}
+	r.app.Gh = gh
+	r.now = r.now.Add(time.Hour)
+	rep, err := r.app.Sync(ctx, SyncOptions{})
+	if err != nil || !rep.RateLimited {
+		t.Fatalf("report %+v %v", rep, err)
+	}
+	if gh.closed != 0 {
+		t.Errorf("%d merged-PR reads after the rate limit", gh.closed)
+	}
+	after, err := observe.LoadGitHub(config.CachePath())
+	if err != nil || !reflect.DeepEqual(after.MergedPRs, before.MergedPRs) {
+		t.Errorf("merged lists %+v, want %+v (%v)", after.MergedPRs, before.MergedPRs, err)
 	}
 }

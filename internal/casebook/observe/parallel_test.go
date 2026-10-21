@@ -306,7 +306,7 @@ func TestFetchMergedPRsRunsSeveralAtATime(t *testing.T) {
 	}}
 	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
 	start := time.Now()
-	out := fetchMergedPRs(ctx, gh, repos, nil, now, poolSize)
+	out := fetchMergedPRs(ctx, gh, repos, nil, now, poolSize, &RefreshReport{})
 	took := time.Since(start)
 	if took > 16*50*time.Millisecond/4 {
 		t.Errorf("took %v for 16 lists", took)

@@ -85,12 +85,13 @@ func (a *App) Sync(ctx context.Context, o SyncOptions) (SyncReport, error) {
 	if err != nil {
 		return rep, err
 	}
+	// gr is the sync's one GitHub report: a rate limit in the refresh stops
+	// the merged-PR reads too, and theirs are reported with it.
+	var gr observe.RefreshReport
 	if !o.NoGitHub {
 		decisions, _ := a.Repo.Decisions()
-		var gr observe.RefreshReport
 		g, gr = observe.Refresh(ctx, a.Gh, g, observe.RefreshOptions{Owners: a.Cfg.Owners, Keys: engine.LookupKeys(decisions),
 			Merge: engine.MergeKeys(decisions), Releases: engine.ReleaseKeys(decisions), Now: a.Now()})
-		rep.GitHubErrors, rep.RateLimited = gr.Errors, gr.RateLimited
 	}
 	// Landed, in three steps: the git ancestry check for every non-default
 	// branch; the merged PRs of the repos that still have unlanded ones
@@ -102,7 +103,8 @@ func (a *App) Sync(ctx context.Context, o SyncOptions) (SyncReport, error) {
 	observe.ComputeAncestorLanded(ctx, &snap, allRepos)
 	if !o.NoGitHub {
 		reposToCheck := observe.ReposWithUnlandedBranches(snap, allRepos)
-		g.MergedPRs = observe.FetchMergedPRs(ctx, a.Gh, reposToCheck, g.MergedPRs, a.Now())
+		g.MergedPRs = observe.FetchMergedPRs(ctx, a.Gh, reposToCheck, g.MergedPRs, a.Now(), &gr)
+		rep.GitHubErrors, rep.RateLimited = gr.Errors, gr.RateLimited
 	}
 	observe.ComputeMergedPRLanded(ctx, &snap, g.MergedPRs)
 	if !o.NoGitHub {

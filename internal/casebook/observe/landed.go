@@ -27,15 +27,22 @@ func AllRepos(g *GitHub) map[string]RepoObs {
 // repos, returning an updated map. Repos not in repos keep their previous
 // entry from prev unchanged, and so does a repo whose list didn't come back
 // whole (an error, or the page cap): only a complete read is Fetched.
-func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time) map[string]MergedPRList {
-	return fetchMergedPRs(ctx, r, repos, prev, now, poolSize)
+//
+// rep is the sync's GitHub report, carried on from Refresh: once it says
+// rate limited no read starts, and a rate limit or failed read here is added
+// to it.
+func FetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, rep *RefreshReport) map[string]MergedPRList {
+	return fetchMergedPRs(ctx, r, repos, prev, now, poolSize, rep)
 }
 
 // fetchMergedPRs is FetchMergedPRs with size gh calls at once.
-func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, size int) map[string]MergedPRList {
+func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[string]MergedPRList, now time.Time, size int, rep *RefreshReport) map[string]MergedPRList {
 	out := make(map[string]MergedPRList, len(prev)+len(repos))
 	for k, v := range prev {
 		out[k] = v
+	}
+	if rep.RateLimited {
+		return out
 	}
 	c := rest{ctx, newLimiter(r, size)}
 	lists := make([]MergedPRList, len(repos))
@@ -46,10 +53,20 @@ func fetchMergedPRs(ctx context.Context, r Runner, repos []string, prev map[stri
 			lists[i] = MergedPRList{Fetched: true, At: now.UTC(), PRs: prs}
 		}
 	})
+	limited := false
 	for i, repo := range repos {
-		if errs[i] == nil {
+		switch err := errs[i]; {
+		case err == nil:
 			out[strings.ToLower(repo)] = lists[i]
+		case rateLimited(err):
+			limited = true // reported once below, as a serial run would have stopped
+		default:
+			rep.Errors = append(rep.Errors, fmt.Sprintf("%s: merged pull requests: %v", repo, err))
 		}
+	}
+	if limited {
+		rep.RateLimited = true
+		rep.Errors = append(rep.Errors, "merged pull requests: rate limited; retry next sync")
 	}
 	return out
 }
@@ -62,7 +79,7 @@ func fetchMerged(c rest, repo string) ([]MergedPR, error) {
 	var prs []MergedPR
 	for page := 1; ; page++ {
 		if page > maxMergedPages {
-			return nil, fmt.Errorf("%s: merged pull requests: stopped at %d pages of closed ones", repo, maxMergedPages)
+			return nil, fmt.Errorf("stopped at %d pages of closed ones", maxMergedPages)
 		}
 		var closed []restPull
 		if err := c.get(repoPath(repo)+"/pulls?state=closed&per_page=100&page="+strconv.Itoa(page), &closed); err != nil {
