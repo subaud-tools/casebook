@@ -23,8 +23,9 @@ type Fields struct {
 	Labels   []string // PR/issue labels
 
 	// Involvement
-	ReviewRequested bool // PR: you're one of its requested reviewers
-	Assigned        bool // PR/issue: you're one of its assignees
+	ReviewRequested bool  // PR: you're one of its requested reviewers
+	Assigned        bool  // PR/issue: you're one of its assignees
+	Admin           *bool // repo/PR/issue/branch: you're an admin of its repo; nil when unknown
 
 	// Age / activity (durations from now; 0 when the underlying time is zero)
 	Age     time.Duration // now - CreatedAt
@@ -127,6 +128,7 @@ func (it Item) Fields(now time.Time) Fields {
 		Labels:          it.Labels,
 		ReviewRequested: it.ReviewRequested,
 		Assigned:        it.Assigned,
+		Admin:           it.Admin,
 		Age:             age,
 		Updated:         updated,
 		CreatedAt:       it.CreatedAt,

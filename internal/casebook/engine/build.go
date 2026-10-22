@@ -59,6 +59,10 @@ type Item struct {
 	Copies          []Copy            `json:"copies,omitempty"`      // branches only: each Mac with a snapshot, then GitHub
 	Needs           []string          `json:"needs,omitempty"`       // keys that run first in the same job
 	Public          bool              `json:"public,omitempty"`      // repo/pr/issue whose repo the listing says isn't private
+	// Admin: you're an admin of the repo of a repo, PR, issue or branch;
+	// nil when unknown (no listing of it says, and it isn't under your
+	// login).
+	Admin *bool `json:"admin,omitempty"`
 
 	fresh          bool      // observed from a fresh owner listing
 	othersAt       time.Time // pr/issue: latest activity by anyone but the user (zero: none known)
@@ -215,6 +219,7 @@ func Build(in Input) Result {
 		if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && it.Kind != item.KindBranch && it.Kind != item.KindWorktree {
 			it.Public = !r.Private
 		}
+		it.Admin = b.admin(it)
 		if !b.involved(it) {
 			res.Hidden = append(res.Hidden, *it)
 			continue
@@ -299,6 +304,26 @@ func (b *builder) involved(it *Item) bool {
 		return false
 	}
 	return true
+}
+
+// admin reports whether the user is an admin of its repo, for a repo, PR,
+// issue or branch: true for a repo under the user's own login, otherwise
+// what a listing of the repo recorded (stale or not). nil when unknown: no
+// login, a repo in no listing, or a listing without permissions. A worktree
+// has none.
+func (b *builder) admin(it *Item) *bool {
+	if it.Kind == item.KindWorktree || it.Repo == "" || b.user == "" {
+		return nil
+	}
+	if owner, _, _ := strings.Cut(it.Repo, "/"); strings.EqualFold(owner, b.user) {
+		yes := true
+		return &yes
+	}
+	if r, ok := b.f.repos[item.RepoKey(it.Repo).String()]; ok && r.Admin != nil {
+		a := *r.Admin
+		return &a
+	}
+	return nil
 }
 
 func (b *builder) direction(p observe.PRObs) string {

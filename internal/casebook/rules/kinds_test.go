@@ -91,6 +91,8 @@ func fieldIsZero(t *testing.T, f engine.Fields, name string) bool {
 		return !f.ReviewRequested
 	case "assigned":
 		return !f.Assigned
+	case "admin":
+		return f.Admin == nil
 	}
 	t.Fatalf("field %q has no zero check", name)
 	return false
@@ -126,7 +128,7 @@ func TestFieldKinds(t *testing.T) {
 	want := map[string][]string{
 		"kind": nil, "repo": nil, "owner": nil, "status": nil, "updated": nil,
 		"relation": {"pr", "issue"}, "author": {"pr", "issue"}, "bot": {"pr", "issue"},
-		"label": {"pr", "issue"}, "review-requested": {"pr"}, "assigned": {"pr", "issue"}, "title": {"pr", "issue", "worktree"}, "age": {"pr", "issue"},
+		"label": {"pr", "issue"}, "review-requested": {"pr"}, "assigned": {"pr", "issue"}, "admin": {"pr", "issue", "branch", "repo"}, "title": {"pr", "issue", "worktree"}, "age": {"pr", "issue"},
 		"landed": {"branch"}, "landed-how": {"branch"}, "gone-upstream": {"branch"},
 		"unpushed": {"branch", "worktree"}, "worktree": {"branch", "worktree"},
 		"archived": {"repo"}, "ownership": {"repo"}, "open-prs": {"repo"}, "open-issues": {"repo"},

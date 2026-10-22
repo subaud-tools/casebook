@@ -368,6 +368,7 @@ export interface ItemView {
   copies?: Copy[];
   needs?: string[];
   public?: boolean;
+  admin?: boolean;
   proposal?: Proposal;
   looking?: Looking;
   group: string;
