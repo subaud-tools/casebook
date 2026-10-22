@@ -759,3 +759,27 @@ describe('keyLabel', () => {
   test('any other key is the key without its kind', () =>
     assert.equal(keyLabel('branch:o/r@feat/x'), 'o/r@feat/x'));
 });
+
+// ---- alsoMatchedLine (the recommendation's other matching rules) ------------
+
+import { alsoMatchedLine } from './decide-math.ts';
+
+describe('alsoMatchedLine', () => {
+  test('names the other rules by name, joined with ", "', () =>
+    assert.equal(
+      alsoMatchedLine([
+        { id: 'quiet-prs', name: 'Quiet PRs' },
+        { id: 'quiet-bot-prs', name: 'Quiet bot PRs' },
+      ]),
+      'also matched by Quiet PRs, Quiet bot PRs',
+    ));
+  test('a rule with no name is named by its id', () =>
+    assert.equal(
+      alsoMatchedLine([{ id: 'quiet-prs', name: '' }]),
+      'also matched by quiet-prs',
+    ));
+  test('no other rule is no line', () => {
+    assert.equal(alsoMatchedLine([]), '');
+    assert.equal(alsoMatchedLine(null), '');
+  });
+});

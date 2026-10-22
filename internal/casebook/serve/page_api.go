@@ -375,17 +375,41 @@ func (s *Server) itemDetail(ctx context.Context, it engine.Item, k item.Key) Ite
 	job, verified, _ := s.Apply.LastVerified(ctx, it.ID)
 	steps, _ := s.Apply.KeySteps(ctx, it.ID)
 	ran, ranSteps := s.ranOn(ctx, it.ID, steps)
-	return ItemDetailView{
-		Steps:     nonNil(steps),
-		Ran:       ran,
-		RanSteps:  nonNil(ranSteps),
-		DoneHow:   doneHow(string(v.Status), job, verified, time.Local),
-		Item:      v,
-		Proposals: nonNil(proposals),
-		Evidence:  nonNil(evidence),
-		History:   nonNil(hist),
-		Decisions: nonNil(log),
+	source := ""
+	if prop != nil {
+		source = prop.Source
 	}
+	return ItemDetailView{
+		AlsoMatched: s.alsoMatched(it, source),
+		Steps:       nonNil(steps),
+		Ran:         ran,
+		RanSteps:    nonNil(ranSteps),
+		DoneHow:     doneHow(string(v.Status), job, verified, time.Local),
+		Item:        v,
+		Proposals:   nonNil(proposals),
+		Evidence:    nonNil(evidence),
+		History:     nonNil(hist),
+		Decisions:   nonNil(log),
+	}
+}
+
+// alsoMatched is every active, valid rule that matches it, other than
+// source (the pending proposal's): computed for the one item asked for,
+// not on every rebuild.
+func (s *Server) alsoMatched(it engine.Item, source string) []RuleRef {
+	all, _ := s.App.Repo.Rules()
+	one := engine.Result{Items: []engine.Item{it}}
+	now := s.Now()
+	out := []RuleRef{}
+	for _, r := range all {
+		if r.Status != rules.StatusActive || "rule:"+r.ID == source || r.Validate() != nil {
+			continue
+		}
+		if ms, err := r.MatchAll(one, now); err == nil && len(ms) > 0 {
+			out = append(out, RuleRef{ID: r.ID, Name: r.Name})
+		}
+	}
+	return out
 }
 
 func nonNil[T any](s []T) []T {

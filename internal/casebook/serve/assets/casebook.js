@@ -1172,6 +1172,10 @@ function recommendsWho(vocab2, source, ruleName = "") {
     );
   return vocab2.recommends;
 }
+function alsoMatchedLine(refs) {
+  if (!refs?.length) return "";
+  return `also matched by ${refs.map((r) => r.name || r.id).join(", ")}`;
+}
 var CAME_BACK = "came-back";
 function involvedLine(it) {
   return [
@@ -5883,13 +5887,15 @@ function renderRec(ctx, detail, hooks) {
   if (!p) return null;
   const who = h10("p", { class: "cb-rec-who" });
   const label = h10("p", { class: "cb-rec-label" }, p.disposition);
+  const also = alsoMatchedLine(detail.also_matched);
   const el2 = h10(
     "section",
     { class: "cb-rec" },
     who,
     label,
     p.note ? h10("p", { class: "cb-rec-note" }, p.note) : null,
-    p.until ? h10("p", { class: "cb-rec-until" }, `until ${p.until}`) : null
+    p.until ? h10("p", { class: "cb-rec-until" }, `until ${p.until}`) : null,
+    also ? h10("p", { class: "cb-rec-also" }, also) : null
   );
   void getVocab(ctx).then((vocab2) => {
     const kv = (vocab2.kinds ?? []).find((k) => k.kind === it.kind);
