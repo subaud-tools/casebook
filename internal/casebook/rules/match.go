@@ -411,7 +411,8 @@ func (r Rule) MatchAll(res engine.Result, now time.Time) ([]Match, error) {
 // Proposable returns all matches that are eligible for proposal:
 //   - the item has no decision (undecided)
 //   - no hold stops the rule's disposition for the item
-//   - the item has no pending proposal from this rule
+//   - the item has no pending proposal from any source (another rule or an
+//     agent): the recommendation already there stays
 //   - the item was not rejected for this rule since the rule's last edit
 //
 // pending is keyed by item key and contains only pending proposals.
@@ -423,7 +424,6 @@ func (r Rule) Proposable(res engine.Result, now time.Time, pending map[string]pr
 		return nil
 	}
 
-	source := "rule:" + r.ID
 	var out []Match
 	for _, m := range matches {
 		// Skip decided items.
@@ -438,8 +438,10 @@ func (r Rule) Proposable(res engine.Result, now time.Time, pending map[string]pr
 		if it.Stopped(item.Disposition(r.Propose.Disposition)) {
 			continue
 		}
-		// Skip items with a pending proposal from this rule.
-		if p, hasPending := pending[m.Key]; hasPending && p.Source == source {
+		// Skip items with any pending proposal: a rule never replaces
+		// another source's recommendation, or two rules matching one item
+		// would replace each other on every pass.
+		if _, hasPending := pending[m.Key]; hasPending {
 			continue
 		}
 		// Skip items rejected for this rule since the rule's last edit.

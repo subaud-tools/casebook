@@ -69,6 +69,7 @@ export interface ItemDetailView {
   steps: JobStep[] | null;
   ran: RunMark | null;
   ran_steps: JobStep[] | null;
+  also_matched: RuleRef[] | null;
 }
 
 export interface DecideResult {
@@ -463,6 +464,11 @@ export interface RunMark {
   group: string;
   finished?: boolean;
   steps: JobStep[] | null;
+}
+
+export interface RuleRef {
+  id: string;
+  name: string;
 }
 
 export interface Committed {

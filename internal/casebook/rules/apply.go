@@ -13,7 +13,7 @@ import (
 )
 
 // EvaluateActive proposes decisions for all items that every rule in active
-// matches and that are eligible (undecided, no pending proposal from this rule,
+// matches and that are eligible (undecided, no pending proposal from any source,
 // not rejected for this rule since its last edit). Rules whose Status is not
 // StatusActive are skipped defensively (callers should pre-filter).
 //
@@ -58,7 +58,7 @@ func EvaluateActive(ctx context.Context, active []Rule, res engine.Result, now t
 			}
 			created = append(created, ps...)
 			// Keep the pending map current so later rules in this same pass
-			// see newly created proposals and do not double-propose the same item.
+			// see newly created proposals: the first rule to match an item wins.
 			for _, p := range ps {
 				pending[p.Key] = p
 			}
@@ -68,7 +68,7 @@ func EvaluateActive(ctx context.Context, active []Rule, res engine.Result, now t
 }
 
 // ProposeOnce proposes decisions for every item that r currently matches and
-// that passes Proposable (undecided, no pending proposal from this rule,
+// that passes Proposable (undecided, no pending proposal from any source,
 // not rejected since the rule's last edit). It does not require r to be
 // active; a draft rule can use ProposeOnce to preview its proposals (spec §4.2).
 //

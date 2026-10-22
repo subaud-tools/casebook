@@ -324,6 +324,18 @@ export function recommendsWho(
   return vocab.recommends;
 }
 
+/**
+ * alsoMatchedLine is the line under a recommendation naming the other
+ * active rules that match the item ("also matched by Quiet PRs"), each by
+ * its name (else its id); '' when none.
+ */
+export function alsoMatchedLine(
+  refs: readonly { id: string; name: string }[] | null | undefined,
+): string {
+  if (!refs?.length) return '';
+  return `also matched by ${refs.map((r) => r.name || r.id).join(', ')}`;
+}
+
 /** CAME_BACK is the id of decide's "Came back" group (serve's). */
 export const CAME_BACK = 'came-back';
 

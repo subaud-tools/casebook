@@ -351,3 +351,121 @@ func TestStaleWithdrawsARecommendationAHoldStops(t *testing.T) {
 		t.Errorf("stale %v, want [7]", got)
 	}
 }
+
+// TestTwoRulesOnOneItemDoNotFlip checks that when two active rules match one
+// item, the first recommendation stays across passes: neither replaces the
+// other's, so the item keeps one pending proposal and nothing is superseded.
+func TestTwoRulesOnOneItemDoNotFlip(t *testing.T) {
+	ctx := context.Background()
+	s := applyStore(applyDB(t))
+
+	a := activeRepoRule("archive-repos")
+	b := activeRepoRule("ignore-repos")
+	b.Propose = RuleAction{Disposition: "ignore"}
+	res := buildResult(repoItem("repo:schuettc/hail"))
+
+	var first int64
+	for pass := range 3 {
+		if _, err := EvaluateActive(ctx, []Rule{a, b}, res, applyTestNow, s); err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+		// The second rule, on its own, must not replace the first's either.
+		if _, err := EvaluateActive(ctx, []Rule{b}, res, applyTestNow, s); err != nil {
+			t.Fatalf("pass %d (b alone): %v", pass, err)
+		}
+		pending, err := s.Pending(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, ok := pending["repo:schuettc/hail"]
+		if !ok {
+			t.Fatalf("pass %d: no pending proposal", pass)
+		}
+		if pass == 0 {
+			first = p.ID
+		} else if p.ID != first {
+			t.Fatalf("pass %d: pending id %d, want %d (it flipped)", pass, p.ID, first)
+		}
+	}
+	all, err := s.ForKey(ctx, "repo:schuettc/hail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("proposals for the item = %d, want 1: %+v", len(all), all)
+	}
+	if all[0].Source != "rule:archive-repos" {
+		t.Errorf("source = %q, want rule:archive-repos", all[0].Source)
+	}
+}
+
+// TestARuleDoesNotReplaceAnAgentProposal checks that a rule leaves an
+// agent's pending recommendation in place, both on a rebuild and when
+// proposing once.
+func TestARuleDoesNotReplaceAnAgentProposal(t *testing.T) {
+	ctx := context.Background()
+	s := applyStore(applyDB(t))
+
+	ps, errs := s.Propose(ctx, "session:agent", []string{"repo:schuettc/hail"}, "keep", "", "agent says keep")
+	if len(errs) > 0 || len(ps) != 1 {
+		t.Fatalf("agent propose: %v %v", ps, errs)
+	}
+	r := activeRepoRule("archive-repos")
+	res := buildResult(repoItem("repo:schuettc/hail"))
+	if created, err := EvaluateActive(ctx, []Rule{r}, res, applyTestNow, s); err != nil || len(created) != 0 {
+		t.Fatalf("EvaluateActive created %d, err %v; want 0", len(created), err)
+	}
+	if _, n, err := ProposeOnce(ctx, r, res, applyTestNow, s); err != nil || n != 0 {
+		t.Fatalf("ProposeOnce created %d, err %v; want 0", n, err)
+	}
+	pending, _ := s.Pending(ctx)
+	if p := pending["repo:schuettc/hail"]; p.ID != ps[0].ID || p.Source != "session:agent" {
+		t.Errorf("pending = %+v, want the agent's proposal %d", p, ps[0].ID)
+	}
+}
+
+// TestWhenTheFirstRuleStopsMatchingTheSecondProposes checks the hand-over:
+// rule A's recommendation stays while A matches; once A stops matching,
+// Stale withdraws it and the next pass lets rule B propose.
+func TestWhenTheFirstRuleStopsMatchingTheSecondProposes(t *testing.T) {
+	ctx := context.Background()
+	s := applyStore(applyDB(t))
+
+	a := activeRepoRule("archive-hail")
+	a.Match = append(a.Match, Condition{Field: "repo", Op: "is", Value: "schuettc/hail"})
+	b := activeRepoRule("ignore-repos")
+	b.Propose = RuleAction{Disposition: "ignore"}
+	key := "repo:schuettc/hail"
+	res := buildResult(repoItem(key))
+
+	if _, err := EvaluateActive(ctx, []Rule{a, b}, res, applyTestNow, s); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Pending(ctx); p[key].Source != "rule:archive-hail" {
+		t.Fatalf("pending source = %q, want rule:archive-hail (A matched first)", p[key].Source)
+	}
+	fromRules, _ := s.PendingFromRules(ctx)
+	if stale := Stale([]Rule{a, b}, res, applyTestNow, fromRules); len(stale) != 0 {
+		t.Fatalf("stale while A still matches: %v", stale)
+	}
+
+	// A stops matching: the item now lives in another repo.
+	moved := repoItem(key)
+	moved.Repo = "schuettc/other"
+	res2 := buildResult(moved)
+	fromRules, _ = s.PendingFromRules(ctx)
+	stale := Stale([]Rule{a, b}, res2, applyTestNow, fromRules)
+	if len(stale) != 1 {
+		t.Fatalf("stale = %v, want A's one proposal", stale)
+	}
+	if _, err := s.WithdrawRuleProposals(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EvaluateActive(ctx, []Rule{a, b}, res2, applyTestNow, s); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.Pending(ctx)
+	if p := pending[key]; p.Source != "rule:ignore-repos" {
+		t.Errorf("pending source = %q, want rule:ignore-repos", p.Source)
+	}
+}

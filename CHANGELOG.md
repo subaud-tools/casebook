@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.19.1
+
+- Two rules matching one item no longer replace each other's recommendation on every sync: the recommendation already there stays, whether a rule or an agent made it, until it no longer applies (its rule stops matching, is turned off or edited), and then the next rule may propose. The item page names the other active rules that match it too, under the recommendation ("also matched by Quiet PRs").
+
 ## 0.19.0
 
 - casebook tracks a repository only when it can act on it: an org's repo is an item when you're its admin or a clone of it is on one of your Macs. The rest of an org's repos no longer ask for a decision. Each still feeds its pull requests, issues and branches, and what holds them (an archived repo still stops a close or a merge). A decision recorded for such a repo stays in the casebook data and shows again once the repo qualifies. Repos under your own account are unchanged.

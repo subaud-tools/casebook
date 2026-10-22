@@ -172,6 +172,16 @@ type ItemDetailView struct {
 	// none ran. RanSteps is Steps less those of jobs that never ran.
 	Ran      *RunMark        `json:"ran"`
 	RanSteps []apply.JobStep `json:"ran_steps"`
+	// AlsoMatched is every active rule that matches the item other than
+	// the pending proposal's source: a rule never replaces another's
+	// recommendation, so the page says which others match too.
+	AlsoMatched []RuleRef `json:"also_matched"`
+}
+
+// RuleRef names a rule: its id and its name.
+type RuleRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // DecideResult is the response body of POST /api/decide and POST

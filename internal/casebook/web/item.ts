@@ -21,6 +21,7 @@ import type { Ctx } from './app.ts';
 import { getVocab } from './decide.ts';
 import { renderChoices, asNotNow } from './choices.ts';
 import {
+  alsoMatchedLine,
   involvedLine,
   keyLabel,
   recommendsWho,
@@ -229,7 +230,8 @@ function renderDecideRow(
 
 // renderRec is the pending recommendation, first in the reading: who
 // recommends it ("agent recommends", a rule by its name), the choice,
-// its reason and its until. None when nothing is recommended.
+// its reason, its until, and the other rules that match the item too. None
+// when nothing is recommended.
 function renderRec(
   ctx: Ctx,
   detail: ItemDetailView,
@@ -240,6 +242,7 @@ function renderRec(
   if (!p) return null;
   const who = h('p', { class: 'cb-rec-who' });
   const label = h('p', { class: 'cb-rec-label' }, p.disposition);
+  const also = alsoMatchedLine(detail.also_matched);
   const el = h(
     'section',
     { class: 'cb-rec' },
@@ -247,6 +250,7 @@ function renderRec(
     label,
     p.note ? h('p', { class: 'cb-rec-note' }, p.note) : null,
     p.until ? h('p', { class: 'cb-rec-until' }, `until ${p.until}`) : null,
+    also ? h('p', { class: 'cb-rec-also' }, also) : null,
   );
   // The vocabulary is fetched once and cached: this resolves at once after
   // the first item.
