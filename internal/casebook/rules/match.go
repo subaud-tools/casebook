@@ -80,6 +80,13 @@ func (c Condition) Eval(f engine.Fields) (bool, error) {
 		return evalBool(c.Op, f.ReviewRequested, c.Value)
 	case "assigned":
 		return evalBool(c.Op, f.Assigned, c.Value)
+	case "admin":
+		// Unknown matches no admin condition, is or is-not, so a rule
+		// never acts on a guess.
+		if f.Admin == nil {
+			return false, nil
+		}
+		return evalBool(c.Op, *f.Admin, c.Value)
 	case "age":
 		return evalTime(c.Op, f.Age, f.CreatedAt, c.Value)
 	case "updated":

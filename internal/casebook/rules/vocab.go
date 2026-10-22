@@ -80,6 +80,7 @@ var (
 	branchOnly     = []string{"branch"}
 	branchWorktree = []string{"branch", "worktree"}
 	repoOnly       = []string{"repo"}
+	repoWork       = []string{"pr", "issue", "branch", "repo"}
 )
 
 // boolLabels are every bool field's value labels.
@@ -117,6 +118,8 @@ var vocab = []Field{
 	{Name: "review-requested", Kinds: prOnly, Label: "asked to review", Help: "pull requests: you're one of its requested reviewers",
 		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
 	{Name: "assigned", Kinds: prIssue, Label: "assigned to you", Help: "pull requests and issues: you're one of its assignees",
+		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
+	{Name: "admin", Kinds: repoWork, Label: "admin", Help: "you're an admin of its repo",
 		Type: FieldTypeBool, Ops: boolOps, ValueLabels: boolLabels},
 
 	// Age / activity fields

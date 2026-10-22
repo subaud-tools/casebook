@@ -6,6 +6,10 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.19.2
+
+- Rules match whether you're an admin of an item's repo with a new field, `admin` (pull requests, issues, branches and repositories): true for a repo under your own account or one a listing says you administer, false when a listing says you don't. When casebook doesn't know (a repo in no listing, a listing without permissions, or no known login), neither `admin is` nor `admin is-not` matches, so a rule never recommends closing or hiding something on a guess.
+
 ## 0.19.1
 
 - Two rules matching one item no longer replace each other's recommendation on every sync: the recommendation already there stays, whether a rule or an agent made it, until it no longer applies (its rule stops matching, is turned off or edited), and then the next rule may propose. The item page names the other active rules that match it too, under the recommendation ("also matched by Quiet PRs").
