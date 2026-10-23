@@ -1,9 +1,11 @@
 // Package channel is `casebook channel`: the MCP server each agent session
-// starts (Claude Code through its mcpServers, pi through channels.tools). It
-// registers the session's presence with casebook serve, holds a long-poll open
-// for the session's deliveries and injects each one into the session as a
-// notifications/claude/channel event, and gives the agent casebook's tools
-// (casebook workbench spec §2.2, §6).
+// starts (Claude Code through the casebook plugin, pi through
+// channels.tools). It gives the agent casebook's tools and, under pi,
+// registers the session's presence with casebook serve, holds a long-poll
+// open for the session's deliveries and injects each one into the session as
+// a notifications/claude/channel event (casebook workbench spec §2.2, §6).
+// Under Claude Code `casebook watch` runs that loop instead and prints each
+// delivery as a JSON line for the plugin's mod.
 package channel
 
 import (

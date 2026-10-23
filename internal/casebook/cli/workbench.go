@@ -23,6 +23,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/casebook/internal/version"
 	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/harness"
 	"github.com/subaud-tools/tools-common/localweb"
 )
@@ -224,6 +225,7 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 			},
 		},
 		{Name: "channel", Group: "plumbing", Summary: "the MCP channel an agent session runs (stdio; self-routed)"},
+		{Name: "watch", Group: "plumbing", Summary: "print the user's messages as JSON lines: the Claude Code plugin's feed", NewFlags: watchFlags, Run: runWatch},
 	}
 }
 
@@ -376,11 +378,36 @@ func deliveryList(seen map[int64]bool) []int64 {
 	return out
 }
 
+func watchFlags() *flag.FlagSet {
+	return flags("watch", "casebook watch",
+		"Registers the session with casebook serve and prints each delivery of the user's messages as one JSON line {\"content\": ..., \"meta\": {...}} on stdout. "+
+			"The casebook plugin's mod runs it for a Claude Code session and starts a turn with each line. Logs go to stderr. Runs until signalled.", nil)()
+}
+
+// runWatch is `casebook watch`: the channel's wake loop, printing each
+// delivery as one JSON line on stdout for the Claude Code plugin's mod.
+func runWatch(args []string, out, errw io.Writer) error {
+	fs := watchFlags()
+	pos, err := parse(fs, args, out)
+	if err != nil {
+		return err
+	}
+	if len(pos) > 0 {
+		return tools.UsageError{Msg: "watch takes no arguments"}
+	}
+	ch := channel.New(channel.FromEnv(), channel.NewClient(), version.Number())
+	ch.Log = errw
+	ch.Push = channelmcp.NewLines(out)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return ch.Watch(ctx)
+}
+
 // channelMain is `casebook channel`: MCP on stdin/stdout, diagnostics on stderr.
 func channelMain(stdin io.Reader, out, errw io.Writer) int {
 	c := channel.NewClient()
 	c.Start = func() (serve.Advert, error) { return startDetached(0) } // any tool call starts serve
-	ch := channel.New(channel.FromEnv(), c, version.Number())
+	ch := channel.ForSession(c, version.Number())
 	ch.Log = errw
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
