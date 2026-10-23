@@ -231,13 +231,14 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";
 // casebookSourceRE checks for source="casebook" within the tag attributes.
-// modHeaderRE matches the first line of a turn the Claude Code plugin's mod
-// submitted (casebook event key=value ...); modDeliveryRE extracts delivery=N.
+// modHeaderRE matches the header line of a turn the Claude Code plugin's mod
+// submitted (casebook event key=value ...), which Claude Code puts below a
+// line of its own; modDeliveryRE extracts delivery=N.
 var (
 	chanTagRE        = regexp.MustCompile(`<channel\s([^>]*)>`)
 	deliveryAttrRE   = regexp.MustCompile(`delivery="(\d+)"`)
 	casebookSourceRE = regexp.MustCompile(`source="casebook"`)
-	modHeaderRE      = regexp.MustCompile(`\Acasebook event ([^\n]*)`)
+	modHeaderRE      = regexp.MustCompile(`(?m)^casebook event ([^\n]*)`)
 	modDeliveryRE    = regexp.MustCompile(`(?:^| )delivery=(\d+)(?: |$)`)
 )
 
@@ -355,10 +356,10 @@ func rawContent(raw json.RawMessage) string {
 }
 
 // extractCasebookDeliveries scans text for <channel source="casebook" ...> tags,
-// and for the mod's casebook event header on its first line, and collects
-// their delivery values into seen.
+// and for the mod's casebook event header line, and collects their delivery
+// values into seen.
 func extractCasebookDeliveries(text string, seen map[int64]bool) {
-	if m := modHeaderRE.FindStringSubmatch(text); m != nil {
+	for _, m := range modHeaderRE.FindAllStringSubmatch(text, -1) {
 		if dm := modDeliveryRE.FindStringSubmatch(m[1]); dm != nil {
 			if id, err := strconv.ParseInt(dm[1], 10, 64); err == nil {
 				seen[id] = true

@@ -340,12 +340,14 @@ func TestShownInTranscriptArrayContent(t *testing.T) {
 	}
 }
 
-// A delivery the Claude Code plugin's mod submitted is a turn whose first
-// line is the event header, not a <channel> tag. It counts as shown, or the
-// delivery would stay in flight until the agent replied to every message.
+// A delivery the Claude Code plugin's mod submitted is a turn holding the
+// event header on a line of its own, not a <channel> tag; Claude Code puts its
+// own line above it (as Claude Code 2.1.309 writes it to the transcript). It
+// counts as shown, or the delivery would stay in flight until the agent
+// replied to every message.
 func TestShownInTranscriptModTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
-	line := `{"type":"user","message":{"role":"user","content":"casebook event delivery=12 messages=34,35 source=casebook\nplease look at pr:schuettc/hail#3"}}` + "\n"
+	line := `{"type":"user","message":{"role":"user","content":"The casebook plugin sent a message:\ncasebook event delivery=12 messages=34,35 source=casebook\nplease look at pr:schuettc/hail#3\n\nThis is how Claude Code surfaces a prompt a plugin submits between turns."}}` + "\n"
 	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}
