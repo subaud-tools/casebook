@@ -231,14 +231,15 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";
 // casebookSourceRE checks for source="casebook" within the tag attributes.
-// modHeaderRE matches the header line of a turn the Claude Code plugin's mod
-// submitted (casebook event key=value ...), which Claude Code puts below a
-// line of its own; modDeliveryRE extracts delivery=N.
+// modHeaderRE matches a turn the Claude Code plugin's mod submitted: Claude
+// Code's own first line, then the mod's header (casebook event key=value ...)
+// directly below it. Anchored to the start of the text, so an event-like line
+// anywhere else never counts. modDeliveryRE extracts delivery=N.
 var (
 	chanTagRE        = regexp.MustCompile(`<channel\s([^>]*)>`)
 	deliveryAttrRE   = regexp.MustCompile(`delivery="(\d+)"`)
 	casebookSourceRE = regexp.MustCompile(`source="casebook"`)
-	modHeaderRE      = regexp.MustCompile(`(?m)^casebook event ([^\n]*)`)
+	modHeaderRE      = regexp.MustCompile(`\A\s*The casebook plugin sent a message:\s*\n\s*casebook event ([^\n]*)`)
 	modDeliveryRE    = regexp.MustCompile(`(?:^| )delivery=(\d+)(?: |$)`)
 )
 
@@ -277,6 +278,7 @@ func shownInTranscript(ctx context.Context, transcriptPath string) []int64 {
 	type entry struct {
 		Type    string `json:"type"`
 		Message *struct {
+			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 		Attachment *struct {
@@ -310,7 +312,12 @@ func shownInTranscript(ctx context.Context, transcriptPath string) []int64 {
 					// counted as shown.
 					if e.Type != "queue-operation" {
 						if e.Message != nil {
-							extractCasebookDeliveries(rawContent(e.Message.Content), seen)
+							text := rawContent(e.Message.Content)
+							extractCasebookDeliveries(text, seen)
+							// Only Claude Code's user turn carries the mod's form.
+							if e.Message.Role == "user" {
+								extractModDelivery(text, seen)
+							}
 						}
 						if e.Attachment != nil && e.Attachment.Type == "queued_command" {
 							extractCasebookDeliveries(e.Attachment.Prompt, seen)
@@ -355,17 +362,23 @@ func rawContent(raw json.RawMessage) string {
 	return ""
 }
 
-// extractCasebookDeliveries scans text for <channel source="casebook" ...> tags,
-// and for the mod's casebook event header line, and collects their delivery
-// values into seen.
-func extractCasebookDeliveries(text string, seen map[int64]bool) {
-	for _, m := range modHeaderRE.FindAllStringSubmatch(text, -1) {
-		if dm := modDeliveryRE.FindStringSubmatch(m[1]); dm != nil {
-			if id, err := strconv.ParseInt(dm[1], 10, 64); err == nil {
-				seen[id] = true
-			}
+// extractModDelivery collects the delivery of a turn the plugin's mod
+// submitted (see modHeaderRE) into seen.
+func extractModDelivery(text string, seen map[int64]bool) {
+	m := modHeaderRE.FindStringSubmatch(text)
+	if m == nil {
+		return
+	}
+	if dm := modDeliveryRE.FindStringSubmatch(m[1]); dm != nil {
+		if id, err := strconv.ParseInt(dm[1], 10, 64); err == nil {
+			seen[id] = true
 		}
 	}
+}
+
+// extractCasebookDeliveries scans text for <channel source="casebook" ...> tags
+// and collects their delivery values into seen.
+func extractCasebookDeliveries(text string, seen map[int64]bool) {
 	for _, m := range chanTagRE.FindAllStringSubmatch(text, -1) {
 		attrs := m[1]
 		if !casebookSourceRE.MatchString(attrs) {
