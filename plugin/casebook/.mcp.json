@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "casebook": {
+      "command": "casebook",
+      "args": [
+        "channel"
+      ]
+    }
+  }
+}

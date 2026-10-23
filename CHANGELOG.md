@@ -6,6 +6,16 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.20.0
+
+### Added
+- **Claude Code hears casebook without a launch flag.** casebook ships a Claude Code plugin whose mod runs the new `casebook watch` for the session, so a message from the casebook page starts a turn in a session started with plain `claude`. No `--dangerously-load-development-channels` and no warning dialog at launch.
+- `casebook watch` prints each page message as one JSON line, for the plugin's mod.
+
+### Changed
+- Under Claude Code, `casebook channel` serves casebook's tools only and leaves messages to `casebook watch`; under pi it works as before.
+- A message delivered through the plugin counts as shown once its turn is in the transcript, as a channel event does.
+
 ## 0.19.2
 
 - Rules match whether you're an admin of an item's repo with a new field, `admin` (pull requests, issues, branches and repositories): true for a repo under your own account or one a listing says you administer, false when a listing says you don't. When casebook doesn't know (a repo in no listing, a listing without permissions, or no known login), neither `admin is` nor `admin is-not` matches, so a rule never recommends closing or hiding something on a guess.

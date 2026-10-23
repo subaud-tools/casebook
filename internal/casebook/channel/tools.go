@@ -103,6 +103,10 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		return ch.callSessionBound(ctx, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodGet, "/api/agent/status?"+q("session", ch.ID.Session), nil, &out)
+			if err == nil && ch.ServeOnly {
+				out["events"] = "This is a Claude Code session: the user's messages reach it through `casebook watch`, which the casebook plugin starts, " +
+					"not through this process. If a message never arrived, check that the casebook plugin is installed and enabled (/plugin)."
+			}
 			return pretty(out), err
 		})
 	case "casebook_open":

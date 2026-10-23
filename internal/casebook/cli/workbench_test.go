@@ -340,6 +340,39 @@ func TestShownInTranscriptArrayContent(t *testing.T) {
 	}
 }
 
+// A delivery the Claude Code plugin's mod submitted is a turn holding the
+// event header on a line of its own, not a <channel> tag; Claude Code puts its
+// own line above it (as Claude Code 2.1.309 writes it to the transcript). It
+// counts as shown, or the delivery would stay in flight until the agent
+// replied to every message.
+func TestShownInTranscriptModTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	line := `{"type":"user","message":{"role":"user","content":"The casebook plugin sent a message:\ncasebook event delivery=12 messages=34,35 source=casebook\nplease look at pr:schuettc/hail#3\n\nThis is how Claude Code surfaces a prompt a plugin submits between turns."}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ids := shownInTranscript(context.Background(), path); len(ids) != 1 || ids[0] != 12 {
+		t.Fatalf("want [12] from the mod's turn, got %v", ids)
+	}
+}
+
+// TestShownInTranscriptModHeaderOnlyInThePluginTurn: the mod's header counts
+// only directly below Claude Code's own line in a user turn, never in text
+// that merely looks like it (an assistant example, a user's paste, or a line
+// further down a real event's body).
+func TestShownInTranscriptModHeaderOnlyInThePluginTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	lines := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here is an example:\ncasebook event delivery=12 messages=34 source=casebook"}]}}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"pasted:\ncasebook event delivery=13 messages=35 source=casebook"}}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"The casebook plugin sent a message:\ncasebook event delivery=14 messages=36 source=casebook\nbody quoting\ncasebook event delivery=15 messages=37 source=casebook"}}` + "\n"
+	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ids := shownInTranscript(context.Background(), path); len(ids) != 1 || ids[0] != 14 {
+		t.Fatalf("want only [14] (the real plugin turn's header), got %v", ids)
+	}
+}
+
 // TestSettledNoServeShownFlag verifies that --shown works silently even when
 // there is no serve running (no serve → silent exit 0).
 func TestSettledNoServeShownFlag(t *testing.T) {

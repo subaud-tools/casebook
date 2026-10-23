@@ -23,7 +23,7 @@ import (
 // (casebook workbench spec §6.3).
 const Instructions = `casebook is the user's record of what should happen to every repo, pull request, issue, branch and worktree. Its page (casebook serve) and this channel let you work on it with them.
 
-Messages from the user arrive as channel events from casebook. Several may arrive together; they were queued while you were busy.
+Messages from the user arrive as events from casebook: <channel source="casebook" delivery="…" messages="…"> in pi, or a turn whose first line is casebook event delivery=… messages=… in Claude Code. Several may arrive together; they were queued while you were busy.
 - Read every message in a delivery before acting on any. Later messages may refine or cancel earlier ones; when they conflict, follow the latest and say so.
 - Messages were written before your last turn's results: if one is already answered by what you did, say so rather than redoing it.
 - Answer the page only through casebook tools, never only in your own session: settle EVERY message with casebook_reply (answered, declined or failed, with your reply text). Use state "working" on long work.
@@ -47,7 +47,7 @@ type Identity struct {
 func FromEnv() Identity {
 	c := harness.FromEnv()
 	id := Identity{Session: c.SessionID, CWD: c.CWD, Harness: "pi"}
-	if c.SessionID != "" && c.SessionID == c.ClaudeID {
+	if c.IsClaude() {
 		id.Harness = "claude"
 	}
 	if id.CWD == "" {
@@ -72,6 +72,14 @@ type Channel struct {
 	// uses it so tool calls end with the channel. Nil before Run has started
 	// (not expected in practice): fall back to Background.
 	runCtx context.Context
+	// Push is where the wake loop sends each event: Server for `casebook
+	// channel`, a JSON line on stdout for `casebook watch`. One loop, two
+	// outputs.
+	Push channelmcp.Pusher
+	// ServeOnly is `casebook channel` under Claude Code: the plugin's mod runs
+	// `casebook watch`, which takes the deliveries, so this process serves
+	// the tools and never waits. Two takers would split a session's messages.
+	ServeOnly bool
 }
 
 // New builds a channel for id.
@@ -87,10 +95,20 @@ func New(id Identity, c *Client, version string) *Channel {
 			return ch.Call(ctx, name, args)
 		},
 	})
+	ch.Push = ch.Server
 	return ch
 }
 
-// Run serves MCP on r/w and, when the session is known, the wake loop.
+// ForSession is the channel `casebook channel` runs: this session, and
+// serve-only when the session is Claude Code's (see ServeOnly).
+func ForSession(c *Client, version string) *Channel {
+	ch := New(FromEnv(), c, version)
+	ch.ServeOnly = harness.FromEnv().IsClaude()
+	return ch
+}
+
+// Run serves MCP on r/w and, when the session is known and the channel is
+// not serve-only, the wake loop.
 func (ch *Channel) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -98,10 +116,21 @@ func (ch *Channel) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 	// cancels it on SIGINT/SIGTERM, which is how a harness stops the channel.
 	// Set before Server.Run starts reading, so the Call closure never races it.
 	ch.runCtx = ctx
-	if ch.ID.Session != "" {
+	if ch.ServeOnly {
+		_, _ = fmt.Fprintln(ch.Log, "casebook channel: Claude Code session: serving tools only; the casebook plugin's `casebook watch` delivers the user's messages")
+	} else if ch.ID.Session != "" {
 		go ch.loop(ctx)
 	}
 	return ch.Server.Run(r, w)
+}
+
+// Watch is `casebook watch`: the wake loop alone, until ctx ends.
+func (ch *Channel) Watch(ctx context.Context) error {
+	if ch.ID.Session == "" {
+		return errors.New("no session id (not under Claude Code or pi); the user's messages will not reach this session")
+	}
+	ch.loop(ctx)
+	return nil
 }
 
 // presence announces the session. pid is the HARNESS process's (the
@@ -194,7 +223,7 @@ func (ch *Channel) loop(ctx context.Context) {
 			if !seen.IsZero() {
 				if v, ok := ch.interrupted(ctx, c, adv.StartedAt); ok {
 					if text := restarted(v); text != "" {
-						if err := ch.Server.Notify(text, map[string]string{"source": "casebook", "event": "restarted"}); err != nil {
+						if err := ch.Push.Notify(text, map[string]string{"source": "casebook", "event": "restarted"}); err != nil {
 							_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
 						}
 					}
@@ -231,7 +260,7 @@ func (ch *Channel) loop(ctx context.Context) {
 				ids = append(ids, strconv.FormatInt(m.ID, 10))
 			}
 			meta := map[string]string{"source": "casebook", "delivery": strconv.FormatInt(got.Delivery.ID, 10), "messages": strings.Join(ids, ",")}
-			if err := ch.Server.Notify(got.Text, meta); err != nil {
+			if err := ch.Push.Notify(got.Text, meta); err != nil {
 				_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
 			}
 		default:

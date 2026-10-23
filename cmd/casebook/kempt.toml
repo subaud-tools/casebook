@@ -30,13 +30,19 @@ only = { os = "darwin" }
   file = "~/.claude/settings.json"
   merge = { hooks = { SessionStart = [ { matcher = "startup|resume", hooks = [ { type = "command", command = "~/.local/bin/casebook brief" } ] } ] } }
 
-  # Claude Code: the casebook channel (page messages arrive as channel events;
-  # casebook's tools) and the Stop hook that tells casebook serve the turn ended,
-  # so queued page messages go out. Launch Claude with the channel enabled to
-  # receive events (like galley's `server:galley`).
+  # Claude Code: the casebook plugin from casebook's own marketplace, and the
+  # Stop hook that tells casebook serve the turn ended, so queued page messages
+  # go out. The next plain `claude` session installs the plugin at user scope.
+  # Its .mcp.json runs `casebook channel` for the tools and its mod runs
+  # `casebook watch`, which turns each delivery of page messages into a turn.
+  [[packages.casebook.json-merge]]
+  file = "~/.claude/settings.json"
+  merge = { extraKnownMarketplaces = { casebook = { source = { source = "github", repo = "subaud-tools/casebook" } } }, enabledPlugins = { "casebook@casebook" = true } }
+
+  # The bare server the plugin replaces, or the channel would start twice.
   [[packages.casebook.json-merge]]
   file = "~/.claude.json"
-  merge = { mcpServers = { casebook = { type = "stdio", command = "casebook", args = ["channel"], env = {} } } }
+  remove = ["mcpServers.casebook"]
 
   [[packages.casebook.json-merge]]
   file = "~/.claude/settings.json"

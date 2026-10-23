@@ -1,0 +1,19 @@
+{
+  "name": "casebook",
+  "displayName": "casebook",
+  "description": "Decide the fate of every repo, pull request, issue, branch and worktree; the user's messages from casebook's page land in the session.",
+  "author": {
+    "name": "Court Schuett",
+    "url": "https://casebook.tools"
+  },
+  "homepage": "https://casebook.tools",
+  "repository": "https://github.com/subaud-tools/casebook",
+  "license": "MIT",
+  "keywords": [
+    "github",
+    "triage",
+    "branches",
+    "worktrees"
+  ],
+  "mcpServers": "./.mcp.json"
+}
