@@ -340,6 +340,20 @@ func TestShownInTranscriptArrayContent(t *testing.T) {
 	}
 }
 
+// A delivery the Claude Code plugin's mod submitted is a turn whose first
+// line is the event header, not a <channel> tag. It counts as shown, or the
+// delivery would stay in flight until the agent replied to every message.
+func TestShownInTranscriptModTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	line := `{"type":"user","message":{"role":"user","content":"casebook event delivery=12 messages=34,35 source=casebook\nplease look at pr:schuettc/hail#3"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ids := shownInTranscript(context.Background(), path); len(ids) != 1 || ids[0] != 12 {
+		t.Fatalf("want [12] from the mod's turn, got %v", ids)
+	}
+}
+
 // TestSettledNoServeShownFlag verifies that --shown works silently even when
 // there is no serve running (no serve → silent exit 0).
 func TestSettledNoServeShownFlag(t *testing.T) {
