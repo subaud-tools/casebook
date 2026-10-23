@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+- In a pi session on the claude-bridge, events arrive once instead of twice: the Claude Code plugin's mod stays quiet there.
+
 ## 0.20.0
 
 ### Added
