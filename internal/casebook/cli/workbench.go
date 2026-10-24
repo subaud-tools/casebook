@@ -406,8 +406,9 @@ func deliveryList(seen map[int64]bool) []int64 {
 
 func watchFlags() *flag.FlagSet {
 	return flags("watch", "casebook watch",
-		"Registers the session with casebook serve and prints each delivery of the user's messages as one JSON line {\"content\": ..., \"meta\": {...}} on stdout. "+
-			"The casebook plugin's mod runs it for a Claude Code session and starts a turn with each line. Logs go to stderr. Runs until signalled.", nil)()
+		"Registers the session with casebook serve and prints each delivery of the user's messages as one JSON line {\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. "+
+			"The casebook plugin's mod runs it for a Claude Code session and starts a turn with each line's text. Logs go to stderr. Runs until signalled. "+
+			"In a session pi's claude-bridge runs, it prints {\"stop\": ...} and exits 0.", nil)()
 }
 
 // runWatch is `casebook watch`: the channel's wake loop, printing each
@@ -421,11 +422,22 @@ func runWatch(args []string, out, errw io.Writer) error {
 	if len(pos) > 0 {
 		return tools.UsageError{Msg: "watch takes no arguments"}
 	}
-	ch := channel.New(channel.FromEnv(), channel.NewClient(), version.Number())
-	ch.Log = errw
-	ch.Push = channelmcp.NewLines(out)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	return watch(ctx, out, errw)
+}
+
+// watch is runWatch after its flags, until ctx ends, so a test can stop it.
+func watch(ctx context.Context, out, errw io.Writer) error {
+	// In a bridge child this prints the stop line and the mod never restarts
+	// watch: the hosting pi session's channel delivers the user's messages.
+	lines, run, err := channelmcp.StartWatch(out, "casebook")
+	if !run || err != nil {
+		return err
+	}
+	ch := channel.New(channel.FromEnv(), channel.NewClient(), version.Number())
+	ch.Log = errw
+	ch.Push = lines
 	return ch.Watch(ctx)
 }
 

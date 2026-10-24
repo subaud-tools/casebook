@@ -69,7 +69,7 @@ func TestWatchPrintsAMessageAsOneLine(t *testing.T) {
 	pr, pw := io.Pipe()
 	watch := New(id, NewClient(), "test")
 	watch.Retry, watch.Poll = 100*time.Millisecond, 2*time.Second
-	watch.Push = channelmcp.NewLines(pw)
+	watch.Push = channelmcp.NewLinesFor(pw, "casebook")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = watch.Watch(ctx); close(done) }()

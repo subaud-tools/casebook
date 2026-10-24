@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.20.2
+
+### Changed
+- The Claude Code plugin's mod is now a thin shim: `casebook watch` decides what each event says and whether a session hears it, so later fixes arrive with the binary.
+
 ## 0.20.1
 
 ### Fixed

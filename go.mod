@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/subaud-tools/tools-common v0.17.0
+	github.com/subaud-tools/tools-common v0.18.0
 	github.com/subaud-tools/tools-common/sqlitedb v0.2.0
 )
 
