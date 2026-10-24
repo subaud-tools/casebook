@@ -37,7 +37,7 @@ only = { os = "darwin" }
   # `casebook watch`, which turns each delivery of page messages into a turn.
   [[packages.casebook.json-merge]]
   file = "~/.claude/settings.json"
-  merge = { extraKnownMarketplaces = { casebook = { source = { source = "github", repo = "subaud-tools/casebook" } } }, enabledPlugins = { "casebook@casebook" = true } }
+  merge = { extraKnownMarketplaces = { casebook = { source = { source = "github", repo = "subaud-tools/casebook" }, autoUpdate = true } }, enabledPlugins = { "casebook@casebook" = true } }
 
   # The bare server the plugin replaces, or the channel would start twice.
   [[packages.casebook.json-merge]]
