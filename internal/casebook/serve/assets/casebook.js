@@ -8637,7 +8637,7 @@ function latestInOrder(send) {
 }
 
 // dock.ts
-import { h as h17, card as card6 } from "/_kit/kit.js";
+import { h as h17, card as card6, messagePill } from "/_kit/kit.js";
 
 // time-utils.ts
 function ageMs(ts) {
@@ -8674,6 +8674,39 @@ function dockOpen(hasMessages, focused, manual) {
   if (focused) return true;
   if (manual !== null) return manual;
   return hasMessages;
+}
+function pillState(state) {
+  switch (state) {
+    case "sent":
+    case "with_agent":
+    case "working":
+    case "answered":
+    case "declined":
+    case "failed":
+    case "no_reply":
+      return state;
+    default:
+      return null;
+  }
+}
+var MID_TURN = "the agent is mid-turn; it reads this when the turn ends";
+var NO_SESSION = "no session has it";
+function messageLine(msg, here, inflight) {
+  switch (msg.state) {
+    case "working":
+      return msg.line ?? "";
+    case "sent":
+      if (!here) return NO_SESSION;
+      if (!inflight) return "";
+      if (msg.delivery_id === inflight.id) return inflight.held ? MID_TURN : "";
+      return msg.delivery_id ? "" : MID_TURN;
+    case "answered": {
+      const n = msg.attached?.keys?.length ?? 0;
+      return n > 0 ? pluralize(n, "item") : "";
+    }
+    default:
+      return "";
+  }
 }
 
 // composer.ts
@@ -9340,28 +9373,6 @@ function storedShown() {
     return null;
   }
 }
-function stateColor(state) {
-  switch (state) {
-    case "sent":
-      return "var(--kit-wait)";
-    case "working":
-      return "var(--kit-agent)";
-    case "answered":
-      return "var(--kit-ok)";
-    case "failed":
-      return "var(--kit-danger)";
-    default:
-      return "var(--kit-muted)";
-  }
-}
-function stateLabel(msg) {
-  const base = msg.state;
-  if (base === "answered") {
-    const n = msg.attached?.keys?.length ?? 0;
-    if (n > 0) return `${base} · ${pluralize(n, "item")}`;
-  }
-  return base;
-}
 function sessionItem(s, extra = "") {
   const el2 = h17(
     "button",
@@ -9451,7 +9462,7 @@ function renderAgentBody(msg) {
   }
   return wrap;
 }
-function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
+function renderMsgCard(msg, delivery, sessions, here, ctx, agentName) {
   if (msg.state === "worked") return workedFold(msg);
   const isAgent = msg.author !== "court";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
@@ -9479,24 +9490,13 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     bodyContent = bodyEl;
   }
   let stateEl = null;
-  if (!isAgent && msg.state) {
-    const validStates = [
-      "sent",
-      "with_agent",
-      "working",
-      "answered",
-      "declined",
-      "failed",
-      "no_reply"
-    ];
-    if (validStates.includes(msg.state)) {
-      stateEl = h17("div", {
-        class: "cb-dock-state",
-        "data-state": msg.state,
-        style: `color:${stateColor(msg.state)}`
-      });
-      stateEl.textContent = stateLabel(msg);
-    }
+  const pill = isAgent ? null : pillState(msg.state);
+  if (pill) {
+    stateEl = h17(
+      "div",
+      { class: "cb-dock-state", "data-state": pill },
+      messagePill(pill, messageLine(msg, here, delivery))
+    );
   }
   const fullBody = h17(
     "div",
@@ -9510,11 +9510,12 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
     if (stateEl) {
       const ageText2 = fmtAge(delivery.touched_at);
       const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
+      const where = msg.state === "sent" ? "sent" : "with the agent";
       stateEl.textContent = "";
       stateEl.setAttribute("data-state", "stuck");
       const stuckBold = h17("strong", { style: "font-weight:600" });
       stuckBold.textContent = "stuck";
-      stateEl.append(`delivered ${ageStr} · `, stuckBold);
+      stateEl.append(`${where} ${ageStr} · `, stuckBold);
     }
     const d = delivery;
     const releaseBtn = h17("button", {
@@ -9939,8 +9940,11 @@ function makeDock(ctx) {
       cards.push(h17("p", { class: "cb-dock-empty" }, "no messages"));
     }
     const name = agentName();
+    const here = attachedState(currentSessionId, sessions) === "here";
     for (const msg of messages) {
-      cards.push(renderMsgCard(msg, currentDelivery, sessions, ctx, name));
+      cards.push(
+        renderMsgCard(msg, currentDelivery, sessions, here, ctx, name)
+      );
     }
     batchTray.el.before(...cards);
     messageArea.scrollTop = messageArea.scrollHeight;

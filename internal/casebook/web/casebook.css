@@ -1084,7 +1084,7 @@
   line-height: 1.55;
 }
 
-/* Delivery state footer (mono, coloured by state) */
+/* A message's state footer: the kit's pill, or the stuck line (mono) */
 .cb-dock-state {
   font: 11.5px var(--kit-mono);
   margin-top: 4px;
