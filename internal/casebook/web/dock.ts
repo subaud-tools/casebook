@@ -283,20 +283,21 @@ function renderMsgCard(
     !isAgent && delivery?.stuck === true && msg.delivery_id === delivery.id;
 
   if (isStuckDelivery && delivery) {
-    // Show the stuck state in the footer, muted, in place of the pill.
+    // The pill and its line stay; the stuck text sits beside the buttons.
     // Text: "with the agent <age> ago · <strong>stuck</strong>" (or "sent",
     //   while it never landed), "… just now · …" when age < 1 minute.
     // (fmtAge returns 'now' for < 60 s; we map that to 'just now' for readability.)
-    if (stateEl) {
-      const ageText = fmtAge(delivery.touched_at);
-      const ageStr = ageText === 'now' ? 'just now' : `${ageText} ago`;
-      const where = msg.state === 'sent' ? 'sent' : 'with the agent';
-      stateEl.textContent = '';
-      stateEl.setAttribute('data-state', 'stuck');
-      const stuckBold = h('strong', { style: 'font-weight:600' });
-      stuckBold.textContent = 'stuck';
-      stateEl.append(`${where} ${ageStr} \u00b7 `, stuckBold);
-    }
+    const ageText = fmtAge(delivery.touched_at);
+    const ageStr = ageText === 'now' ? 'just now' : `${ageText} ago`;
+    const where = msg.state === 'sent' ? 'sent' : 'with the agent';
+    const stuckText = h('span', {
+      class: 'cb-dock-state',
+      'data-state': 'stuck',
+      style: 'align-self:center;margin-top:0',
+    });
+    const stuckBold = h('strong', { style: 'font-weight:600' });
+    stuckBold.textContent = 'stuck';
+    stuckText.append(`${where} ${ageStr} \u00b7 `, stuckBold);
 
     const d = delivery;
     // Use kit-btn (neutral outlined) — the same class as the DECIDE buttons —
@@ -322,7 +323,9 @@ function renderMsgCard(
     });
     moveBtn.textContent = 'move to another session';
 
-    fullBody.append(h('div', { class: 'cb-dock-stuck' }, releaseBtn, moveBtn));
+    fullBody.append(
+      h('div', { class: 'cb-dock-stuck' }, stuckText, releaseBtn, moveBtn),
+    );
   }
 
   const el = card({

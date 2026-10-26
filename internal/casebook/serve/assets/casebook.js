@@ -9507,16 +9507,17 @@ function renderMsgCard(msg, delivery, sessions, here, ctx, agentName) {
   if (stateEl) fullBody.append(stateEl);
   const isStuckDelivery = !isAgent && delivery?.stuck === true && msg.delivery_id === delivery.id;
   if (isStuckDelivery && delivery) {
-    if (stateEl) {
-      const ageText2 = fmtAge(delivery.touched_at);
-      const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
-      const where = msg.state === "sent" ? "sent" : "with the agent";
-      stateEl.textContent = "";
-      stateEl.setAttribute("data-state", "stuck");
-      const stuckBold = h17("strong", { style: "font-weight:600" });
-      stuckBold.textContent = "stuck";
-      stateEl.append(`${where} ${ageStr} · `, stuckBold);
-    }
+    const ageText2 = fmtAge(delivery.touched_at);
+    const ageStr = ageText2 === "now" ? "just now" : `${ageText2} ago`;
+    const where = msg.state === "sent" ? "sent" : "with the agent";
+    const stuckText = h17("span", {
+      class: "cb-dock-state",
+      "data-state": "stuck",
+      style: "align-self:center;margin-top:0"
+    });
+    const stuckBold = h17("strong", { style: "font-weight:600" });
+    stuckBold.textContent = "stuck";
+    stuckText.append(`${where} ${ageStr} · `, stuckBold);
     const d = delivery;
     const releaseBtn = h17("button", {
       class: "kit-btn",
@@ -9537,7 +9538,9 @@ function renderMsgCard(msg, delivery, sessions, here, ctx, agentName) {
       }
     });
     moveBtn.textContent = "move to another session";
-    fullBody.append(h17("div", { class: "cb-dock-stuck" }, releaseBtn, moveBtn));
+    fullBody.append(
+      h17("div", { class: "cb-dock-stuck" }, stuckText, releaseBtn, moveBtn)
+    );
   }
   const el2 = card6({
     edge: isAgent ? "agent" : "signal",

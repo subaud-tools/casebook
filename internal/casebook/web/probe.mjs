@@ -421,12 +421,95 @@ async function messagesScenario(browser) {
   }
 }
 
+// A stuck delivery: its message keeps the kit's pill and the agent's line,
+// with the stuck text and Court's release and move buttons beside them.
+async function stuckScenario(browser) {
+  console.log('\nscenario: a stuck message keeps its pill');
+  process.env.CASEBOOK_STUCK_AFTER = '1s';
+  let s;
+  try {
+    s = await startServe(E2E_SEED);
+  } finally {
+    delete process.env.CASEBOOK_STUCK_AFTER;
+  }
+  e2eServe = s;
+  const agent = createAgent(s.base, s.token);
+  const S = 'probe-stuck-pi';
+  const here = () => agent.presence(S, 'pi · stuck', '/home/court/stuck', 'pi');
+  await here();
+  const keep = setInterval(() => void here(), 1000);
+  const context = await browser.newContext({
+    viewport: { width: 1600, height: 900 },
+  });
+  try {
+    const th = await agent.api('POST', '/api/threads', {
+      session: S,
+      name: 'stuck',
+    });
+    const id = (
+      await agent.api('POST', '/api/messages', {
+        thread: th.id,
+        body: 'one that sticks',
+      })
+    ).id;
+    const d = await agent.api('GET', `/api/agent/wait?session=${S}&timeout=1`);
+    await agent.api('POST', '/api/agent/report', {
+      session: S,
+      event: 'landed',
+      token: d.report,
+    });
+    await agent.api('POST', '/api/agent/reply', {
+      session: S,
+      ids: [id],
+      state: 'working',
+      text: 'rebasing #12',
+    });
+    const pg = await context.newPage();
+    await pg.goto(`${s.url}&session=${S}#/decide`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const stuck = await until(
+      pg,
+      () => !!document.querySelector('.cb-dock-card--you .cb-dock-stuck'),
+      null,
+      8000,
+    );
+    check('the stuck delivery shows release and move', stuck);
+    const card = stuck
+      ? await pg.$eval('.cb-dock-card--you', (e) => ({
+          state: e.querySelector('.kit-pill')?.dataset.state ?? '',
+          label: e.querySelector('.kit-pill')?.textContent ?? '',
+          line: e.querySelector('.kit-msg-line')?.textContent ?? '',
+          text: e.querySelector('.cb-dock-stuck')?.textContent ?? '',
+        }))
+      : {};
+    check(
+      'the stuck message keeps its pill "working"',
+      card.state === 'working' && card.label === 'working',
+    );
+    check(
+      "the stuck message keeps the agent's line",
+      card.line === 'rebasing #12',
+    );
+    check(
+      'the stuck text sits beside the buttons',
+      /with the agent .* · stuck/.test(card.text ?? ''),
+    );
+  } finally {
+    clearInterval(keep);
+    await context.close();
+    s.stop();
+    e2eServe = null;
+  }
+}
+
 // ---- the scenario list ------------------------------------------------------
 //
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 86;
+const MIN_CHECKS = 90;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -448,6 +531,7 @@ const GROUPS = {
   e2e: async (browser) => {
     await e2eScenario(browser);
     await messagesScenario(browser);
+    await stuckScenario(browser);
   },
   apply: (browser) => applyScenarios({ browser: () => browser }, helpers),
   decide: (browser) => decideScenarios({ browser: () => browser }, helpers),
