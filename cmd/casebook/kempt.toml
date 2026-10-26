@@ -30,9 +30,8 @@ only = { os = "darwin" }
   file = "~/.claude/settings.json"
   merge = { hooks = { SessionStart = [ { matcher = "startup|resume", hooks = [ { type = "command", command = "~/.local/bin/casebook brief" } ] } ] } }
 
-  # Claude Code: the casebook plugin from casebook's own marketplace, and the
-  # Stop hook that tells casebook serve the turn ended, so queued page messages
-  # go out. The next plain `claude` session installs the plugin at user scope.
+  # Claude Code: the casebook plugin from casebook's own marketplace. The next
+  # plain `claude` session installs the plugin at user scope.
   # Its .mcp.json runs `casebook channel` for the tools and its mod runs
   # `casebook watch`, which turns each delivery of page messages into a turn.
   [[packages.casebook.json-merge]]
@@ -44,10 +43,6 @@ only = { os = "darwin" }
   file = "~/.claude.json"
   remove = ["mcpServers.casebook"]
 
-  [[packages.casebook.json-merge]]
-  file = "~/.claude/settings.json"
-  merge = { hooks = { Stop = [ { hooks = [ { type = "command", command = "~/.local/bin/casebook settled --harness claude" } ] } ] } }
-
   # pi: the same channel through channels.tools (which stamps the pi session id
   # and delivers only while the agent is settled).
   [[packages.casebook.json-merge]]
@@ -55,8 +50,7 @@ only = { os = "darwin" }
   merge = { channelServers = { casebook = { command = "casebook", args = ["channel"] } } }
 
   # pi: pi-casebook (journal git/gh bash calls with the pi session id, brief the
-  # first turn, background `casebook sync --no-github`, and — from 0.2.0 —
-  # report settled turns to casebook serve) is installed by the
+  # first turn, and background `casebook sync --no-github`) is installed by the
   # DOTFILES manifest, not here: dotfiles owns pi's settings.json `packages`
   # list (arrays = "replace"), so a package added from any other manifest is
   # dropped on the next `kempt update`. It is listed there unpinned, so kempt
