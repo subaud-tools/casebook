@@ -198,7 +198,7 @@ func TestSettledEndsTurn(t *testing.T) {
 		t.Fatalf("settled %d %v", c, out)
 	}
 	got, _ := r.s.Queue.Message(ctx, m.ID)
-	if got.State != "unanswered" {
+	if got.State != "no_reply" {
 		t.Fatalf("state %s", got.State)
 	}
 	if _, ok, _ := r.s.Props.Progress(ctx, "s1"); ok {
@@ -252,7 +252,7 @@ func TestLateReplyHTTPShape(t *testing.T) {
 	if len(out2.Settled) != 0 {
 		t.Fatalf("settled %v, want []", out2.Settled)
 	}
-	if len(out2.Skipped) != 1 || out2.Skipped[0].ID != m2.ID || out2.Skipped[0].State != "unanswered" {
+	if len(out2.Skipped) != 1 || out2.Skipped[0].ID != m2.ID || out2.Skipped[0].State != "no_reply" {
 		t.Fatalf("skipped %+v", out2.Skipped)
 	}
 }

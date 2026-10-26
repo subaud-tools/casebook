@@ -21,7 +21,7 @@ import (
 type DB = sqlitedb.DB
 
 // SchemaVersion is the schema version this binary targets.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // schemaV1 is P1a's migration-1 SQL verbatim.
 const schemaV1 = `
@@ -195,6 +195,31 @@ const schemaV4 = `
 ALTER TABLE messages ADD COLUMN purpose TEXT NOT NULL DEFAULT '';
 `
 
+// schemaV5 moves messages onto the family's lifecycle (tools-common
+// msgstate): a delivery gains its report token (the harness names it when it
+// reports the delivery held or landed) and its held mark (the agent was
+// mid-turn when it arrived), a message the agent's working line, and the
+// stored states are renamed in one update. queued and interrupted are sent
+// again; an interrupted message also leaves its ended delivery, so it goes
+// out again. delivered and received are with the agent; unanswered is no
+// reply.
+const schemaV5 = `
+ALTER TABLE deliveries ADD COLUMN token TEXT NOT NULL DEFAULT '';
+ALTER TABLE deliveries ADD COLUMN held INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE messages ADD COLUMN line TEXT NOT NULL DEFAULT '';
+UPDATE messages SET
+  delivery_id = CASE WHEN state = 'interrupted' THEN NULL ELSE delivery_id END,
+  settled_at = CASE WHEN state = 'interrupted' THEN 0 ELSE settled_at END,
+  state = CASE state
+    WHEN 'queued' THEN 'sent'
+    WHEN 'interrupted' THEN 'sent'
+    WHEN 'delivered' THEN 'with_agent'
+    WHEN 'received' THEN 'with_agent'
+    WHEN 'unanswered' THEN 'no_reply'
+  END
+WHERE state IN ('queued', 'interrupted', 'delivered', 'received', 'unanswered');
+`
+
 // Migrations is the ordered list of schema steps for this binary.
 // Migrations[i] moves the database from user_version i to i+1.
 var Migrations = []sqlitedb.Step{
@@ -202,6 +227,7 @@ var Migrations = []sqlitedb.Step{
 	sqlitedb.SQL(schemaV2),
 	sqlitedb.SQL(schemaV3),
 	sqlitedb.SQL(schemaV4),
+	sqlitedb.SQL(schemaV5),
 }
 
 // Open opens (creating if needed) the database at path and migrates it to

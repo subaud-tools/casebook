@@ -3,7 +3,8 @@
 // Written by internal/casebook/serve/wire_test.go from the json tags of every
 // view struct returned by the casebook page API and agent API. Adding a struct
 // to wireRoots is how a new endpoint's payload becomes a type the browser
-// cannot silently disagree with.
+// cannot silently disagree with. A named string type with a Values() method
+// is an enum and is declared as a union of those values.
 //
 // Regenerate with `go test ./internal/casebook/serve/ -run TestTheWireTypeIsCommitted -update` and commit.
 // Drift fails `just verify` (Go-only, always run in CI and the pre-push hook).
@@ -124,6 +125,7 @@ export interface ResendResult {
 export interface WaitView {
   delivery: Delivery | null;
   text: string;
+  report: string;
 }
 
 export interface ReplyResult {
@@ -167,6 +169,11 @@ export interface OpenResult {
 export interface SettledResult {
   session: string;
   worked_ms: number;
+  delivery?: number;
+}
+
+export interface ReportResult {
+  moved: number[] | null;
   delivery?: number;
 }
 
@@ -488,6 +495,7 @@ export interface Delivery {
   finished_at?: string;
   shown_at?: string;
   stuck: boolean;
+  held: boolean;
   messages: Message[] | null;
 }
 
@@ -509,7 +517,8 @@ export interface MessageView {
   delivery_id?: number;
   reply_to?: number;
   purpose?: string;
-  state: string;
+  state: ThreadState;
+  line?: string;
   created_at: string;
   queued_at?: string;
   settled_at?: string;
@@ -527,7 +536,8 @@ export interface Message {
   delivery_id?: number;
   reply_to?: number;
   purpose?: string;
-  state: string;
+  state: ThreadState;
+  line?: string;
   created_at: string;
   queued_at?: string;
   settled_at?: string;
@@ -535,7 +545,7 @@ export interface Message {
 
 export interface SkippedMessage {
   id: number;
-  state: string;
+  state: ThreadState;
   reason: string;
 }
 
@@ -768,6 +778,18 @@ export interface Attached {
   job?: string;
   list?: AttachedList;
 }
+
+export type ThreadState =
+  | 'draft'
+  | 'sent'
+  | 'with_agent'
+  | 'working'
+  | 'answered'
+  | 'declined'
+  | 'failed'
+  | 'no_reply'
+  | 'reply'
+  | 'worked';
 
 export interface WorkedView {
   duration_ms: number;

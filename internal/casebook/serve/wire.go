@@ -322,6 +322,10 @@ type ResendResult struct {
 type WaitView struct {
 	Delivery *deliver.Delivery `json:"delivery"`
 	Text     string            `json:"text"`
+	// Report is the delivery's report token: the channel sets it as the
+	// event's channelmcp.MetaReport, and the harness names it when it
+	// reports the delivery held or landed.
+	Report string `json:"report"`
 }
 
 // ReplyResult is the response body of POST /api/agent/reply.
@@ -359,6 +363,13 @@ type OpenResult struct {
 	Opened string `json:"opened"`
 	// Session is the session the page opened attached to ("" for none).
 	Session string `json:"session,omitempty"`
+}
+
+// ReportResult is the response body of POST /api/agent/report: the ids of
+// the messages the report moved, and the delivery a turn_ended ended.
+type ReportResult struct {
+	Moved    []int64 `json:"moved"`
+	Delivery *int64  `json:"delivery,omitempty"`
 }
 
 // SettledResult is the response body of POST /api/agent/settled.

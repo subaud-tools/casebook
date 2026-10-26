@@ -308,12 +308,208 @@ async function e2eScenario(browser) {
   }
 }
 
+// ---- each message's state ---------------------------------------------------
+//
+// A thread holding one of Court's messages in each of msgstate's states,
+// reached through the agent API as a session reaches them (the harness's
+// reports and the agent's replies): the dock shows each in the kit's pill
+// with msgstate's label, and the line under it.
+const LABELS = {
+  sent: 'sent',
+  with_agent: 'with the agent',
+  working: 'working',
+  answered: 'answered',
+  declined: 'declined',
+  failed: 'failed',
+  no_reply: 'no reply',
+};
+
+async function messagesScenario(browser) {
+  console.log("\nscenario: each message's state in the dock");
+  const s = await startServe(E2E_SEED);
+  e2eServe = s;
+  const agent = createAgent(s.base, s.token);
+  const S = 'probe-msg-pi';
+  const here = () => agent.presence(S, 'pi · msgs', '/home/court/msgs', 'pi');
+  await here();
+  const keep = setInterval(() => void here(), 1000);
+  const context = await browser.newContext({
+    viewport: { width: 1600, height: 900 },
+  });
+  try {
+    const th = await agent.api('POST', '/api/threads', {
+      session: S,
+      name: 'states',
+    });
+    const send = async (body) =>
+      (await agent.api('POST', '/api/messages', { thread: th.id, body })).id;
+    const take = () =>
+      agent.api('GET', `/api/agent/wait?session=${S}&timeout=1`);
+    const report = (event, token) =>
+      agent.api('POST', '/api/agent/report', { session: S, event, token });
+    const reply = (id, state, text) =>
+      agent.api('POST', '/api/agent/reply', {
+        session: S,
+        ids: [id],
+        state,
+        text,
+      });
+    // A turn that ends with the message unsettled: no reply.
+    const ids = { no_reply: await send('left with no reply') };
+    await report('landed', (await take()).report);
+    await report('turn_ended', '');
+    // The next delivery lands; the agent answers some and works on one.
+    for (const st of [
+      'with_agent',
+      'working',
+      'answered',
+      'declined',
+      'failed',
+    ])
+      ids[st] = await send(`one ${st}`);
+    await report('landed', (await take()).report);
+    await reply(ids.working, 'working', 'checking CI on #671');
+    await reply(ids.answered, 'answered', 'done');
+    await reply(ids.declined, 'declined', "won't: Court's call");
+    await reply(ids.failed, 'failed', "couldn't: gh is logged out");
+    // Sent mid-turn: it waits behind the delivery in flight.
+    ids.sent = await send('sent while the agent works');
+
+    const pg = await context.newPage();
+    await pg.goto(`${s.url}&session=${S}#/decide`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const seen = await until(
+      pg,
+      (n) =>
+        document.querySelectorAll('.cb-dock-card--you .kit-pill[data-state]')
+          .length === n,
+      Object.keys(LABELS).length,
+      8000,
+    );
+    const pills = seen
+      ? await pg.$$eval('.cb-dock-card--you .cb-dock-state', (els) =>
+          els.map((e) => ({
+            state: e.querySelector('.kit-pill')?.dataset.state ?? '',
+            label: e.querySelector('.kit-pill')?.textContent ?? '',
+            line: e.querySelector('.kit-msg-line')?.textContent ?? '',
+          })),
+        )
+      : [];
+    for (const [state, label] of Object.entries(LABELS)) {
+      const p = pills.find((x) => x.state === state);
+      check(
+        `the ${state} message shows the kit's pill "${label}"`,
+        p?.label === label,
+      );
+    }
+    check(
+      "the working message shows the agent's line under its pill",
+      pills.find((x) => x.state === 'working')?.line === 'checking CI on #671',
+    );
+    check(
+      'the message sent mid-turn says the agent reads it when the turn ends',
+      pills.find((x) => x.state === 'sent')?.line ===
+        'the agent is mid-turn; it reads this when the turn ends',
+    );
+  } finally {
+    clearInterval(keep);
+    await context.close();
+    s.stop();
+    e2eServe = null;
+  }
+}
+
+// A stuck delivery: its message keeps the kit's pill and the agent's line,
+// with the stuck text and Court's release and move buttons beside them.
+async function stuckScenario(browser) {
+  console.log('\nscenario: a stuck message keeps its pill');
+  process.env.CASEBOOK_STUCK_AFTER = '1s';
+  let s;
+  try {
+    s = await startServe(E2E_SEED);
+  } finally {
+    delete process.env.CASEBOOK_STUCK_AFTER;
+  }
+  e2eServe = s;
+  const agent = createAgent(s.base, s.token);
+  const S = 'probe-stuck-pi';
+  const here = () => agent.presence(S, 'pi · stuck', '/home/court/stuck', 'pi');
+  await here();
+  const keep = setInterval(() => void here(), 1000);
+  const context = await browser.newContext({
+    viewport: { width: 1600, height: 900 },
+  });
+  try {
+    const th = await agent.api('POST', '/api/threads', {
+      session: S,
+      name: 'stuck',
+    });
+    const id = (
+      await agent.api('POST', '/api/messages', {
+        thread: th.id,
+        body: 'one that sticks',
+      })
+    ).id;
+    const d = await agent.api('GET', `/api/agent/wait?session=${S}&timeout=1`);
+    await agent.api('POST', '/api/agent/report', {
+      session: S,
+      event: 'landed',
+      token: d.report,
+    });
+    await agent.api('POST', '/api/agent/reply', {
+      session: S,
+      ids: [id],
+      state: 'working',
+      text: 'rebasing #12',
+    });
+    const pg = await context.newPage();
+    await pg.goto(`${s.url}&session=${S}#/decide`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const stuck = await until(
+      pg,
+      () => !!document.querySelector('.cb-dock-card--you .cb-dock-stuck'),
+      null,
+      8000,
+    );
+    check('the stuck delivery shows release and move', stuck);
+    const card = stuck
+      ? await pg.$eval('.cb-dock-card--you', (e) => ({
+          state: e.querySelector('.kit-pill')?.dataset.state ?? '',
+          label: e.querySelector('.kit-pill')?.textContent ?? '',
+          line: e.querySelector('.kit-msg-line')?.textContent ?? '',
+          text: e.querySelector('.cb-dock-stuck')?.textContent ?? '',
+        }))
+      : {};
+    check(
+      'the stuck message keeps its pill "working"',
+      card.state === 'working' && card.label === 'working',
+    );
+    check(
+      "the stuck message keeps the agent's line",
+      card.line === 'rebasing #12',
+    );
+    check(
+      'the stuck text sits beside the buttons',
+      /with the agent .* · stuck/.test(card.text ?? ''),
+    );
+  } finally {
+    clearInterval(keep);
+    await context.close();
+    s.stop();
+    e2eServe = null;
+  }
+}
+
 // ---- the scenario list ------------------------------------------------------
 //
 // run() below is the scenario list. A full run (no PROBE_ONLY) must pass at
 // least MIN_CHECKS checks: a scenario that stops early, or is skipped, can't
 // leave the probe green. Raise it whenever checks are added.
-const MIN_CHECKS = 77;
+const MIN_CHECKS = 90;
 
 // PROBE_ONLY runs one group of scenarios, for working on them: a partial
 // run. It has to say so: under CI (the CI env var) it is refused outright,
@@ -332,7 +528,11 @@ const walkLeaks = [];
 const pageErrors = [];
 const groupsRan = new Set();
 const GROUPS = {
-  e2e: (browser) => e2eScenario(browser),
+  e2e: async (browser) => {
+    await e2eScenario(browser);
+    await messagesScenario(browser);
+    await stuckScenario(browser);
+  },
   apply: (browser) => applyScenarios({ browser: () => browser }, helpers),
   decide: (browser) => decideScenarios({ browser: () => browser }, helpers),
   walkthrough: (browser) =>

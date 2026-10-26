@@ -104,7 +104,7 @@ func TestServeRestartTellsOnlyTheInterruptedSession(t *testing.T) {
 	mA, mB := start(t, chA), start(t, chB)
 
 	// Both sessions are present; Court sends A a message, which goes out
-	// (A's delivery is in flight: A never settles it).
+	// (A's delivery is in flight: A does not settle it before the restart).
 	c := NewClient()
 	ctx := context.Background()
 	deadline := time.Now().Add(5 * time.Second)
@@ -144,7 +144,7 @@ func TestServeRestartTellsOnlyTheInterruptedSession(t *testing.T) {
 	if params["meta"].(map[string]any)["event"] != "restarted" || !strings.Contains(content, "casebook serve restarted") {
 		t.Fatalf("A's restart event %v", params)
 	}
-	if !strings.Contains(content, "1 message") || !strings.Contains(content, "interrupted") {
+	if !strings.Contains(content, "1 message") || !strings.Contains(content, "comes again in the next delivery") {
 		t.Fatalf("A's notice doesn't say what was interrupted: %q", content)
 	}
 	if strings.Contains(content, "tab") {
@@ -153,10 +153,18 @@ func TestServeRestartTellsOnlyTheInterruptedSession(t *testing.T) {
 	findB.reached(t, adv2.StartedAt)
 	findA.reached(t, adv2.StartedAt)
 	noRestartEvent(t, "B (restart 1)", mB, 500*time.Millisecond)
+	// A's message is sent again, so it comes again in the next delivery,
+	// where A settles it.
+	if ev := mA.next(10 * time.Second); !strings.Contains(ev["params"].(map[string]any)["content"].(string), "look at pr:schuettc/hail#3") {
+		t.Fatalf("A's message did not come again: %v", ev)
+	}
+	if _, err := c.Do(ctx, http.MethodPost, "/api/agent/reply", map[string]any{"session": "a", "ids": []int64{msg.ID}, "state": "answered"}, nil); err != nil {
+		t.Fatal(err)
+	}
 	noRestartEvent(t, "A (a second notice for restart 1)", mA, 200*time.Millisecond)
 
-	// Restart 2: nothing in flight anywhere (A's delivery is already
-	// interrupted, not in flight): no one is told.
+	// Restart 2: nothing in flight anywhere (A settled its delivery): no
+	// one is told.
 	second.stop()
 	time.Sleep(10 * time.Millisecond)
 	_, adv3 := startServeAt(t, r)
@@ -278,7 +286,7 @@ func TestRestartNoticeNamesTheInterruptedMessagesNotTheTab(t *testing.T) {
 	if params["meta"].(map[string]any)["event"] != "restarted" {
 		t.Fatalf("event %v", params)
 	}
-	for _, want := range []string{"casebook serve restarted", "2 messages", "7, 8", "interrupted", "nothing was lost"} {
+	for _, want := range []string{"casebook serve restarted", "2 messages", "7, 8", "come again in the next delivery", "settle them there", "nothing was lost"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("notice lacks %q: %q", want, content)
 		}

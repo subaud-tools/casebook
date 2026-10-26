@@ -6,6 +6,18 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.21.0
+
+### Added
+- Each message in the dock shows the family's state pill: sent, with the agent, working (with the agent's line under it), answered, declined, failed or no reply. A message sent while the agent is mid-turn says so until its turn ends. A stuck delivery keeps the pill, with the stuck time and its buttons beside it.
+- `casebook_reply` takes working: the line under the message changes and nothing is added to the thread. The agent's instructions say to mark a slow message working first.
+- `casebook report`, run by the Claude Code plugin, and the channel's reports under pi (channels.tools 0.3.0) say when a message reaches the agent and when its turn ends.
+- The built-in `casebook login` and `logout` (tools-common v0.26.0).
+
+### Changed
+- Message states are the family's shared ones (tools-common v0.27.0, up from v0.18.0). The database moves to schema 5: queued and interrupted become sent, delivered and received become with the agent, unanswered becomes no reply. Apply-job steps are unchanged.
+- `casebook settled`, which the old pi-casebook and Claude Code Stop hook run, stays for this release as a bridge to the new reports, and leaves a delivery it was not told about.
+
 ## 0.20.2
 
 ### Changed

@@ -14,7 +14,7 @@ import (
 
 var ctx = context.Background()
 
-func TestFreshDatabaseMigratesToVersion4(t *testing.T) {
+func TestFreshDatabaseMigratesToVersion5(t *testing.T) {
 	d, err := Open(ctx, filepath.Join(t.TempDir(), "casebook.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,8 +27,8 @@ func TestFreshDatabaseMigratesToVersion4(t *testing.T) {
 	if v != SchemaVersion {
 		t.Fatalf("user_version %d, want %d", v, SchemaVersion)
 	}
-	if v != 4 {
-		t.Fatalf("expected version 4, got %d", v)
+	if v != 5 {
+		t.Fatalf("expected version 5, got %d", v)
 	}
 	// v3: a session has a name, a parent and an end.
 	if _, err := d.ExecContext(ctx, `INSERT INTO sessions(id, first_seen, last_seen, name, parent, ended_at) VALUES ('s', 1, 1, 'tools-workspace/casebook', 'p', 2)`); err != nil {
@@ -38,7 +38,7 @@ func TestFreshDatabaseMigratesToVersion4(t *testing.T) {
 	if _, err := d.ExecContext(ctx, `INSERT INTO threads(session_id, name, created_at) VALUES ('s', 't', 1)`); err != nil {
 		t.Fatalf("thread: %v", err)
 	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO messages(thread_id, author, body, state, created_at, purpose) VALUES (1, 'court', 'b', 'queued', 1, 'look-into')`); err != nil {
+	if _, err := d.ExecContext(ctx, `INSERT INTO messages(thread_id, author, body, state, created_at, purpose) VALUES (1, 'court', 'b', 'sent', 1, 'look-into')`); err != nil {
 		t.Fatalf("messages.purpose: %v", err)
 	}
 	// jobs table exists; insert a row
@@ -97,8 +97,8 @@ func TestAdoptsAP1aVersion1Database(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Fatalf("version %d, want 4", v)
+	if v != 5 {
+		t.Fatalf("version %d, want 5", v)
 	}
 	// sessions table from schemaV1 still intact
 	var n int
@@ -243,5 +243,67 @@ func TestNewerHelper(t *testing.T) {
 	}
 	if n, ok := Newer(wrapped2); !ok || n == nil {
 		t.Fatal("wrapped NewerError should match")
+	}
+}
+
+// A schema 4 database's messages take the family's states at schema 5:
+// queued and interrupted are sent again (an interrupted one leaves its ended
+// delivery, so it goes out again), delivered and received are with the
+// agent, unanswered is no reply.
+func TestSchema5RenamesTheStoredMessageStates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "casebook.db")
+	old, err := sqlitedb.Open(ctx, path, sqlitedb.Options{Migrations: Migrations[:4]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO sessions(id, first_seen, last_seen) VALUES ('s', 1, 1)`,
+		`INSERT INTO threads(session_id, name, created_at) VALUES ('s', 't', 1)`,
+		`INSERT INTO deliveries(session_id, state, sent_at, touched_at) VALUES ('s', 'interrupted', 1, 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at) VALUES (1, 'court', 'q', 'queued', 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at, delivery_id) VALUES (1, 'court', 'd', 'delivered', 1, 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at, delivery_id) VALUES (1, 'court', 'r', 'received', 1, 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at, delivery_id, settled_at) VALUES (1, 'court', 'u', 'unanswered', 1, 1, 2)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at, delivery_id, settled_at) VALUES (1, 'court', 'i', 'interrupted', 1, 1, 2)`,
+	} {
+		if _, err := old.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	_ = old.Close()
+
+	d, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
+	if v, _ := d.Version(ctx); v != 5 {
+		t.Fatalf("user_version %d, want 5", v)
+	}
+	want := map[string]string{"q": "sent/0/0", "d": "with_agent/1/0", "r": "with_agent/1/0", "u": "no_reply/1/2", "i": "sent/0/0"}
+	rows, err := d.QueryContext(ctx, `SELECT body, state, COALESCE(delivery_id, 0), settled_at FROM messages`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var body, state string
+		var did, settled int64
+		if err := rows.Scan(&body, &state, &did, &settled); err != nil {
+			t.Fatal(err)
+		}
+		if got := fmt.Sprintf("%s/%d/%d", state, did, settled); got != want[body] {
+			t.Errorf("message %q: %s, want %s", body, got, want[body])
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	// The new columns: a delivery's report token and held mark, a message's line.
+	if _, err := d.ExecContext(ctx, `UPDATE deliveries SET token = 'ab', held = 1`); err != nil {
+		t.Fatalf("deliveries.token/held: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `UPDATE messages SET line = 'reading'`); err != nil {
+		t.Fatalf("messages.line: %v", err)
 	}
 }

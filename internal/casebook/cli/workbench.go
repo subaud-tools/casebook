@@ -226,7 +226,26 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 		},
 		{Name: "channel", Group: "plumbing", Summary: "the MCP channel an agent session runs (stdio; self-routed)"},
 		{Name: "watch", Group: "plumbing", Summary: "print the user's messages as JSON lines: the Claude Code plugin's feed", NewFlags: watchFlags, Run: runWatch},
+		reportCommand(),
 	}
+}
+
+// reportCommand is `casebook report held|landed <token>` and `casebook
+// report turn-ended`, which the Claude Code plugin's mod runs.
+func reportCommand() tools.Command {
+	c := channelmcp.ReportCommand(deliverReport)
+	c.Group = "plumbing"
+	return c
+}
+
+// deliverReport is `casebook report`'s delivery: it posts the report to
+// serve through the client casebook settled uses, which finds serve and
+// never starts it. A failed post is the command's error, which the mod
+// logs; it is not retried.
+func deliverReport(session string, event channelmcp.ReportEvent, token string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return newSettledClient().Report(ctx, session, event, token)
 }
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";

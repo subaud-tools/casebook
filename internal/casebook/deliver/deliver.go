@@ -11,7 +11,9 @@ package deliver
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,23 +22,37 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/db"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
-// Message states.
+// ThreadState is what a message row's state can be: a draft (a batch not
+// sent yet, before the lifecycle), one of msgstate's states for Court's
+// messages, or one of the rows the agent and serve write.
+type ThreadState string
+
+// Message states. Court's sent messages follow tools-common's msgstate; a
+// queued message is sent with no delivery yet.
 const (
-	Draft       = "draft"       // in a batch tray, not sent
-	Queued      = "queued"      // waiting for the agent's turn to end
-	Delivered   = "delivered"   // sent to the session
-	Received    = "received"    // the agent picked it up
-	Working     = "working"     // the agent is on it
-	Answered    = "answered"    // settled
-	Declined    = "declined"    // settled
-	Failed      = "failed"      // settled
-	Unanswered  = "unanswered"  // the turn ended without a reply
-	Interrupted = "interrupted" // serve restarted mid-delivery
-	AgentReply  = "reply"       // a message written by the agent
-	Worked      = "worked"      // server-generated turn-progress summary (terminal)
+	Draft      ThreadState = "draft" // in a batch tray, not sent
+	Sent                   = ThreadState(msgstate.Sent)
+	WithAgent              = ThreadState(msgstate.WithAgent)
+	Working                = ThreadState(msgstate.Working)
+	Answered               = ThreadState(msgstate.Answered)
+	Declined               = ThreadState(msgstate.Declined)
+	Failed                 = ThreadState(msgstate.Failed)
+	NoReply                = ThreadState(msgstate.NoReply)
+	AgentReply ThreadState = "reply"  // a message written by the agent
+	Worked     ThreadState = "worked" // server-generated turn-progress summary (terminal)
 )
+
+// Values is every state a message row can hold, in order: draft, msgstate's
+// states, then the agent's and serve's rows. A wire generator calls it on
+// the zero value and emits the type as a union.
+func (ThreadState) Values() []string {
+	out := []string{string(Draft)}
+	out = append(out, msgstate.State("").Values()...)
+	return append(out, string(AgentReply), string(Worked))
+}
 
 // Delivery states.
 const (
@@ -162,8 +178,11 @@ type Message struct {
 	ReplyTo    int64    `json:"reply_to,omitempty"`
 	// Purpose is what the page posted the message for: '' for a message
 	// Court wrote, "look-into" for "Look into it" (one item or a group).
-	Purpose   string    `json:"purpose,omitempty"`
-	State     string    `json:"state"`
+	Purpose string      `json:"purpose,omitempty"`
+	State   ThreadState `json:"state"`
+	// Line is the agent's one line on what it is doing, while the message
+	// is working; "" otherwise.
+	Line      string    `json:"line,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	QueuedAt  time.Time `json:"queued_at,omitzero"`
 	SettledAt time.Time `json:"settled_at,omitzero"`
@@ -173,14 +192,13 @@ type Message struct {
 	WorkedJSON string `json:"-"`
 }
 
-// Final reports whether a message state is settled (terminal).
-func Final(state string) bool {
-	switch state {
-	case Answered, Declined, Failed, Unanswered, Interrupted, Worked:
-		return true
-	}
-	return false
-}
+// Final reports whether a message state is settled: answered, declined or
+// failed.
+func Final(state ThreadState) bool { return msgstate.Final(msgstate.State(state)) }
+
+// unsettled is the SQL list of Court's message states still open in a
+// delivery: sent, with the agent, or working.
+const unsettled = "('sent', 'with_agent', 'working')"
 
 // Delivery is a set of messages sent to a session together.
 type Delivery struct {
@@ -192,7 +210,14 @@ type Delivery struct {
 	FinishedAt time.Time `json:"finished_at,omitzero"`
 	ShownAt    time.Time `json:"shown_at,omitzero"`
 	Stuck      bool      `json:"stuck"`
-	Messages   []Message `json:"messages"`
+	// Held: the harness reported the delivery held, the agent mid-turn,
+	// and it has not landed since.
+	Held     bool      `json:"held"`
+	Messages []Message `json:"messages"`
+	// Token is the delivery's report token: the harness names it when it
+	// reports the delivery held or landed. The channel gets it as the wait's
+	// report; it is not on the page.
+	Token string `json:"-"`
 }
 
 // Queue is the delivery store over the working-state database.
@@ -342,8 +367,8 @@ const sessionCols = `s.id, s.harness, s.label, s.cwd, s.pid, s.first_seen, s.las
 		EXISTS(SELECT 1 FROM deliveries d WHERE d.session_id = s.id AND d.state = 'inflight'),
 		(s.parent != '' AND s.pid > 1 AND EXISTS(SELECT 1 FROM sessions p WHERE p.id = s.parent AND p.pid = s.pid AND p.last_seen >= ?1 AND p.ended_at = 0))`
 
-// queuedCol counts a session's queued (unsent) messages.
-const queuedCol = `COALESCE((SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id WHERE t.session_id = s.id AND m.state = 'queued'), 0)`
+// queuedCol counts a session's queued messages: sent, in no delivery yet.
+const queuedCol = `COALESCE((SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id WHERE t.session_id = s.id AND m.state = 'sent' AND m.delivery_id IS NULL), 0)`
 
 // Sessions lists every known session, most recently seen first.
 // Left is computed server-side: a session is left when its last_seen is older
@@ -393,8 +418,9 @@ func (q *Queue) MoveSession(ctx context.Context, from, to string) (threads int, 
 			}
 			// Requeue its unsettled court messages so they reach the target.
 			// queued_at is kept: the rescued messages were sent first, so they
-			// stay first in the target's delivery.
-			if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'queued', delivery_id = NULL, settled_at = 0
+			// stay first in the target's delivery. A takeover: it asks no
+			// msgstate.Allowed.
+			if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
 				WHERE delivery_id = ? AND author = 'court' AND state NOT IN ('answered', 'declined', 'failed')`, did); err != nil {
 				return err
 			}
@@ -462,13 +488,13 @@ func (q *Queue) MoveThread(ctx context.Context, thread int64, session string) er
 	return nil
 }
 
-const msgCols = "id, thread_id, author, body, attached, COALESCE(batch_id, 0), batch_pos, COALESCE(delivery_id, 0), COALESCE(reply_to, 0), purpose, state, created_at, queued_at, settled_at, worked_json"
+const msgCols = "id, thread_id, author, body, attached, COALESCE(batch_id, 0), batch_pos, COALESCE(delivery_id, 0), COALESCE(reply_to, 0), purpose, state, line, created_at, queued_at, settled_at, worked_json"
 
 func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var att string
 	var c, qd, st int64
-	if err := sc.Scan(&m.ID, &m.ThreadID, &m.Author, &m.Body, &att, &m.BatchID, &m.BatchPos, &m.DeliveryID, &m.ReplyTo, &m.Purpose, &m.State, &c, &qd, &st, &m.WorkedJSON); err != nil {
+	if err := sc.Scan(&m.ID, &m.ThreadID, &m.Author, &m.Body, &att, &m.BatchID, &m.BatchPos, &m.DeliveryID, &m.ReplyTo, &m.Purpose, &m.State, &m.Line, &c, &qd, &st, &m.WorkedJSON); err != nil {
 		return m, err
 	}
 	if att != "" {
@@ -496,13 +522,13 @@ func (q *Queue) messages(ctx context.Context, where string, args ...any) ([]Mess
 }
 
 // Underway lists Court's messages posted for purpose and not yet settled
-// (queued, delivered, received or being worked on: no draft, nothing
-// final), each with the session its thread belongs to, oldest first.
+// (sent, with the agent or being worked on: no draft, nothing final), each
+// with the session its thread belongs to, oldest first.
 func (q *Queue) Underway(ctx context.Context, purpose string) ([]UnderwayMessage, error) {
 	rows, err := q.DB.QueryContext(ctx, `SELECT m.id, m.body, m.attached, t.session_id
 		FROM messages m JOIN threads t ON t.id = m.thread_id
-		WHERE m.author = 'court' AND m.purpose = ? AND m.state IN (?, ?, ?, ?) ORDER BY m.id`,
-		purpose, Queued, Delivered, Received, Working)
+		WHERE m.author = 'court' AND m.purpose = ? AND m.state IN `+unsettled+` ORDER BY m.id`,
+		purpose)
 	if err != nil {
 		return nil, err
 	}
@@ -544,7 +570,7 @@ func (q *Queue) Message(ctx context.Context, id int64) (Message, error) {
 	return m, err
 }
 
-// Post adds Court's message to a thread: queued for delivery, or, with
+// Post adds Court's message to a thread: sent, queued for delivery, or, with
 // toBatch, appended to the thread's draft batch (created if needed).
 func (q *Queue) Post(ctx context.Context, thread int64, body string, att Attached, toBatch bool) (Message, error) {
 	return q.PostFor(ctx, thread, body, att, toBatch, "")
@@ -564,7 +590,7 @@ func (q *Queue) PostFor(ctx context.Context, thread int64, body string, att Atta
 	var id int64
 	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
 		var batch sql.NullInt64
-		pos, state, queued := 0, Queued, now
+		pos, state, queued := 0, Sent, now
 		if toBatch {
 			var bid int64
 			err := tx.QueryRowContext(ctx, "SELECT id FROM batches WHERE thread_id = ? AND state = 'draft'", thread).Scan(&bid)
@@ -677,7 +703,7 @@ func (q *Queue) SendBatch(ctx context.Context, batch int64) (int, error) {
 	now := ms(q.Now())
 	var n int64
 	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, "UPDATE messages SET state = 'queued', queued_at = ? WHERE batch_id = ? AND state = 'draft'", now, batch)
+		res, err := tx.ExecContext(ctx, "UPDATE messages SET state = 'sent', queued_at = ? WHERE batch_id = ? AND state = 'draft'", now, batch)
 		if err != nil {
 			return err
 		}
@@ -730,8 +756,8 @@ func (q *Queue) Inflight(ctx context.Context, session string) (*Delivery, error)
 func (q *Queue) Delivery(ctx context.Context, id int64) (Delivery, error) {
 	var d Delivery
 	var sent, touched, fin, shown int64
-	err := q.DB.QueryRowContext(ctx, "SELECT id, session_id, state, sent_at, touched_at, finished_at, shown_at FROM deliveries WHERE id = ?", id).
-		Scan(&d.ID, &d.SessionID, &d.State, &sent, &touched, &fin, &shown)
+	err := q.DB.QueryRowContext(ctx, "SELECT id, session_id, state, sent_at, touched_at, finished_at, shown_at, held != 0, token FROM deliveries WHERE id = ?", id).
+		Scan(&d.ID, &d.SessionID, &d.State, &sent, &touched, &fin, &shown, &d.Held, &d.Token)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrNotFound
 	}
@@ -744,11 +770,11 @@ func (q *Queue) Delivery(ctx context.Context, id int64) (Delivery, error) {
 	return d, err
 }
 
-// Pending counts a session's queued messages.
+// Pending counts a session's queued messages: sent, in no delivery yet.
 func (q *Queue) Pending(ctx context.Context, session string) (int, error) {
 	var n int
 	err := q.DB.QueryRowContext(ctx, `SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id
-		WHERE t.session_id = ? AND m.state = 'queued'`, session).Scan(&n)
+		WHERE t.session_id = ? AND m.state = 'sent' AND m.delivery_id IS NULL`, session).Scan(&n)
 	return n, err
 }
 
@@ -768,25 +794,25 @@ func (q *Queue) Next(ctx context.Context, session string) (*Delivery, error) {
 		}
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM messages m JOIN threads t ON t.id = m.thread_id
-			WHERE t.session_id = ? AND m.state = 'queued'`, session).Scan(&n); err != nil {
+			WHERE t.session_id = ? AND m.state = 'sent' AND m.delivery_id IS NULL`, session).Scan(&n); err != nil {
 			return err
 		}
 		if n == 0 {
 			return nil
 		}
-		// Commit the delivery as 'inflight' and mark its messages 'delivered'.
-		// Semantics: a delivery is marked delivered when serve hands it to the
-		// channel's long-poll, before the agent confirms receipt. If that
-		// response is lost the delivery stays in flight until the agent settles
-		// it, Court releases/moves it (stuck after StuckAfter), or serve
-		// restarts (→ interrupted state, eligible for resend).
-		res, err := tx.ExecContext(ctx, "INSERT INTO deliveries(session_id, state, sent_at, touched_at) VALUES (?, 'inflight', ?, ?)", session, now, now)
+		// Commit the delivery as 'inflight' with its messages in it. They stay
+		// sent: serve hands the delivery to the channel's long-poll, and only
+		// the harness's landed report (or the agent's reply) says it reached
+		// the agent. If that response is lost the delivery stays in flight
+		// until the agent settles it, Court releases or moves it (stuck after
+		// StuckAfter), or serve restarts (its messages are sent again).
+		res, err := tx.ExecContext(ctx, "INSERT INTO deliveries(session_id, state, sent_at, touched_at, token) VALUES (?, 'inflight', ?, ?, ?)", session, now, now, reportToken())
 		if err != nil {
 			return err
 		}
 		id, _ = res.LastInsertId()
-		if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'delivered', delivery_id = ?
-			WHERE state = 'queued' AND thread_id IN (SELECT id FROM threads WHERE session_id = ?)`, id, session); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET delivery_id = ?
+			WHERE state = 'sent' AND delivery_id IS NULL AND thread_id IN (SELECT id FROM threads WHERE session_id = ?)`, id, session); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE sessions SET looked_at = ? WHERE id = ?", now, session)
@@ -799,24 +825,176 @@ func (q *Queue) Next(ctx context.Context, session string) (*Delivery, error) {
 	return &d, err
 }
 
-// SkippedMessage reports why one id was not changed by Reply.
-type SkippedMessage struct {
-	ID     int64  `json:"id"`
-	State  string `json:"state"`
-	Reason string `json:"reason"`
+// reportToken is a delivery's report token: 16 random hex characters, which
+// the Claude Code mod passes back as an argument, so alphanumeric.
+func reportToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b) // crypto/rand.Read never fails
+	return hex.EncodeToString(b)
 }
 
-// Reply is the agent settling (or updating) messages from its deliveries.
-// state is received, working, answered, declined or failed. When text is set
-// it is added to the thread as the agent's reply to the first id. A delivery
-// ends once every message in it is settled.
+// Landed is the harness reporting that the session's delivery with token
+// landed in the agent's turn: its sent messages are with the agent, it is no
+// longer held, and it is shown. An unknown token, or another session's, does
+// nothing. It returns the ids it moved.
+func (q *Queue) Landed(ctx context.Context, session, token string) ([]int64, error) {
+	var moved []int64
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := tokenDelivery(ctx, tx, session, token)
+		if err != nil || id == 0 {
+			return err
+		}
+		moved, err = landed(ctx, tx, ms(q.Now()), id)
+		return err
+	})
+	return moved, err
+}
+
+// Held is the harness reporting that the session's delivery with token is
+// held, the agent mid-turn. It marks the delivery held while it has not
+// landed. An unknown token, or another session's, does nothing. It reports
+// whether it marked one.
+func (q *Queue) Held(ctx context.Context, session, token string) (bool, error) {
+	var marked bool
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := tokenDelivery(ctx, tx, session, token)
+		if err != nil || id == 0 {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, "UPDATE deliveries SET held = 1 WHERE id = ? AND shown_at = 0 AND held = 0", id)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		marked = n > 0
+		return nil
+	})
+	return marked, err
+}
+
+// TurnEnded is the harness reporting that the session's turn ended. The
+// session's delivery in flight ends only when it has landed: its with_agent
+// and working messages are no_reply. A delivery that has not landed stays in
+// flight for the turn it lands in. It returns the ended delivery, or nil.
+func (q *Queue) TurnEnded(ctx context.Context, session string) (*Delivery, error) {
+	var ended int64
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ended, err = turnEnded(ctx, tx, ms(q.Now()), session)
+		return err
+	})
+	if err != nil || ended == 0 {
+		return nil, err
+	}
+	d, err := q.Delivery(ctx, ended)
+	return &d, err
+}
+
+// tokenDelivery is the session's delivery in flight with token, or 0.
+func tokenDelivery(ctx context.Context, tx *sql.Tx, session, token string) (int64, error) {
+	if token == "" {
+		return 0, nil
+	}
+	var id int64
+	err := tx.QueryRowContext(ctx, "SELECT id FROM deliveries WHERE session_id = ? AND token = ? AND state = 'inflight'", session, token).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}
+
+// move moves each of Court's messages in delivery to to, when
+// msgstate.Allowed draws the move from its state; a refused move is skipped.
+// It returns the ids it moved.
+func move(ctx context.Context, tx *sql.Tx, now, delivery int64, to ThreadState) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id, state FROM messages WHERE delivery_id = ? AND author = 'court' ORDER BY id", delivery)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		var st ThreadState
+		if err := rows.Scan(&id, &st); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if msgstate.Allowed(msgstate.State(st), msgstate.State(to)) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+	settled := int64(0)
+	if to == NoReply {
+		settled = now
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", to, settled, id); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
+// landed is Landed's core on delivery id, shared with the Settled bridge.
+func landed(ctx context.Context, tx *sql.Tx, now, id int64) ([]int64, error) {
+	moved, err := move(ctx, tx, now, id, WithAgent)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE deliveries SET held = 0, touched_at = ?, shown_at = CASE WHEN shown_at = 0 THEN ? ELSE shown_at END WHERE id = ?", now, now, id)
+	return moved, err
+}
+
+// turnEnded is TurnEnded's core, shared with the Settled bridge: it returns
+// the ended delivery's id, or 0.
+func turnEnded(ctx context.Context, tx *sql.Tx, now int64, session string) (int64, error) {
+	var id, shownAt int64
+	err := tx.QueryRowContext(ctx, "SELECT id, shown_at FROM deliveries WHERE session_id = ? AND state = 'inflight'", session).Scan(&id, &shownAt)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && shownAt == 0 {
+		return 0, nil // nothing in flight, or it has not landed
+	}
+	if err != nil {
+		return 0, err
+	}
+	if _, err := move(ctx, tx, now, id, NoReply); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = ?, finished_at = ? WHERE id = ?", Done, now, id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// SkippedMessage reports why one id was not changed by Reply.
+type SkippedMessage struct {
+	ID     int64       `json:"id"`
+	State  ThreadState `json:"state"`
+	Reason string      `json:"reason"`
+}
+
+// Received is the state an old channel's casebook_reply still sends (before
+// casebook 0.21.0): it said the agent picked the message up. Reply takes it
+// as the delivery's landed report.
+const Received ThreadState = "received"
+
+// Reply is the agent acknowledging messages from its deliveries: working
+// (text is the line under the message, and no thread row), answered,
+// declined or failed (text is the agent's reply to the first id, added to
+// the thread). Each id moves when msgstate.Acknowledge draws the move; one
+// already settled, or a move it refuses, is skipped with why. A no_reply
+// message takes a late answered, declined or failed. A reply to a message
+// still sent brings its whole delivery to the agent (the delivery reached it
+// as one event): the delivery's other sent messages are with_agent and it is
+// shown. A delivery ends once every message in it is settled.
 //
-// Late replies (to unanswered or interrupted messages from this session) are
-// accepted when state is a final state (answered, declined, failed).
-// Reply settles messages and optionally posts an agent reply text. The optional
-// replyAttached argument (at most one) sets attached items on the reply message;
-// callers that omit it get the existing behaviour (no attached).
-func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, text string, replyAttached ...Attached) ([]int64, []SkippedMessage, error) {
+// The optional replyAttached argument (at most one) sets attached items on
+// the reply message.
+func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state ThreadState, text string, replyAttached ...Attached) ([]int64, []SkippedMessage, error) {
 	var att Attached
 	if len(replyAttached) > 0 {
 		att = replyAttached[0]
@@ -824,7 +1002,7 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, t
 	switch state {
 	case Received, Working, Answered, Declined, Failed:
 	default:
-		return nil, nil, fmt.Errorf("state %q: want received, working, answered, declined or failed", state)
+		return nil, nil, fmt.Errorf("state %q: want working, answered, declined or failed", state)
 	}
 	if len(ids) == 0 {
 		return nil, nil, fmt.Errorf("no message ids")
@@ -837,7 +1015,7 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, t
 		deliveries := map[int64]bool{}
 		for _, id := range ids {
 			var did, tid int64
-			var st string
+			var st ThreadState
 			err := tx.QueryRowContext(ctx, `SELECT COALESCE(m.delivery_id, 0), m.thread_id, m.state FROM messages m JOIN threads t ON t.id = m.thread_id
 				WHERE m.id = ? AND m.author = 'court' AND t.session_id = ?`, id, session).Scan(&did, &tid, &st)
 			if errors.Is(err, sql.ErrNoRows) || did == 0 {
@@ -850,35 +1028,42 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, t
 			if thread == 0 {
 				thread = tid
 			}
-			switch st {
-			case Answered, Declined, Failed:
-				// Already settled; skip.
-				skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "already " + st})
-			case Unanswered, Interrupted:
-				// Late reply: only final states are accepted; non-final states are not meaningful.
-				if !Final(state) {
-					skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "not settleable with state " + state})
-					continue
-				}
-				// Update message state and settled_at; don't touch the delivery (it has already ended).
-				if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", state, now, id); err != nil {
+			if state == Received {
+				if _, err := landed(ctx, tx, now, did); err != nil {
 					return err
 				}
 				touched = append(touched, id)
-			default:
-				// In-flight message: update normally and track delivery.
-				settled := int64(0)
-				if Final(state) {
-					settled = now
-				}
-				if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", state, settled, id); err != nil {
+				continue
+			}
+			switch {
+			case Final(st):
+				skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "already " + string(st)})
+				continue
+			case st == Working && state == Working:
+				// Only the line changes: not a move, so nothing to ask.
+			case !msgstate.Acknowledge(msgstate.State(st), msgstate.State(state)):
+				skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "not settleable with state " + string(state)})
+				continue
+			}
+			if st == Sent {
+				if _, err := landed(ctx, tx, now, did); err != nil {
 					return err
 				}
-				touched = append(touched, id)
+			}
+			line, settled := text, int64(0)
+			if Final(state) {
+				line, settled = "", now
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, line = ?, settled_at = ? WHERE id = ?", state, line, settled, id); err != nil {
+				return err
+			}
+			touched = append(touched, id)
+			if st != NoReply {
+				// A late reply leaves its ended delivery alone.
 				deliveries[did] = true
 			}
 		}
-		if text != "" && thread != 0 {
+		if text != "" && thread != 0 && Final(state) {
 			attJSON := ""
 			if !att.Empty() {
 				b, _ := json.Marshal(att)
@@ -898,7 +1083,7 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, t
 			}
 			var open int
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE delivery_id = ? AND author = 'court'
-				AND state NOT IN ('answered', 'declined', 'failed', 'unanswered', 'interrupted')`, did).Scan(&open); err != nil {
+				AND state IN `+unsettled, did).Scan(&open); err != nil {
 				return err
 			}
 			if open == 0 {
@@ -915,9 +1100,9 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state, t
 // closeDelivery is the tx-scoped core of ending a delivery: the delivery row
 // transitions from 'inflight' to dState (finished_at = now) and all unsettled
 // messages take msgState (settled_at = now). Returns ErrNotFound when the
-// delivery is not inflight. Used by both end() and Settled() so the two NOT IN
+// delivery is not inflight. Used by both end() and Settled() so the two
 // lists stay identical.
-func closeDelivery(ctx context.Context, tx *sql.Tx, now int64, id int64, dState, msgState string) error {
+func closeDelivery(ctx context.Context, tx *sql.Tx, now int64, id int64, dState string, msgState ThreadState) error {
 	res, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = ?, finished_at = ? WHERE id = ? AND state = 'inflight'", dState, now, id)
 	if err != nil {
 		return err
@@ -926,67 +1111,55 @@ func closeDelivery(ctx context.Context, tx *sql.Tx, now int64, id int64, dState,
 		return ErrNotFound
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE messages SET state = ?, settled_at = ? WHERE delivery_id = ? AND author = 'court'
-		AND state NOT IN ('answered', 'declined', 'failed', 'unanswered', 'interrupted')`, msgState, now, id)
+		AND state IN `+unsettled, msgState, now, id)
 	return err
 }
 
 // end finishes a delivery: unsettled messages take msgState, the delivery
 // takes dState.
-func (q *Queue) end(ctx context.Context, id int64, dState, msgState string) error {
+func (q *Queue) end(ctx context.Context, id int64, dState string, msgState ThreadState) error {
 	now := ms(q.Now())
 	return q.DB.Tx(ctx, func(tx *sql.Tx) error {
 		return closeDelivery(ctx, tx, now, id, dState, msgState)
 	})
 }
 
-// Settled is the harness reporting the session's turn ended. shownIDs lists
-// the delivery ids the agent was shown this turn (for this session only);
-// shown_at is recorded for each. The in-flight delivery is then ended (unsettled
-// messages → unanswered) only if it has been shown (shown_at > 0). An unshown
-// delivery stays in flight — it will be shown in the next turn and that turn's
-// end will settle it. Returns the ended delivery, or nil if nothing was ended.
+// Settled is the bridge for casebook's old turn-end hooks (pi-casebook 0.3
+// and the Claude Code Stop hook running casebook settled): each of shownIDs
+// that is the session's delivery in flight landed, then the turn ended, the
+// same cores the harness's reports use. A hook that names only deliveries of
+// the session no longer in flight is a late report of a turn the harness's
+// turn_ended already ended, so it leaves the delivery now in flight alone.
+// Returns the ended delivery, or nil if nothing was ended.
 func (q *Queue) Settled(ctx context.Context, session string, shownIDs []int64) (*Delivery, error) {
 	now := ms(q.Now())
 	var endedID int64
-
 	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
-		// Record shown_at (and refresh touched_at) for each provided delivery id
-		// that belongs to this session. Refreshing touched_at here means the
-		// stuck clock counts from when the agent was shown the delivery, not
-		// from when it was sent (which can be StuckAfter ago if the agent was
-		// mid-turn when it arrived).
+		told, late := false, false
 		for _, id := range shownIDs {
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE deliveries SET shown_at = ?, touched_at = ? WHERE id = ? AND session_id = ? AND shown_at = 0",
-				now, now, id, session); err != nil {
+			var st string
+			err := tx.QueryRowContext(ctx, "SELECT state FROM deliveries WHERE id = ? AND session_id = ?", id, session).Scan(&st)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
 				return err
 			}
+			if st != InFlight {
+				late = true
+				continue
+			}
+			if _, err := landed(ctx, tx, now, id); err != nil {
+				return err
+			}
+			told = true
 		}
-
-		// Find the in-flight delivery and its shown status.
-		var id int64
-		var shownAt int64
-		err := tx.QueryRowContext(ctx,
-			"SELECT id, shown_at FROM deliveries WHERE session_id = ? AND state = 'inflight'",
-			session).Scan(&id, &shownAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil // nothing in flight
+		if late && !told {
+			return nil
 		}
-		if err != nil {
-			return err
-		}
-
-		// Only end the delivery if it has been shown to the agent.
-		if shownAt == 0 {
-			return nil // unshown: stays in flight for the next turn
-		}
-
-		// End the delivery via the shared helper (same NOT IN list as end()).
-		if err := closeDelivery(ctx, tx, now, id, Done, Unanswered); err != nil {
-			return err
-		}
-		endedID = id
-		return nil
+		var err error
+		endedID, err = turnEnded(ctx, tx, now, session)
+		return err
 	})
 	if err != nil || endedID == 0 {
 		return nil, err
@@ -995,13 +1168,16 @@ func (q *Queue) Settled(ctx context.Context, session string, shownIDs []int64) (
 	return &out, err
 }
 
-// Release is Court ending a delivery by hand (a stuck turn).
+// Release is Court ending a delivery by hand (a stuck turn): every unsettled
+// message, one still sent included (a stuck delivery is usually one that
+// never landed), lands on no_reply. A takeover: it asks no msgstate.Allowed.
 func (q *Queue) Release(ctx context.Context, id int64) error {
-	return q.end(ctx, id, Released, Unanswered)
+	return q.end(ctx, id, Released, NoReply)
 }
 
 // MoveDelivery gives a delivery's unsettled messages to another session: its
-// threads move there and those messages are queued again.
+// threads move there and those messages are sent again (a takeover: it asks
+// no msgstate.Allowed).
 func (q *Queue) MoveDelivery(ctx context.Context, id int64, session string) error {
 	now := ms(q.Now())
 	return q.DB.Tx(ctx, func(tx *sql.Tx) error {
@@ -1016,14 +1192,14 @@ func (q *Queue) MoveDelivery(ctx context.Context, id int64, session string) erro
 			return err
 		}
 		// queued_at is kept, so moved messages keep their place in line.
-		_, err = tx.ExecContext(ctx, `UPDATE messages SET state = 'queued', delivery_id = NULL, settled_at = 0
+		_, err = tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
 			WHERE delivery_id = ? AND author = 'court' AND state NOT IN ('answered', 'declined', 'failed')`, id)
 		return err
 	})
 }
 
 // Interruption is one delivery Interrupt ended: whose it was, and the
-// messages in it that were still unsettled (now interrupted).
+// messages in it that were still unsettled (now sent again).
 type Interruption struct {
 	Delivery int64
 	Session  string
@@ -1031,9 +1207,11 @@ type Interruption struct {
 }
 
 // Interrupt runs at serve start: deliveries left in flight by a previous serve
-// are marked interrupted, and so are their unsettled messages. It returns
-// what it interrupted, so serve can tell each session about its own
-// deliveries and no others.
+// are marked interrupted, and their unsettled messages are sent again, out
+// of the delivery with queued_at kept, so they go out again in their place
+// in line (a takeover: it asks no msgstate.Allowed). It returns what it
+// interrupted, so serve can tell each session about its own deliveries and
+// no others.
 func (q *Queue) Interrupt(ctx context.Context) ([]Interruption, error) {
 	var out []Interruption
 	rows, err := q.DB.QueryContext(ctx, "SELECT id, session_id FROM deliveries WHERE state = 'inflight' ORDER BY id")
@@ -1052,22 +1230,31 @@ func (q *Queue) Interrupt(ctx context.Context) ([]Interruption, error) {
 		return nil, err
 	}
 	_ = rows.Close()
+	now := ms(q.Now())
 	for i := range out {
-		if err := q.end(ctx, out[i].Delivery, Stopped, Interrupted); err != nil {
-			return nil, err
-		}
-		ids, err := q.interruptedMessages(ctx, out[i].Delivery)
+		ids, err := q.unsettledMessages(ctx, out[i].Delivery)
 		if err != nil {
 			return nil, err
 		}
 		out[i].Messages = ids
+		err = q.DB.Tx(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = ?, finished_at = ? WHERE id = ? AND state = 'inflight'", Stopped, now, out[i].Delivery); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
+				WHERE delivery_id = ? AND author = 'court' AND state IN `+unsettled, out[i].Delivery)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
 
-// interruptedMessages lists a delivery's interrupted messages, by id.
-func (q *Queue) interruptedMessages(ctx context.Context, delivery int64) ([]int64, error) {
-	rows, err := q.DB.QueryContext(ctx, "SELECT id FROM messages WHERE delivery_id = ? AND author = 'court' AND state = ? ORDER BY id", delivery, Interrupted)
+// unsettledMessages lists a delivery's unsettled messages, by id.
+func (q *Queue) unsettledMessages(ctx context.Context, delivery int64) ([]int64, error) {
+	rows, err := q.DB.QueryContext(ctx, "SELECT id FROM messages WHERE delivery_id = ? AND author = 'court' AND state IN "+unsettled+" ORDER BY id", delivery)
 	if err != nil {
 		return nil, err
 	}
@@ -1083,13 +1270,22 @@ func (q *Queue) interruptedMessages(ctx context.Context, delivery int64) ([]int6
 	return ids, rows.Err()
 }
 
-// Resend queues unanswered or interrupted messages again.
+// Resend takes no_reply messages back to sent, queued again: the one move
+// msgstate.Allowed draws for them.
 func (q *Queue) Resend(ctx context.Context, ids []int64) (int, error) {
 	now := ms(q.Now())
 	n := 0
 	for _, id := range ids {
-		res, err := q.DB.ExecContext(ctx, `UPDATE messages SET state = 'queued', delivery_id = NULL, queued_at = ?, settled_at = 0
-			WHERE id = ? AND author = 'court' AND state IN ('unanswered', 'interrupted')`, now, id)
+		var st ThreadState
+		err := q.DB.QueryRowContext(ctx, "SELECT state FROM messages WHERE id = ? AND author = 'court'", id).Scan(&st)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && !msgstate.Allowed(msgstate.State(st), msgstate.Sent) {
+			continue
+		}
+		if err != nil {
+			return n, err
+		}
+		res, err := q.DB.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, queued_at = ?, settled_at = 0, line = ''
+			WHERE id = ? AND state = ?`, now, id, st)
 		if err != nil {
 			return n, err
 		}

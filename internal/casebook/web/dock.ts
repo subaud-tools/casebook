@@ -29,7 +29,7 @@
 // kept for the tab (sessionStorage) until a message arrives.
 
 import { latestInOrder } from './in-order.ts';
-import { h, card } from '/_kit/kit.js';
+import { h, card, messagePill } from '/_kit/kit.js';
 import type {
   Session,
   Thread,
@@ -46,11 +46,11 @@ import type {
   Attached,
 } from './wire.d.ts';
 import type { Ctx, DockHandle } from './app.ts';
-import { keyWithoutKind, pluralize } from './decide-math.ts';
+import { keyWithoutKind } from './decide-math.ts';
 import { fmtAge } from './time-utils.ts';
 import { go, ruleHash } from './router.ts';
 import { threadOrder } from './thread.ts';
-import { dockOpen } from './dock-state.ts';
+import { dockOpen, messageLine, pillState } from './dock-state.ts';
 import { makeComposer } from './composer.ts';
 import { coalesced } from './coalesce.ts';
 import {
@@ -102,35 +102,6 @@ function storedShown(): boolean | null {
   } catch {
     return null;
   }
-}
-
-// ---- delivery state display -------------------------------------------------
-
-// State colours map for Court's message footer.
-// queued → wait, working → agent, answered → ok, failed → danger; others → muted
-function stateColor(state: string): string {
-  switch (state) {
-    case 'queued':
-      return 'var(--kit-wait)';
-    case 'working':
-      return 'var(--kit-agent)';
-    case 'answered':
-      return 'var(--kit-ok)';
-    case 'failed':
-      return 'var(--kit-danger)';
-    default:
-      return 'var(--kit-muted)';
-  }
-}
-
-function stateLabel(msg: MessageView): string {
-  const base = msg.state;
-  // For answered state, show the count of attached items if present.
-  if (base === 'answered') {
-    const n = msg.attached?.keys?.length ?? 0;
-    if (n > 0) return `${base} · ${pluralize(n, 'item')}`;
-  }
-  return base;
 }
 
 // ---- session label -----------------------------------------------------------
@@ -247,6 +218,7 @@ function renderMsgCard(
   msg: MessageView,
   delivery: Delivery | null,
   sessions: Session[],
+  here: boolean,
   ctx: Ctx,
   agentName: string,
 ): HTMLElement {
@@ -283,29 +255,17 @@ function renderMsgCard(
     bodyContent = bodyEl;
   }
 
-  // Delivery-state footer for Court's cards.
+  // Court's cards show where the message stands: the kit's pill, with the
+  // line under it (what the agent is doing, or who has it). A draft is in
+  // the batch tray and has none.
   let stateEl: HTMLElement | null = null;
-  if (!isAgent && msg.state) {
-    // Show state for all non-draft states.
-    const validStates = [
-      'queued',
-      'delivered',
-      'received',
-      'working',
-      'answered',
-      'declined',
-      'failed',
-      'unanswered',
-      'interrupted',
-    ];
-    if (validStates.includes(msg.state)) {
-      stateEl = h('div', {
-        class: 'cb-dock-state',
-        'data-state': msg.state,
-        style: `color:${stateColor(msg.state)}`,
-      });
-      stateEl.textContent = stateLabel(msg);
-    }
+  const pill = isAgent ? null : pillState(msg.state);
+  if (pill) {
+    stateEl = h(
+      'div',
+      { class: 'cb-dock-state', 'data-state': pill },
+      messagePill(pill, messageLine(msg, here, delivery)),
+    );
   }
 
   // Build body node: header + content + optional state footer.
@@ -323,21 +283,21 @@ function renderMsgCard(
     !isAgent && delivery?.stuck === true && msg.delivery_id === delivery.id;
 
   if (isStuckDelivery && delivery) {
-    // Show the stuck state in the footer.
-    // Colour: the muted state colour (delivery state is 'delivered' → muted by
-    // stateColor; we do NOT override with --kit-wait so it stays muted).
-    // Text: "delivered <age> ago · <strong>stuck</strong>"
-    //   or  "delivered just now · <strong>stuck</strong>" when age < 1 minute.
+    // The pill and its line stay; the stuck text sits beside the buttons.
+    // Text: "with the agent <age> ago · <strong>stuck</strong>" (or "sent",
+    //   while it never landed), "… just now · …" when age < 1 minute.
     // (fmtAge returns 'now' for < 60 s; we map that to 'just now' for readability.)
-    if (stateEl) {
-      const ageText = fmtAge(delivery.touched_at);
-      const ageStr = ageText === 'now' ? 'just now' : `${ageText} ago`;
-      stateEl.textContent = '';
-      stateEl.setAttribute('data-state', 'stuck');
-      const stuckBold = h('strong', { style: 'font-weight:600' });
-      stuckBold.textContent = 'stuck';
-      stateEl.append(`delivered ${ageStr} \u00b7 `, stuckBold);
-    }
+    const ageText = fmtAge(delivery.touched_at);
+    const ageStr = ageText === 'now' ? 'just now' : `${ageText} ago`;
+    const where = msg.state === 'sent' ? 'sent' : 'with the agent';
+    const stuckText = h('span', {
+      class: 'cb-dock-state',
+      'data-state': 'stuck',
+      style: 'align-self:center;margin-top:0',
+    });
+    const stuckBold = h('strong', { style: 'font-weight:600' });
+    stuckBold.textContent = 'stuck';
+    stuckText.append(`${where} ${ageStr} \u00b7 `, stuckBold);
 
     const d = delivery;
     // Use kit-btn (neutral outlined) — the same class as the DECIDE buttons —
@@ -363,7 +323,9 @@ function renderMsgCard(
     });
     moveBtn.textContent = 'move to another session';
 
-    fullBody.append(h('div', { class: 'cb-dock-stuck' }, releaseBtn, moveBtn));
+    fullBody.append(
+      h('div', { class: 'cb-dock-stuck' }, stuckText, releaseBtn, moveBtn),
+    );
   }
 
   const el = card({
@@ -908,8 +870,11 @@ export function makeDock(ctx: Ctx): DockHandle {
       cards.push(h('p', { class: 'cb-dock-empty' }, 'no messages'));
     }
     const name = agentName();
+    const here = attachedState(currentSessionId, sessions) === 'here';
     for (const msg of messages) {
-      cards.push(renderMsgCard(msg, currentDelivery, sessions, ctx, name));
+      cards.push(
+        renderMsgCard(msg, currentDelivery, sessions, here, ctx, name),
+      );
     }
     batchTray.el.before(...cards);
     // Auto-scroll to the latest message.
