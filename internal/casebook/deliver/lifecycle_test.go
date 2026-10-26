@@ -134,3 +134,31 @@ func TestResendTakesNoReplyToSent(t *testing.T) {
 		t.Fatalf("m1 after resend: %s, want answered", st)
 	}
 }
+
+func TestSettledLeavesADeliveryItWasNotToldAbout(t *testing.T) {
+	q, _ := newQueue(t)
+	th := thread(t, q, "s1")
+	post(t, q, th, "one", false)
+	a, _ := q.Next(ctx, "s1")
+	if _, err := q.Landed(ctx, "s1", a.Token); err != nil {
+		t.Fatal(err)
+	}
+	if ended, err := q.TurnEnded(ctx, "s1"); err != nil || ended == nil || ended.ID != a.ID {
+		t.Fatalf("turn_ended %+v %v, want A ended", ended, err)
+	}
+	m := post(t, q, th, "two", false)
+	b, _ := q.Next(ctx, "s1")
+	if _, err := q.Landed(ctx, "s1", b.Token); err != nil {
+		t.Fatal(err)
+	}
+	// The old hook's settled for A's turn arrives after B landed.
+	if ended, err := q.Settled(ctx, "s1", []int64{a.ID}); err != nil || ended != nil {
+		t.Fatalf("settled naming A ended %+v %v, want nothing", ended, err)
+	}
+	if got, _ := q.Delivery(ctx, b.ID); got.State != "inflight" {
+		t.Fatalf("B %s, want inflight", got.State)
+	}
+	if st, _ := state(t, q, m.ID); st != "with_agent" {
+		t.Fatalf("B's message %s, want with_agent", st)
+	}
+}

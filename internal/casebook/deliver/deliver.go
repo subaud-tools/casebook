@@ -1127,22 +1127,35 @@ func (q *Queue) end(ctx context.Context, id int64, dState string, msgState Threa
 // Settled is the bridge for casebook's old turn-end hooks (pi-casebook 0.3
 // and the Claude Code Stop hook running casebook settled): each of shownIDs
 // that is the session's delivery in flight landed, then the turn ended, the
-// same cores the harness's reports use. Returns the ended delivery, or nil
-// if nothing was ended.
+// same cores the harness's reports use. A hook that names only deliveries of
+// the session no longer in flight is a late report of a turn the harness's
+// turn_ended already ended, so it leaves the delivery now in flight alone.
+// Returns the ended delivery, or nil if nothing was ended.
 func (q *Queue) Settled(ctx context.Context, session string, shownIDs []int64) (*Delivery, error) {
 	now := ms(q.Now())
 	var endedID int64
 	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		told, late := false, false
 		for _, id := range shownIDs {
-			var ok bool
-			if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM deliveries WHERE id = ? AND session_id = ? AND state = 'inflight')", id, session).Scan(&ok); err != nil {
+			var st string
+			err := tx.QueryRowContext(ctx, "SELECT state FROM deliveries WHERE id = ? AND session_id = ?", id, session).Scan(&st)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
 				return err
 			}
-			if ok {
-				if _, err := landed(ctx, tx, now, id); err != nil {
-					return err
-				}
+			if st != InFlight {
+				late = true
+				continue
 			}
+			if _, err := landed(ctx, tx, now, id); err != nil {
+				return err
+			}
+			told = true
+		}
+		if late && !told {
+			return nil
 		}
 		var err error
 		endedID, err = turnEnded(ctx, tx, now, session)
