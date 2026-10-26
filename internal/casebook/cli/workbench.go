@@ -238,9 +238,14 @@ func reportCommand() tools.Command {
 	return c
 }
 
-// deliverReport is `casebook report`'s delivery.
-func deliverReport(_ string, _ channelmcp.ReportEvent, _ string) error {
-	return nil
+// deliverReport is `casebook report`'s delivery: it posts the report to
+// serve through the client casebook settled uses, which finds serve and
+// never starts it. A failed post is the command's error, which the mod
+// logs; it is not retried.
+func deliverReport(session string, event channelmcp.ReportEvent, token string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return newSettledClient().Report(ctx, session, event, token)
 }
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";

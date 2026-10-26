@@ -17,6 +17,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/item"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
 	"github.com/subaud-tools/casebook/internal/casebook/recommend"
+	"github.com/subaud-tools/tools-common/channelmcp"
 )
 
 // source names a session as a proposer or author: "<harness>:<id>".
@@ -220,7 +221,7 @@ func (s *Server) agentWait(w http.ResponseWriter, r *http.Request) {
 			// delivery stays in flight until the agent settles it, the turn
 			// ends after it landed, or Court intervenes.
 			s.publish(ctx, "delivery", map[string]any{"id": d.ID, "session": sess.ID, "state": deliver.InFlight, "messages": len(d.Messages)})
-			reply(w, WaitView{Delivery: d, Text: text}, nil)
+			reply(w, WaitView{Delivery: d, Text: text, Report: d.Token}, nil)
 			return
 		}
 		select {
@@ -596,8 +597,79 @@ func (s *Server) agentSettled(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
-	worked, lines, _ := s.Props.ClearProgress(ctx, in.Session)
-	result := SettledResult{Session: in.Session, WorkedMs: worked.Milliseconds()}
+	reply(w, s.turnOver(ctx, in.Session, d), nil)
+}
+
+// agentReport is POST /api/agent/report: the harness says the delivery with
+// token is held while the agent is mid-turn, or landed in the agent's turn,
+// or that the session's turn ended. Each message move is one
+// msgstate.Allowed draws; a move it refuses is skipped, so a late landed
+// leaves a working message working. An unknown token, or another session's,
+// moves nothing.
+func (s *Server) agentReport(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Session string                 `json:"session"`
+		Event   channelmcp.ReportEvent `json:"event"`
+		Token   string                 `json:"token"`
+	}
+	if err := decode(r, &in); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	ctx := r.Context()
+	if _, err := s.session(ctx, in.Session); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	out := ReportResult{Moved: []int64{}}
+	switch in.Event {
+	case channelmcp.ReportLanded:
+		moved, err := s.Queue.Landed(ctx, in.Session, in.Token)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if moved != nil {
+			out.Moved = moved
+		}
+		s.publish(ctx, "delivery", map[string]any{"session": in.Session, "state": deliver.InFlight, "landed": len(moved)})
+	case channelmcp.ReportHeld:
+		marked, err := s.Queue.Held(ctx, in.Session, in.Token)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if marked {
+			s.publish(ctx, "delivery", map[string]any{"session": in.Session, "state": deliver.InFlight, "held": true})
+		}
+	case channelmcp.ReportTurnEnded:
+		d, err := s.Queue.TurnEnded(ctx, in.Session)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if res := s.turnOver(ctx, in.Session, d); res.Delivery != nil {
+			out.Delivery = res.Delivery
+			for _, m := range d.Messages {
+				if m.State == deliver.NoReply {
+					out.Moved = append(out.Moved, m.ID)
+				}
+			}
+		}
+	default:
+		reply(w, nil, bad("event %q: want held, landed or turn_ended", in.Event))
+		return
+	}
+	reply(w, out, nil)
+}
+
+// turnOver is what follows the end of a session's turn, d the delivery it
+// ended (nil for none): the progress line clears, a turn with progress lines
+// records a 'worked' message, the page hears settled, and the session's
+// waiter wakes so its queued messages go out.
+func (s *Server) turnOver(ctx context.Context, session string, d *deliver.Delivery) SettledResult {
+	worked, lines, _ := s.Props.ClearProgress(ctx, session)
+	result := SettledResult{Session: session, WorkedMs: worked.Milliseconds()}
 	if d != nil {
 		id := d.ID
 		result.Delivery = &id
@@ -605,23 +677,23 @@ func (s *Server) agentSettled(w http.ResponseWriter, r *http.Request) {
 	// If the turn had progress lines, record a 'worked' message in the thread
 	// so the page can show the history after a reload (spec §3.5).
 	if len(lines) > 0 {
-		if thID, ok := s.currentThread(ctx, in.Session, d); ok {
+		if thID, ok := s.currentThread(ctx, session, d); ok {
 			wv := WorkedView{DurationMs: worked.Milliseconds(), Lines: lines}
-			s.postWorkedMessage(ctx, in.Session, thID, worked, wv)
+			s.postWorkedMessage(ctx, session, thID, worked, wv)
 		}
 	}
-	ev := map[string]any{"session": in.Session, "worked_ms": result.WorkedMs}
+	ev := map[string]any{"session": session, "worked_ms": result.WorkedMs}
 	if result.Delivery != nil {
 		ev["delivery"] = *result.Delivery
 	}
 	s.publish(ctx, "settled", ev)
-	s.wake(in.Session)
+	s.wake(session)
 	// Prune the waiter: the turn is over. The next agentWait creates a fresh
 	// channel, so the map stays bounded to sessions that are actively waiting.
 	s.mu.Lock()
-	delete(s.waiters, in.Session)
+	delete(s.waiters, session)
 	s.mu.Unlock()
-	reply(w, result, nil)
+	return result
 }
 
 // currentThread returns the thread ID for recording a worked message:

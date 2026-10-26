@@ -11,7 +11,9 @@ package deliver
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -205,7 +207,14 @@ type Delivery struct {
 	FinishedAt time.Time `json:"finished_at,omitzero"`
 	ShownAt    time.Time `json:"shown_at,omitzero"`
 	Stuck      bool      `json:"stuck"`
-	Messages   []Message `json:"messages"`
+	// Held: the harness reported the delivery held, the agent mid-turn,
+	// and it has not landed since.
+	Held     bool      `json:"held"`
+	Messages []Message `json:"messages"`
+	// Token is the delivery's report token: the harness names it when it
+	// reports the delivery held or landed. The channel gets it as the wait's
+	// report; it is not on the page.
+	Token string `json:"-"`
 }
 
 // Queue is the delivery store over the working-state database.
@@ -744,8 +753,8 @@ func (q *Queue) Inflight(ctx context.Context, session string) (*Delivery, error)
 func (q *Queue) Delivery(ctx context.Context, id int64) (Delivery, error) {
 	var d Delivery
 	var sent, touched, fin, shown int64
-	err := q.DB.QueryRowContext(ctx, "SELECT id, session_id, state, sent_at, touched_at, finished_at, shown_at FROM deliveries WHERE id = ?", id).
-		Scan(&d.ID, &d.SessionID, &d.State, &sent, &touched, &fin, &shown)
+	err := q.DB.QueryRowContext(ctx, "SELECT id, session_id, state, sent_at, touched_at, finished_at, shown_at, held != 0, token FROM deliveries WHERE id = ?", id).
+		Scan(&d.ID, &d.SessionID, &d.State, &sent, &touched, &fin, &shown, &d.Held, &d.Token)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrNotFound
 	}
@@ -794,7 +803,7 @@ func (q *Queue) Next(ctx context.Context, session string) (*Delivery, error) {
 		// the agent. If that response is lost the delivery stays in flight
 		// until the agent settles it, Court releases or moves it (stuck after
 		// StuckAfter), or serve restarts (its messages are sent again).
-		res, err := tx.ExecContext(ctx, "INSERT INTO deliveries(session_id, state, sent_at, touched_at) VALUES (?, 'inflight', ?, ?)", session, now, now)
+		res, err := tx.ExecContext(ctx, "INSERT INTO deliveries(session_id, state, sent_at, touched_at, token) VALUES (?, 'inflight', ?, ?, ?)", session, now, now, reportToken())
 		if err != nil {
 			return err
 		}
@@ -811,6 +820,151 @@ func (q *Queue) Next(ctx context.Context, session string) (*Delivery, error) {
 	}
 	d, err := q.Delivery(ctx, id)
 	return &d, err
+}
+
+// reportToken is a delivery's report token: 16 random hex characters, which
+// the Claude Code mod passes back as an argument, so alphanumeric.
+func reportToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b) // crypto/rand.Read never fails
+	return hex.EncodeToString(b)
+}
+
+// Landed is the harness reporting that the session's delivery with token
+// landed in the agent's turn: its sent messages are with the agent, it is no
+// longer held, and it is shown. An unknown token, or another session's, does
+// nothing. It returns the ids it moved.
+func (q *Queue) Landed(ctx context.Context, session, token string) ([]int64, error) {
+	var moved []int64
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := tokenDelivery(ctx, tx, session, token)
+		if err != nil || id == 0 {
+			return err
+		}
+		moved, err = landed(ctx, tx, ms(q.Now()), id)
+		return err
+	})
+	return moved, err
+}
+
+// Held is the harness reporting that the session's delivery with token is
+// held, the agent mid-turn. It marks the delivery held while it has not
+// landed. An unknown token, or another session's, does nothing. It reports
+// whether it marked one.
+func (q *Queue) Held(ctx context.Context, session, token string) (bool, error) {
+	var marked bool
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := tokenDelivery(ctx, tx, session, token)
+		if err != nil || id == 0 {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, "UPDATE deliveries SET held = 1 WHERE id = ? AND shown_at = 0 AND held = 0", id)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		marked = n > 0
+		return nil
+	})
+	return marked, err
+}
+
+// TurnEnded is the harness reporting that the session's turn ended. The
+// session's delivery in flight ends only when it has landed: its with_agent
+// and working messages are no_reply. A delivery that has not landed stays in
+// flight for the turn it lands in. It returns the ended delivery, or nil.
+func (q *Queue) TurnEnded(ctx context.Context, session string) (*Delivery, error) {
+	var ended int64
+	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ended, err = turnEnded(ctx, tx, ms(q.Now()), session)
+		return err
+	})
+	if err != nil || ended == 0 {
+		return nil, err
+	}
+	d, err := q.Delivery(ctx, ended)
+	return &d, err
+}
+
+// tokenDelivery is the session's delivery in flight with token, or 0.
+func tokenDelivery(ctx context.Context, tx *sql.Tx, session, token string) (int64, error) {
+	if token == "" {
+		return 0, nil
+	}
+	var id int64
+	err := tx.QueryRowContext(ctx, "SELECT id FROM deliveries WHERE session_id = ? AND token = ? AND state = 'inflight'", session, token).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}
+
+// move moves each of Court's messages in delivery to to, when
+// msgstate.Allowed draws the move from its state; a refused move is skipped.
+// It returns the ids it moved.
+func move(ctx context.Context, tx *sql.Tx, now, delivery int64, to ThreadState) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id, state FROM messages WHERE delivery_id = ? AND author = 'court' ORDER BY id", delivery)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		var st ThreadState
+		if err := rows.Scan(&id, &st); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if msgstate.Allowed(msgstate.State(st), msgstate.State(to)) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+	settled := int64(0)
+	if to == NoReply {
+		settled = now
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", to, settled, id); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
+// landed is Landed's core on delivery id, shared with the Settled bridge.
+func landed(ctx context.Context, tx *sql.Tx, now, id int64) ([]int64, error) {
+	moved, err := move(ctx, tx, now, id, WithAgent)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE deliveries SET held = 0, touched_at = ?, shown_at = CASE WHEN shown_at = 0 THEN ? ELSE shown_at END WHERE id = ?", now, now, id)
+	return moved, err
+}
+
+// turnEnded is TurnEnded's core, shared with the Settled bridge: it returns
+// the ended delivery's id, or 0.
+func turnEnded(ctx context.Context, tx *sql.Tx, now int64, session string) (int64, error) {
+	var id, shownAt int64
+	err := tx.QueryRowContext(ctx, "SELECT id, shown_at FROM deliveries WHERE session_id = ? AND state = 'inflight'", session).Scan(&id, &shownAt)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && shownAt == 0 {
+		return 0, nil // nothing in flight, or it has not landed
+	}
+	if err != nil {
+		return 0, err
+	}
+	if _, err := move(ctx, tx, now, id, NoReply); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = ?, finished_at = ? WHERE id = ?", Done, now, id); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // SkippedMessage reports why one id was not changed by Reply.
@@ -958,54 +1112,29 @@ func (q *Queue) end(ctx context.Context, id int64, dState string, msgState Threa
 	})
 }
 
-// Settled is the harness reporting the session's turn ended. shownIDs lists
-// the delivery ids the agent was shown this turn (for this session only);
-// shown_at is recorded for each. The in-flight delivery is then ended (unsettled
-// messages → no_reply) only if it has been shown (shown_at > 0). An unshown
-// delivery stays in flight — it will be shown in the next turn and that turn's
-// end will settle it. Returns the ended delivery, or nil if nothing was ended.
+// Settled is the bridge for casebook's old turn-end hooks (pi-casebook 0.3
+// and the Claude Code Stop hook running casebook settled): each of shownIDs
+// that is the session's delivery in flight landed, then the turn ended, the
+// same cores the harness's reports use. Returns the ended delivery, or nil
+// if nothing was ended.
 func (q *Queue) Settled(ctx context.Context, session string, shownIDs []int64) (*Delivery, error) {
 	now := ms(q.Now())
 	var endedID int64
-
 	err := q.DB.Tx(ctx, func(tx *sql.Tx) error {
-		// Record shown_at (and refresh touched_at) for each provided delivery id
-		// that belongs to this session. Refreshing touched_at here means the
-		// stuck clock counts from when the agent was shown the delivery, not
-		// from when it was sent (which can be StuckAfter ago if the agent was
-		// mid-turn when it arrived).
 		for _, id := range shownIDs {
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE deliveries SET shown_at = ?, touched_at = ? WHERE id = ? AND session_id = ? AND shown_at = 0",
-				now, now, id, session); err != nil {
+			var ok bool
+			if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM deliveries WHERE id = ? AND session_id = ? AND state = 'inflight')", id, session).Scan(&ok); err != nil {
 				return err
 			}
+			if ok {
+				if _, err := landed(ctx, tx, now, id); err != nil {
+					return err
+				}
+			}
 		}
-
-		// Find the in-flight delivery and its shown status.
-		var id int64
-		var shownAt int64
-		err := tx.QueryRowContext(ctx,
-			"SELECT id, shown_at FROM deliveries WHERE session_id = ? AND state = 'inflight'",
-			session).Scan(&id, &shownAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil // nothing in flight
-		}
-		if err != nil {
-			return err
-		}
-
-		// Only end the delivery if it has been shown to the agent.
-		if shownAt == 0 {
-			return nil // unshown: stays in flight for the next turn
-		}
-
-		// End the delivery via the shared helper (same NOT IN list as end()).
-		if err := closeDelivery(ctx, tx, now, id, Done, NoReply); err != nil {
-			return err
-		}
-		endedID = id
-		return nil
+		var err error
+		endedID, err = turnEnded(ctx, tx, now, session)
+		return err
 	})
 	if err != nil || endedID == 0 {
 		return nil, err

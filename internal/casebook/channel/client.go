@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/localweb"
 )
 
@@ -109,6 +110,13 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) (in
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+// Report hands serve one report from the harness about session: a delivery
+// held or landed (with its report token), or the turn ended.
+func (c *Client) Report(ctx context.Context, session string, event channelmcp.ReportEvent, token string) error {
+	_, err := c.Do(ctx, http.MethodPost, "/api/agent/report", map[string]string{"session": session, "event": string(event), "token": token}, nil)
+	return err
 }
 
 func q(pairs ...string) string {

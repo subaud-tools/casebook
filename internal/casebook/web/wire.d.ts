@@ -125,6 +125,7 @@ export interface ResendResult {
 export interface WaitView {
   delivery: Delivery | null;
   text: string;
+  report: string;
 }
 
 export interface ReplyResult {
@@ -168,6 +169,11 @@ export interface OpenResult {
 export interface SettledResult {
   session: string;
   worked_ms: number;
+  delivery?: number;
+}
+
+export interface ReportResult {
+  moved: number[] | null;
   delivery?: number;
 }
 
@@ -489,6 +495,7 @@ export interface Delivery {
   finished_at?: string;
   shown_at?: string;
   stuck: boolean;
+  held: boolean;
   messages: Message[] | null;
 }
 

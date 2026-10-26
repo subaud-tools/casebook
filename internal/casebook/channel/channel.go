@@ -80,11 +80,21 @@ type Channel struct {
 	// `casebook watch`, which takes the deliveries, so this process serves
 	// the tools and never waits. Two takers would split a session's messages.
 	ServeOnly bool
+	// reports holds the harness's reports (pi's channels.tools) until
+	// postReports hands them to serve, in order.
+	reports chan report
+}
+
+// report is one report from the harness, waiting to be posted to serve.
+type report struct {
+	event channelmcp.ReportEvent
+	token string
 }
 
 // New builds a channel for id.
 func New(id Identity, c *Client, version string) *Channel {
-	ch := &Channel{ID: id, Client: c, Log: io.Discard, Retry: 5 * time.Second, Presence: 30 * time.Second, Poll: 55 * time.Second}
+	ch := &Channel{ID: id, Client: c, Log: io.Discard, Retry: 5 * time.Second, Presence: 30 * time.Second, Poll: 55 * time.Second,
+		reports: make(chan report, 64)}
 	ch.Server = channelmcp.New(channelmcp.Handler{
 		Name: "casebook", Version: version, Instructions: Instructions, Tools: Tools(),
 		Call: func(name string, args json.RawMessage) (string, error) {
@@ -93,6 +103,15 @@ func New(id Identity, c *Client, version string) *Channel {
 				ctx = context.Background()
 			}
 			return ch.Call(ctx, name, args)
+		},
+		// Run's read loop hands each report over and goes on: posting it
+		// to serve waits on the network, and tool calls must not.
+		OnReport: func(event channelmcp.ReportEvent, token string) {
+			select {
+			case ch.reports <- report{event, token}:
+			default:
+				_, _ = fmt.Fprintf(ch.Log, "casebook channel: dropped report %s %s: too many waiting\n", event, token)
+			}
 		},
 	})
 	ch.Push = ch.Server
@@ -120,8 +139,26 @@ func (ch *Channel) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 		_, _ = fmt.Fprintln(ch.Log, "casebook channel: Claude Code session: serving tools only; the casebook plugin's `casebook watch` delivers the user's messages")
 	} else if ch.ID.Session != "" {
 		go ch.loop(ctx)
+		go ch.postReports(ctx)
 	}
 	return ch.Server.Run(r, w)
+}
+
+// postReports posts each report the harness sent to serve, in the order
+// sent, until ctx ends. It never starts serve. A failed post is logged, not
+// retried.
+func (ch *Channel) postReports(ctx context.Context) {
+	c := ch.Client.passive()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r := <-ch.reports:
+			if err := c.Report(ctx, ch.ID.Session, r.event, r.token); err != nil && ctx.Err() == nil {
+				_, _ = fmt.Fprintf(ch.Log, "casebook channel: report %s: %v\n", r.event, err)
+			}
+		}
+	}
 }
 
 // Watch is `casebook watch`: the wake loop alone, until ctx ends.
@@ -243,6 +280,7 @@ func (ch *Channel) loop(ctx context.Context) {
 		var got struct {
 			Delivery deliver.Delivery `json:"delivery"`
 			Text     string           `json:"text"`
+			Report   string           `json:"report"`
 		}
 		code, err := c.Do(ctx, http.MethodGet, "/api/agent/wait?"+q("session", ch.ID.Session, "timeout", strconv.Itoa(int(ch.Poll.Seconds()))), nil, &got)
 		switch {
@@ -260,6 +298,9 @@ func (ch *Channel) loop(ctx context.Context) {
 				ids = append(ids, strconv.FormatInt(m.ID, 10))
 			}
 			meta := map[string]string{"source": "casebook", "delivery": strconv.FormatInt(got.Delivery.ID, 10), "messages": strings.Join(ids, ",")}
+			if got.Report != "" {
+				meta[channelmcp.MetaReport] = got.Report
+			}
 			if err := ch.Push.Notify(got.Text, meta); err != nil {
 				_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
 			}

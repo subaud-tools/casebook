@@ -62,6 +62,7 @@ var wireRoots = []any{
 	InterruptedView{},
 	OpenResult{},
 	SettledResult{},
+	ReportResult{},
 	RulesView{},
 	RuleRow{},
 	FiltersView{},
