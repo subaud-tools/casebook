@@ -201,7 +201,8 @@ func (s *Server) agentWait(w http.ResponseWriter, r *http.Request) {
 	}
 	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
-	wake := s.waiter(sess.ID)
+	wake, done := s.waiter(sess.ID)
+	defer done()
 	for {
 		summary := s.summary(ctx, sess)
 		d, err := s.Queue.Next(ctx, sess.ID)
@@ -688,11 +689,6 @@ func (s *Server) turnOver(ctx context.Context, session string, d *deliver.Delive
 	}
 	s.publish(ctx, "settled", ev)
 	s.wake(session)
-	// Prune the waiter: the turn is over. The next agentWait creates a fresh
-	// channel, so the map stays bounded to sessions that are actively waiting.
-	s.mu.Lock()
-	delete(s.waiters, session)
-	s.mu.Unlock()
 	return result
 }
 

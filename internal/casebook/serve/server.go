@@ -58,9 +58,9 @@ type Server struct {
 	WatchEvery time.Duration
 
 	mu        sync.Mutex
-	rebuildMu sync.Mutex               // serializes rebuild: one at a time, including rule evaluation
-	waiters   map[string]chan struct{} // session → wake
-	streamMu  sync.Mutex               // guards streams counter + setPageOpen decision (one critical section)
+	rebuildMu sync.Mutex           // serializes rebuild: one at a time, including rule evaluation
+	waiters   map[string]*waitSlot // session → wake, while a poll is open
+	streamMu  sync.Mutex           // guards streams counter + setPageOpen decision (one critical section)
 
 	laneMu            sync.Mutex        // guards laneRun
 	laneRun           map[int64]bool    // job id → a casebook lane is running for it
@@ -215,7 +215,7 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 		}
 	}
 	s := &Server{App: a, DB: d, Queue: q, Props: propose.New(d), Apply: apply.NewStore(d), Bus: bus.New(d), Index: &Index{},
-		Now: time.Now, Wait: 60 * time.Second, WatchEvery: watchEvery, waiters: map[string]chan struct{}{}, laneRun: map[int64]bool{}}
+		Now: time.Now, Wait: 60 * time.Second, WatchEvery: watchEvery, waiters: map[string]*waitSlot{}, laneRun: map[int64]bool{}}
 	// What casebook verified done since the index's observation leaves To
 	// apply at once (the next sync sees it gone).
 	s.Index.Applied = s.applied
@@ -711,28 +711,44 @@ func (s *Server) watch(ctx context.Context) {
 	}
 }
 
+// waitSlot is a session's wake channel and how many of its polls are open.
+type waitSlot struct {
+	ch    chan struct{}
+	polls int
+}
+
 // wake releases a session's pending long-poll.
 func (s *Server) wake(session string) {
 	s.mu.Lock()
-	ch := s.waiters[session]
+	w := s.waiters[session]
 	s.mu.Unlock()
-	if ch != nil {
+	if w != nil {
 		select {
-		case ch <- struct{}{}:
+		case w.ch <- struct{}{}:
 		default:
 		}
 	}
 }
 
-func (s *Server) waiter(session string) chan struct{} {
+// waiter is the session's wake channel for one open poll; done ends the
+// poll, dropping the entry once no poll of the session is open, so the map
+// holds only sessions that are waiting.
+func (s *Server) waiter(session string) (ch chan struct{}, done func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ch := s.waiters[session]
-	if ch == nil {
-		ch = make(chan struct{}, 1)
-		s.waiters[session] = ch
+	w := s.waiters[session]
+	if w == nil {
+		w = &waitSlot{ch: make(chan struct{}, 1)}
+		s.waiters[session] = w
 	}
-	return ch
+	w.polls++
+	return w.ch, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if w.polls--; w.polls == 0 && s.waiters[session] == w {
+			delete(s.waiters, session)
+		}
+	}
 }
 
 // Handler is the /api/ handler localweb mounts behind its token check.
