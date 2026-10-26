@@ -178,11 +178,14 @@ type Message struct {
 	ReplyTo    int64    `json:"reply_to,omitempty"`
 	// Purpose is what the page posted the message for: '' for a message
 	// Court wrote, "look-into" for "Look into it" (one item or a group).
-	Purpose   string      `json:"purpose,omitempty"`
-	State     ThreadState `json:"state"`
-	CreatedAt time.Time   `json:"created_at"`
-	QueuedAt  time.Time   `json:"queued_at,omitzero"`
-	SettledAt time.Time   `json:"settled_at,omitzero"`
+	Purpose string      `json:"purpose,omitempty"`
+	State   ThreadState `json:"state"`
+	// Line is the agent's one line on what it is doing, while the message
+	// is working; "" otherwise.
+	Line      string    `json:"line,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	QueuedAt  time.Time `json:"queued_at,omitzero"`
+	SettledAt time.Time `json:"settled_at,omitzero"`
 	// WorkedJSON holds the JSON-encoded WorkedView for messages with state
 	// "worked". It is not sent over the wire (json:"-"); serve decodes it
 	// into the MessageView wrapper returned by GET /api/messages.
@@ -485,13 +488,13 @@ func (q *Queue) MoveThread(ctx context.Context, thread int64, session string) er
 	return nil
 }
 
-const msgCols = "id, thread_id, author, body, attached, COALESCE(batch_id, 0), batch_pos, COALESCE(delivery_id, 0), COALESCE(reply_to, 0), purpose, state, created_at, queued_at, settled_at, worked_json"
+const msgCols = "id, thread_id, author, body, attached, COALESCE(batch_id, 0), batch_pos, COALESCE(delivery_id, 0), COALESCE(reply_to, 0), purpose, state, line, created_at, queued_at, settled_at, worked_json"
 
 func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var att string
 	var c, qd, st int64
-	if err := sc.Scan(&m.ID, &m.ThreadID, &m.Author, &m.Body, &att, &m.BatchID, &m.BatchPos, &m.DeliveryID, &m.ReplyTo, &m.Purpose, &m.State, &c, &qd, &st, &m.WorkedJSON); err != nil {
+	if err := sc.Scan(&m.ID, &m.ThreadID, &m.Author, &m.Body, &att, &m.BatchID, &m.BatchPos, &m.DeliveryID, &m.ReplyTo, &m.Purpose, &m.State, &m.Line, &c, &qd, &st, &m.WorkedJSON); err != nil {
 		return m, err
 	}
 	if att != "" {
@@ -974,30 +977,32 @@ type SkippedMessage struct {
 	Reason string      `json:"reason"`
 }
 
-// Reply is the agent settling (or updating) messages from its deliveries.
-// state is received (the message is with the agent), working, answered,
-// declined or failed. When text is set it is added to the thread as the
-// agent's reply to the first id. A delivery ends once every message in it is
-// settled.
+// Received is the state an old channel's casebook_reply still sends (before
+// casebook 0.21.0): it said the agent picked the message up. Reply takes it
+// as the delivery's landed report.
+const Received ThreadState = "received"
+
+// Reply is the agent acknowledging messages from its deliveries: working
+// (text is the line under the message, and no thread row), answered,
+// declined or failed (text is the agent's reply to the first id, added to
+// the thread). Each id moves when msgstate.Acknowledge draws the move; one
+// already settled, or a move it refuses, is skipped with why. A no_reply
+// message takes a late answered, declined or failed. A reply to a message
+// still sent brings its whole delivery to the agent (the delivery reached it
+// as one event): the delivery's other sent messages are with_agent and it is
+// shown. A delivery ends once every message in it is settled.
 //
-// Late replies (to no_reply messages from this session) are accepted when
-// state is a final state (answered, declined, failed).
-// Reply settles messages and optionally posts an agent reply text. The optional
-// replyAttached argument (at most one) sets attached items on the reply message;
-// callers that omit it get the existing behaviour (no attached).
+// The optional replyAttached argument (at most one) sets attached items on
+// the reply message.
 func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state ThreadState, text string, replyAttached ...Attached) ([]int64, []SkippedMessage, error) {
 	var att Attached
 	if len(replyAttached) > 0 {
 		att = replyAttached[0]
 	}
-	var to ThreadState
 	switch state {
-	case "received":
-		to = WithAgent
-	case Working, Answered, Declined, Failed:
-		to = state
+	case Received, Working, Answered, Declined, Failed:
 	default:
-		return nil, nil, fmt.Errorf("state %q: want received, working, answered, declined or failed", state)
+		return nil, nil, fmt.Errorf("state %q: want working, answered, declined or failed", state)
 	}
 	if len(ids) == 0 {
 		return nil, nil, fmt.Errorf("no message ids")
@@ -1023,35 +1028,42 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state Th
 			if thread == 0 {
 				thread = tid
 			}
-			switch st {
-			case Answered, Declined, Failed:
-				// Already settled; skip.
+			if state == Received {
+				if _, err := landed(ctx, tx, now, did); err != nil {
+					return err
+				}
+				touched = append(touched, id)
+				continue
+			}
+			switch {
+			case Final(st):
 				skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "already " + string(st)})
-			case NoReply:
-				// Late reply: only final states are accepted; non-final states are not meaningful.
-				if !Final(to) {
-					skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "not settleable with state " + string(state)})
-					continue
-				}
-				// Update message state and settled_at; don't touch the delivery (it has already ended).
-				if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", to, now, id); err != nil {
+				continue
+			case st == Working && state == Working:
+				// Only the line changes: not a move, so nothing to ask.
+			case !msgstate.Acknowledge(msgstate.State(st), msgstate.State(state)):
+				skipped = append(skipped, SkippedMessage{ID: id, State: st, Reason: "not settleable with state " + string(state)})
+				continue
+			}
+			if st == Sent {
+				if _, err := landed(ctx, tx, now, did); err != nil {
 					return err
 				}
-				touched = append(touched, id)
-			default:
-				// In-flight message: update normally and track delivery.
-				settled := int64(0)
-				if Final(to) {
-					settled = now
-				}
-				if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, settled_at = ? WHERE id = ?", to, settled, id); err != nil {
-					return err
-				}
-				touched = append(touched, id)
+			}
+			line, settled := text, int64(0)
+			if Final(state) {
+				line, settled = "", now
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE messages SET state = ?, line = ?, settled_at = ? WHERE id = ?", state, line, settled, id); err != nil {
+				return err
+			}
+			touched = append(touched, id)
+			if st != NoReply {
+				// A late reply leaves its ended delivery alone.
 				deliveries[did] = true
 			}
 		}
-		if text != "" && thread != 0 {
+		if text != "" && thread != 0 && Final(state) {
 			attJSON := ""
 			if !att.Empty() {
 				b, _ := json.Marshal(att)

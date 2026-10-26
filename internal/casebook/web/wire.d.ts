@@ -518,6 +518,7 @@ export interface MessageView {
   reply_to?: number;
   purpose?: string;
   state: ThreadState;
+  line?: string;
   created_at: string;
   queued_at?: string;
   settled_at?: string;
@@ -536,6 +537,7 @@ export interface Message {
   reply_to?: number;
   purpose?: string;
   state: ThreadState;
+  line?: string;
   created_at: string;
   queued_at?: string;
   settled_at?: string;

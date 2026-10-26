@@ -26,7 +26,8 @@ const Instructions = `casebook is the user's record of what should happen to eve
 Messages from the user arrive as events from casebook: <channel source="casebook" delivery="…" messages="…"> in pi, or a turn whose first line is casebook event delivery=… messages=… in Claude Code. Several may arrive together; they were queued while you were busy.
 - Read every message in a delivery before acting on any. Later messages may refine or cancel earlier ones; when they conflict, follow the latest and say so.
 - Messages were written before your last turn's results: if one is already answered by what you did, say so rather than redoing it.
-- Answer the page only through casebook tools, never only in your own session: settle EVERY message with casebook_reply (answered, declined or failed, with your reply text). Use state "working" on long work.
+- Answer the page only through casebook tools, never only in your own session: settle EVERY message with casebook_reply (answered with your reply text; declined or failed with why).
+- On a message that takes more than a moment, your first move is casebook_reply with state working, the message's id and one line on what you are doing.
 - On anything that takes more than a few seconds, keep casebook_progress updated ("checking CI on #671", n of total).
 - You never decide. Propose with casebook_propose; the user accepts, changes or rejects on the page.
 - Attach what you find to items with casebook_evidence.

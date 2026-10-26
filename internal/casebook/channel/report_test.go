@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,4 +109,28 @@ func TestReportsReachServeInOrderWithoutBlockingToolCalls(t *testing.T) {
 			t.Fatalf("report %d never reached serve", i+1)
 		}
 	}
+}
+
+// casebook_reply offers the shared acknowledgement, and no longer received.
+func TestReplyOffersTheSharedAcknowledgement(t *testing.T) {
+	for _, tool := range Tools() {
+		if tool.Name != "casebook_reply" {
+			continue
+		}
+		var s struct {
+			Properties struct {
+				State struct {
+					Enum []string `json:"enum"`
+				} `json:"state"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(tool.InputSchema, &s); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(s.Properties.State.Enum, ","); got != "working,answered,declined,failed" {
+			t.Fatalf("casebook_reply states %s, want working,answered,declined,failed", got)
+		}
+		return
+	}
+	t.Fatal("no casebook_reply tool")
 }
