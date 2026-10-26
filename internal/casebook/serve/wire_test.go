@@ -161,6 +161,10 @@ func generateWire() string {
 	for i := 0; i < len(queue); i++ {
 		t := queue[i]
 		b.WriteString("\n")
+		if values, ok := enumValues(t); ok {
+			b.WriteString(renderUnion(t, values))
+			continue
+		}
 		b.WriteString(renderInterface(t, func(dep reflect.Type) {
 			if !seen[dep] {
 				seen[dep] = true
@@ -169,6 +173,33 @@ func generateWire() string {
 		}))
 	}
 	return b.String()
+}
+
+// enumValues is the values of a named string type with a Values() method
+// (diazo's rule): such a type is an enum, emitted as a union of its values.
+func enumValues(t reflect.Type) ([]string, bool) {
+	if t.Kind() != reflect.String || t.Name() == "" || t.PkgPath() == "" {
+		return nil, false
+	}
+	m, ok := t.MethodByName("Values")
+	if !ok || m.Type.NumIn() != 1 || m.Type.NumOut() != 1 || m.Type.Out(0) != reflect.TypeOf([]string(nil)) {
+		return nil, false
+	}
+	return m.Func.Call([]reflect.Value{reflect.Zero(t)})[0].Interface().([]string), true
+}
+
+func renderUnion(t reflect.Type, values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = "'" + strings.ReplaceAll(v, "'", `\'`) + "'"
+	}
+	line := fmt.Sprintf("export type %s = %s;\n", tsName(t), strings.Join(quoted, " | "))
+	if len(line) <= 81 {
+		return line
+	}
+	// Too long for one line: one value per line, as prettier (the page's
+	// fmt:check) writes it.
+	return fmt.Sprintf("export type %s =\n  | %s;\n", tsName(t), strings.Join(quoted, "\n  | "))
 }
 
 func renderInterface(t reflect.Type, found func(reflect.Type)) string {
@@ -228,6 +259,10 @@ var timeType = reflect.TypeOf(time.Time{})
 func tsType(t reflect.Type, found func(reflect.Type)) string {
 	if t == timeType {
 		return "string"
+	}
+	if _, ok := enumValues(t); ok {
+		found(t)
+		return tsName(t)
 	}
 	switch t.Kind() {
 	case reflect.Pointer:
@@ -398,7 +433,8 @@ const wireHeader = `// wire.d.ts — THE GO↔JS CONTRACT, GENERATED. DO NOT EDI
 // Written by internal/casebook/serve/wire_test.go from the json tags of every
 // view struct returned by the casebook page API and agent API. Adding a struct
 // to wireRoots is how a new endpoint's payload becomes a type the browser
-// cannot silently disagree with.
+// cannot silently disagree with. A named string type with a Values() method
+// is an enum and is declared as a union of those values.
 //
 // Regenerate with ` + "`go test ./internal/casebook/serve/ -run TestTheWireTypeIsCommitted -update`" + ` and commit.
 // Drift fails ` + "`just verify`" + ` (Go-only, always run in CI and the pre-push hook).
@@ -411,3 +447,17 @@ const wireHeader = `// wire.d.ts — THE GO↔JS CONTRACT, GENERATED. DO NOT EDI
 //     ` + "`null`" + `. The type says so rather than promising an array.
 //   - a ` + "`time.Time`" + ` is a string (RFC3339). It is not a shape on the wire.
 `
+
+// A named string type with Values() is a union, so the page's message
+// states follow tools-common's msgstate.
+func TestTheWireDeclaresMessageStatesAsAUnion(t *testing.T) {
+	out := generateWire()
+	for _, want := range []string{
+		"export type ThreadState =\n  | 'draft'\n  | 'sent'\n  | 'with_agent'\n  | 'working'\n  | 'answered'\n  | 'declined'\n  | 'failed'\n  | 'no_reply'\n  | 'reply'\n  | 'worked';\n",
+		"  state: ThreadState;\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated wire.d.ts is missing %q", want)
+		}
+	}
+}

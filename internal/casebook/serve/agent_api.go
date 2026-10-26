@@ -215,10 +215,10 @@ func (s *Server) agentWait(w http.ResponseWriter, r *http.Request) {
 				working = prev.Messages[0].Body
 			}
 			text := deliver.Render(*d, working, summary, s.App.Cfg.User, time.Local)
-			// The messages are already marked 'delivered' in the DB (see
-			// deliver.Queue.Next). Handing d to the HTTP response is the
-			// moment the agent receives them; the delivery stays in-flight
-			// until the agent settles or Court intervenes.
+			// The messages are in the delivery and still sent (see
+			// deliver.Queue.Next): the harness reports when they land. The
+			// delivery stays in flight until the agent settles it, the turn
+			// ends after it landed, or Court intervenes.
 			s.publish(ctx, "delivery", map[string]any{"id": d.ID, "session": sess.ID, "state": deliver.InFlight, "messages": len(d.Messages)})
 			reply(w, WaitView{Delivery: d, Text: text}, nil)
 			return
@@ -236,11 +236,11 @@ func (s *Server) agentWait(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) agentReply(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Session  string           `json:"session"`
-		IDs      []int64          `json:"ids"`
-		State    string           `json:"state"`
-		Text     string           `json:"text"`
-		Attached deliver.Attached `json:"attached"`
+		Session  string              `json:"session"`
+		IDs      []int64             `json:"ids"`
+		State    deliver.ThreadState `json:"state"`
+		Text     string              `json:"text"`
+		Attached deliver.Attached    `json:"attached"`
 	}
 	if err := decode(r, &in); err != nil {
 		reply(w, nil, err)

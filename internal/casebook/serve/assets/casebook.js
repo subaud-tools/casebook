@@ -9342,7 +9342,7 @@ function storedShown() {
 }
 function stateColor(state) {
   switch (state) {
-    case "queued":
+    case "sent":
       return "var(--kit-wait)";
     case "working":
       return "var(--kit-agent)";
@@ -9481,15 +9481,13 @@ function renderMsgCard(msg, delivery, sessions, ctx, agentName) {
   let stateEl = null;
   if (!isAgent && msg.state) {
     const validStates = [
-      "queued",
-      "delivered",
-      "received",
+      "sent",
+      "with_agent",
       "working",
       "answered",
       "declined",
       "failed",
-      "unanswered",
-      "interrupted"
+      "no_reply"
     ];
     if (validStates.includes(msg.state)) {
       stateEl = h17("div", {

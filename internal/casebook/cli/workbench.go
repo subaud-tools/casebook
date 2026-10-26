@@ -226,7 +226,21 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 		},
 		{Name: "channel", Group: "plumbing", Summary: "the MCP channel an agent session runs (stdio; self-routed)"},
 		{Name: "watch", Group: "plumbing", Summary: "print the user's messages as JSON lines: the Claude Code plugin's feed", NewFlags: watchFlags, Run: runWatch},
+		reportCommand(),
 	}
+}
+
+// reportCommand is `casebook report held|landed <token>` and `casebook
+// report turn-ended`, which the Claude Code plugin's mod runs.
+func reportCommand() tools.Command {
+	c := channelmcp.ReportCommand(deliverReport)
+	c.Group = "plumbing"
+	return c
+}
+
+// deliverReport is `casebook report`'s delivery.
+func deliverReport(_ string, _ channelmcp.ReportEvent, _ string) error {
+	return nil
 }
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";

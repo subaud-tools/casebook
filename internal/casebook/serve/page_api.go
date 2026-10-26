@@ -1285,7 +1285,7 @@ func (s *Server) postResend(w http.ResponseWriter, r *http.Request) {
 	for _, sess := range s.sessionsOf(r.Context(), in.IDs) {
 		s.wake(sess)
 	}
-	s.publish(r.Context(), "messages", map[string]any{"ids": in.IDs, "state": deliver.Queued})
+	s.publish(r.Context(), "messages", map[string]any{"ids": in.IDs, "state": deliver.Sent})
 	reply(w, ResendResult{Resent: n}, err)
 }
 

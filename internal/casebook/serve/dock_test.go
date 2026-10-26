@@ -121,7 +121,7 @@ func TestGetSessionDeliveryStuck(t *testing.T) {
 
 // TestSessionQueuedCountDropsAfterDelivery verifies that the queued count
 // drops to zero after the agent receives the delivery (messages move from
-// 'queued' to 'delivered').
+// queued to in a delivery).
 func TestSessionQueuedCountDropsAfterDelivery(t *testing.T) {
 	r := newRig(t)
 	th := r.attach(t, "s1")
@@ -139,7 +139,7 @@ func TestSessionQueuedCountDropsAfterDelivery(t *testing.T) {
 	// Agent picks up the delivery.
 	r.do(t, "GET", "/api/agent/wait?session=s1", nil, nil)
 
-	// Now queued count should be 0 (messages are 'delivered', not 'queued').
+	// Now queued count should be 0 (the messages are in a delivery, no longer queued).
 	r.do(t, "GET", "/api/sessions", nil, &sv)
 	for _, s := range sv.Sessions {
 		if s.ID == "s1" && s.Queued != 0 {

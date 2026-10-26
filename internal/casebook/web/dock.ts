@@ -107,10 +107,10 @@ function storedShown(): boolean | null {
 // ---- delivery state display -------------------------------------------------
 
 // State colours map for Court's message footer.
-// queued → wait, working → agent, answered → ok, failed → danger; others → muted
+// sent → wait, working → agent, answered → ok, failed → danger; others → muted
 function stateColor(state: string): string {
   switch (state) {
-    case 'queued':
+    case 'sent':
       return 'var(--kit-wait)';
     case 'working':
       return 'var(--kit-agent)';
@@ -288,15 +288,13 @@ function renderMsgCard(
   if (!isAgent && msg.state) {
     // Show state for all non-draft states.
     const validStates = [
-      'queued',
-      'delivered',
-      'received',
+      'sent',
+      'with_agent',
       'working',
       'answered',
       'declined',
       'failed',
-      'unanswered',
-      'interrupted',
+      'no_reply',
     ];
     if (validStates.includes(msg.state)) {
       stateEl = h('div', {

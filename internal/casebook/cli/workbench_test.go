@@ -173,7 +173,7 @@ func TestSettledFromClaudeStopHook(t *testing.T) {
 		} `json:"messages"`
 	}
 	_, _ = c.Do(ctx, http.MethodGet, "/api/messages?thread="+itoa(th.ID), nil, &msgs)
-	if len(msgs.Messages) != 1 || msgs.Messages[0].State != "unanswered" {
+	if len(msgs.Messages) != 1 || msgs.Messages[0].State != "no_reply" {
 		t.Fatalf("messages %+v", msgs)
 	}
 }

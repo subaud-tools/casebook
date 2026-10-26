@@ -163,9 +163,9 @@ func restarted(v serve.InterruptedView) string {
 	if n > 1 {
 		what = strconv.Itoa(n) + " messages"
 	}
-	return fmt.Sprintf("casebook serve restarted while %s to you %s in flight (%s). %s marked interrupted on the page; nothing was lost. "+
-		"You can still settle %s with casebook_reply.",
-		what, plural(n, "was", "were"), strings.Join(ids, ", "), plural(n, "It is", "They are"), plural(n, "it", "them"))
+	return fmt.Sprintf("casebook serve restarted while %s to you %s in flight (%s); nothing was lost. "+
+		"%s again in the next delivery: settle %s there with casebook_reply.",
+		what, plural(n, "was", "were"), strings.Join(ids, ", "), plural(n, "It comes", "They come"), plural(n, "it", "them"))
 }
 
 func plural(n int, one, many string) string {

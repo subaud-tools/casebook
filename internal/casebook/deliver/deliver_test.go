@@ -69,7 +69,7 @@ func TestOneInFlightAndMidTurnMessagesWait(t *testing.T) {
 	th := thread(t, q, "s1")
 	m1 := post(t, q, th, "propose decisions for the 40 chime PRs", false)
 	d1, err := q.Next(ctx, "s1")
-	if err != nil || d1 == nil || len(d1.Messages) != 1 || d1.Messages[0].ID != m1.ID || d1.Messages[0].State != Delivered {
+	if err != nil || d1 == nil || len(d1.Messages) != 1 || d1.Messages[0].ID != m1.ID || d1.Messages[0].State != Sent {
 		t.Fatalf("first delivery %+v %v", d1, err)
 	}
 	// Mid-turn: two more messages arrive; nothing goes out.
@@ -80,7 +80,7 @@ func TestOneInFlightAndMidTurnMessagesWait(t *testing.T) {
 	if d, _ := q.Next(ctx, "s1"); d != nil {
 		t.Fatalf("delivered while a delivery is in flight: %+v", d)
 	}
-	if got, _ := q.Message(ctx, m2.ID); got.State != Queued {
+	if got, _ := q.Message(ctx, m2.ID); got.State != Sent {
 		t.Fatalf("m2 state %s", got.State)
 	}
 	// The agent settles m1; the turn's delivery ends; the queue drains in order.
@@ -153,7 +153,7 @@ func TestSettledEndsTurnAndMarksUnanswered(t *testing.T) {
 	if err != nil || ended == nil || ended.State != Done {
 		t.Fatalf("settled %+v %v", ended, err)
 	}
-	if got, _ := q.Message(ctx, m2.ID); got.State != Unanswered {
+	if got, _ := q.Message(ctx, m2.ID); got.State != NoReply {
 		t.Fatalf("m2 %s", got.State)
 	}
 	if got, _ := q.Message(ctx, m1.ID); got.State != Answered {
@@ -189,8 +189,8 @@ func TestSettledLeavesUnshownDeliveryInFlight(t *testing.T) {
 	}
 	// Message still delivered (in flight), not unanswered.
 	got, _ := q.Message(ctx, m.ID)
-	if got.State != Delivered {
-		t.Fatalf("message state %s, want %s", got.State, Delivered)
+	if got.State != Sent {
+		t.Fatalf("message state %s, want %s", got.State, Sent)
 	}
 	// Inflight delivery is still there.
 	d, err := q.Inflight(ctx, "s1")
@@ -219,8 +219,8 @@ func TestSettledWithShownIDEndsDelivery(t *testing.T) {
 	if ended == nil || ended.State != Done {
 		t.Fatalf("expected Done delivery, got %+v", ended)
 	}
-	if got, _ := q.Message(ctx, m.ID); got.State != Unanswered {
-		t.Fatalf("message state %s, want %s", got.State, Unanswered)
+	if got, _ := q.Message(ctx, m.ID); got.State != NoReply {
+		t.Fatalf("message state %s, want %s", got.State, NoReply)
 	}
 }
 
@@ -306,7 +306,7 @@ func TestLateReplyToUnanswered(t *testing.T) {
 	if _, err := q.Settled(ctx, "s1", []int64{d.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := q.Message(ctx, m1.ID); got.State != Unanswered {
+	if got, _ := q.Message(ctx, m1.ID); got.State != NoReply {
 		t.Fatalf("m1 pre-state %s", got.State)
 	}
 
@@ -351,10 +351,10 @@ func TestLateReplyToUnanswered(t *testing.T) {
 	if len(touched2) != 0 {
 		t.Fatalf("touched2 %v, want none", touched2)
 	}
-	if len(skipped2) != 1 || skipped2[0].ID != m2.ID || skipped2[0].State != Unanswered {
+	if len(skipped2) != 1 || skipped2[0].ID != m2.ID || skipped2[0].State != NoReply {
 		t.Fatalf("skipped2 %+v", skipped2)
 	}
-	if got, _ := q.Message(ctx, m2.ID); got.State != Unanswered {
+	if got, _ := q.Message(ctx, m2.ID); got.State != NoReply {
 		t.Fatalf("m2 state changed unexpectedly: %s", got.State)
 	}
 
@@ -405,7 +405,7 @@ func TestStuckReleaseMoveInterrupt(t *testing.T) {
 	if err := q.Release(ctx, d2.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := q.Message(ctx, m.ID); got.State != Unanswered {
+	if got, _ := q.Message(ctx, m.ID); got.State != NoReply {
 		t.Fatalf("after release %s", got.State)
 	}
 	// Interrupt: a delivery left in flight by a dead serve.
@@ -423,7 +423,7 @@ func TestStuckReleaseMoveInterrupt(t *testing.T) {
 	if got, _ := q.Interrupt(ctx); len(got) != 0 {
 		t.Fatalf("interrupted again %+v", got)
 	}
-	if got, _ := q.Message(ctx, m2.ID); got.State != Interrupted {
+	if got, _ := q.Message(ctx, m2.ID); got.State != Sent {
 		t.Fatalf("m2 %s", got.State)
 	}
 	sessions, _ := q.Sessions(ctx)

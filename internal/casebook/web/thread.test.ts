@@ -22,7 +22,7 @@ function msg(
     author: 'court',
     body: `m${id}`,
     attached: {},
-    state: 'queued',
+    state: 'sent',
     created_at: t(created),
     ...(queued !== undefined ? { queued_at: t(queued) } : {}),
     ...rest,
