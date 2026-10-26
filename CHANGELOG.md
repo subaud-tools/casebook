@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.21.1
+
+### Fixed
+- A message sent right after the agent's turn ends reaches it at once, instead of after up to 55 seconds.
+
 ## 0.21.0
 
 ### Added
