@@ -1,6 +1,0 @@
-{
-  "description": "Starts a turn with each casebook event",
-  "modules": [
-    "./register.js"
-  ]
-}

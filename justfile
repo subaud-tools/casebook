@@ -48,16 +48,9 @@ prepare:
 verify-slow: casebook-probe
 
 # Tool-specific checks beyond the gate (CI runs this too): the page's
-# TypeScript gate, its committed bundle matching web/, and the Claude Code
-# plugin.
-verify-extra: casebook-web casebook-bundle-fresh plugin-valid
-
-# The Claude Code plugin passes Claude Code's own validator. Pinned, and run
-# through npx, so CI's runner needs nothing installed and no login. Not
-# --strict: the manifest carries no version on purpose (Claude Code then
-# versions the plugin by commit), and the validator warns about that.
-plugin-valid:
-    npx -y @anthropic-ai/claude-code@2.1.309 plugin validate plugin/casebook
+# TypeScript gate and its committed bundle matching web/. The Claude Code
+# plugin lives in subaud-tools/plugins, which validates it.
+verify-extra: casebook-web casebook-bundle-fresh
 
 # casebook's page (internal/casebook/web) is TypeScript built by esbuild into
 # internal/casebook/serve/assets, which is COMMITTED and embedded, so node is

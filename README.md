@@ -8,6 +8,8 @@ casebook records the intended fate of every repo, pull request, issue, branch an
 
 Then `casebook init` (creates a private `<you>/casebook-data` if needed) and `casebook hooks install`. The binary downloads from casebook.tools (`https://casebook.tools/dl/casebook/<version>/`).
 
+The manifest also enables casebook's Claude Code plugin, which lives in the [subaud-tools/plugins](https://github.com/subaud-tools/plugins) marketplace. Without kempt, run `/plugin marketplace add subaud-tools/plugins` and `/plugin install casebook@subaud-tools` in Claude Code.
+
 A casebook installed before 0.15.0 (built in github.com/subaud-tools/tackle) updates from tackle.tools and stays at 0.14.0: run `kempt update` or the casebook.tools installer once to move it to casebook.tools.
 
 ## Releasing

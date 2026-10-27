@@ -6,6 +6,12 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.22.0
+
+### Changed
+- The Claude Code plugin moved to the subaud-tools marketplace: `claude plugin marketplace add subaud-tools/plugins`, then `claude plugin install casebook@subaud-tools`. The `casebook` marketplace and `casebook@casebook` are gone; the kempt manifest enables `casebook@subaud-tools` and removes the old ones.
+- `casebook login` signs in over two short runs: the first prints the code to type, the next saves the token once the machine is allowed; `--wait` does both in one run (tools-common v0.30.0). Nothing needs it yet: `casebook update` still downloads anonymously.
+
 ## 0.21.1
 
 ### Fixed
