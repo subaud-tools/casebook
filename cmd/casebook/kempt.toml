@@ -30,13 +30,16 @@ only = { os = "darwin" }
   file = "~/.claude/settings.json"
   merge = { hooks = { SessionStart = [ { matcher = "startup|resume", hooks = [ { type = "command", command = "~/.local/bin/casebook brief" } ] } ] } }
 
-  # Claude Code: the casebook plugin from casebook's own marketplace. The next
-  # plain `claude` session installs the plugin at user scope.
+  # Claude Code: the casebook plugin from the subaud-tools marketplace
+  # (subaud-tools/plugins); the old casebook marketplace and its
+  # casebook@casebook are removed. The next plain `claude` session installs
+  # the plugin at user scope.
   # Its .mcp.json runs `casebook channel` for the tools and its mod runs
   # `casebook watch`, which turns each delivery of page messages into a turn.
   [[packages.casebook.json-merge]]
   file = "~/.claude/settings.json"
-  merge = { extraKnownMarketplaces = { casebook = { source = { source = "github", repo = "subaud-tools/casebook" }, autoUpdate = true } }, enabledPlugins = { "casebook@casebook" = true } }
+  merge = { extraKnownMarketplaces = { subaud-tools = { source = { source = "github", repo = "subaud-tools/plugins" }, autoUpdate = true } }, enabledPlugins = { "casebook@subaud-tools" = true } }
+  remove = ["extraKnownMarketplaces.casebook", "enabledPlugins.casebook@casebook"]
 
   # The bare server the plugin replaces, or the channel would start twice.
   [[packages.casebook.json-merge]]
