@@ -7,6 +7,7 @@
   "scripts": {
     "postinstall": "npm run kit-types",
     "kit-types": "go mod download github.com/subaud-tools/tools-common && KIT_DIR=$(go list -m -f '{{.Dir}}' github.com/subaud-tools/tools-common) && test -n \"$KIT_DIR\" && cp -f \"$KIT_DIR/localweb/page/assets/kit.d.ts\" . && chmod 644 kit.d.ts",
+    "build-files": "go mod download github.com/subaud-tools/tools-common && KIT_DIR=$(go list -m -f '{{.Dir}}' github.com/subaud-tools/tools-common) && test -n \"$KIT_DIR\" && mkdir -p build && cp -f \"$KIT_DIR/localweb/page/build/eslint.base.mjs\" \"$KIT_DIR/localweb/page/build/probe.mjs\" build/ && chmod 644 build/eslint.base.mjs build/probe.mjs",
     "typecheck": "tsc",
     "fmt": "prettier --write \"*.mjs\" \"*.ts\"",
     "fmt:check": "prettier --check \"*.mjs\" \"*.ts\"",

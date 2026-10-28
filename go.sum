@@ -14,8 +14,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
-github.com/subaud-tools/tools-common v0.32.1 h1:GFmJ1vPwn9VY3WDlr0FjoMopqLwtvm/qnuebZGBTVXk=
-github.com/subaud-tools/tools-common v0.32.1/go.mod h1:D8+YkaacNci6edZJ2rTG4PjNDFAv9VsI/c1LSXAVdlU=
+github.com/subaud-tools/tools-common v0.33.0 h1:DwrcOFkMQaVGZWqIqHSamlzFeIzr5uFtUZgEq27ZzAQ=
+github.com/subaud-tools/tools-common v0.33.0/go.mod h1:D8+YkaacNci6edZJ2rTG4PjNDFAv9VsI/c1LSXAVdlU=
 github.com/subaud-tools/tools-common/sqlitedb v0.2.0 h1:OcqYw7AArcuP7ZahUkFh9bXTV/Kdt4BP34QskKUmfyw=
 github.com/subaud-tools/tools-common/sqlitedb v0.2.0/go.mod h1:n8UDJ98EYfpsKRfzXz0LnldXoqXM3oAl9f3RglCZkR4=
 golang.org/x/mod v0.38.0 h1:MECBjubtXD7yj4HrhIUcywNaGeNVUdfVnxmPajOk4yk=

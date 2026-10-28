@@ -1,81 +1,12 @@
-// The linter for internal/casebook/web/.
-// Mirrors galley's eslint.config.mjs: defect classes only, no opinions.
+// The linter for internal/casebook/web/: the family's base (build/, copied
+// from tools-common by `npm run build-files`). casebook has more test files
+// than the default project's cap of eight, and its .ts keeps no-undef on.
 
-import globals from 'globals';
-import tseslint from 'typescript-eslint';
+import base from './build/eslint.base.mjs';
 
-const rules = {
-  'no-undef': 'error',
-  'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }],
-  'no-const-assign': 'error',
-  'no-dupe-args': 'error',
-  'no-dupe-class-members': 'error',
-  'no-dupe-keys': 'error',
-  'no-duplicate-case': 'error',
-  'no-func-assign': 'error',
-  'no-import-assign': 'error',
-  'no-self-assign': 'error',
-  'no-self-compare': 'error',
-  'no-sparse-arrays': 'error',
-  'no-unreachable': 'error',
-  'no-unsafe-negation': 'error',
-  'no-unsafe-optional-chaining': 'error',
-  'use-isnan': 'error',
-  'valid-typeof': 'error',
-  'no-fallthrough': 'error',
-  'no-cond-assign': ['error', 'always'],
-  'getter-return': 'error',
-};
-
-export default [
-  {
-    ignores: ['node_modules/', 'kit.d.ts'],
-  },
-  ...tseslint.configs.recommendedTypeChecked.map((c) => ({
-    ...c,
-    files: ['**/*.ts'],
-  })),
-  {
-    files: ['**/*.ts'],
-    languageOptions: {
-      parserOptions: {
-        projectService: {
-          // *.test.ts files use node: imports excluded from the browser tsconfig;
-          // allow them to be linted without full project type information.
-          allowDefaultProject: ['*.test.ts'],
-          // One default project per test file (seventeen and counting); the
-          // default cap is eight.
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 24,
-        },
-        tsconfigRootDir: import.meta.dirname,
-      },
-      globals: { ...globals.browser },
-    },
-    rules: {
-      ...rules,
-      // The TS plugin's no-unused-vars (from recommendedTypeChecked) supersedes
-      // the base rule; re-enabling the base rule would cause duplicate reports.
-      'no-unused-vars': 'off',
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-unsafe-declaration-merging': 'off',
-      '@typescript-eslint/no-empty-object-type': 'off',
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-misused-promises': 'warn',
-      '@typescript-eslint/no-base-to-string': 'warn',
-      '@typescript-eslint/unbound-method': 'warn',
-    },
-  },
-  {
-    files: ['**/*.mjs'],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: { ...globals.node, ...globals.browser },
-    },
-    rules,
-  },
-];
+export default base({
+  root: import.meta.dirname,
+  ignores: ['kit.d.ts'],
+  maxTestFiles: 24,
+  ambientGlobals: false,
+});
