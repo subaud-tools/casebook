@@ -77,10 +77,15 @@ casebook-web: _casebook-web-deps
 casebook-assets: _casebook-web-deps
     cd {{ casebook_web }} && npm run --silent build:js && npm run --silent build:css
 
-# The committed bundle matches web/: nothing else notices a stale one.
+# The committed bundle matches web/: nothing else notices a stale one. The
+# build files copied from tools-common (web/build/: the eslint base and the
+# probe scaffolding) match the version go.mod pins.
 casebook-bundle-fresh: casebook-assets
     git diff --exit-code -- internal/casebook/serve/assets/casebook.js internal/casebook/serve/assets/casebook.css \
       || { echo "the committed casebook bundle does not match web/: run 'just casebook-assets' and commit the result"; exit 1; }
+    cd {{ casebook_web }} && npm run --silent build-files
+    git diff --exit-code -- {{ casebook_web }}/build && [ -z "$(git ls-files --others --exclude-standard -- {{ casebook_web }}/build)" ] \
+      || { git status --short -- {{ casebook_web }}/build; echo "web/build/ does not match the tools-common go.mod pins: edit it in tools-common, not here; run 'cd {{ casebook_web }} && npm run build-files' and commit the result"; exit 1; }
 
 # The page in a real headless chromium against a seeded casebook serve
 # (--no-open, CASEBOOK_NO_BROWSER=1; see web/serve.mjs). KIT_BROWSER=required:

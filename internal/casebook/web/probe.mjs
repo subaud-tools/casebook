@@ -21,7 +21,15 @@
 // --no-open and CASEBOOK_NO_BROWSER=1 (it throws at module load without
 // --no-open), so no probe can open Court's browser.
 
-import pkg from 'playwright-core';
+import {
+  check,
+  counts,
+  launchOrSkip,
+  onCleanup,
+  required,
+  run as runProbe,
+  until as poll,
+} from './build/probe.mjs';
 import { startServe, gitGuard, seenWalkthrough } from './serve.mjs';
 import { createAgent } from './agent.mjs';
 import { applyScenarios, stopApplyServes } from './probe-apply.mjs';
@@ -30,23 +38,6 @@ import {
   walkthroughScenarios,
   stopWalkthroughServes,
 } from './probe-walkthrough.mjs';
-
-const { chromium } = pkg;
-
-const required = process.env.KIT_BROWSER === 'required';
-
-let passes = 0;
-let fails = 0;
-
-function check(label, ok) {
-  if (ok) {
-    console.log(`  ✓ ${label}`);
-    passes++;
-  } else {
-    console.error(`  ✗ ${label}`);
-    fails++;
-  }
-}
 
 // checkList checks a list against what it should be, saying how they differ.
 function checkList(label, got, want) {
@@ -69,14 +60,7 @@ async function until(pg, fn, arg, timeout = 6000) {
 }
 
 // eventually polls a check in node until it holds (serve-side state).
-async function eventually(fn, timeout = 5000) {
-  const end = Date.now() + timeout;
-  for (;;) {
-    if (await fn()) return true;
-    if (Date.now() > end) return false;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
+const eventually = async (fn, timeout = 5000) => !!(await poll(fn, timeout));
 
 // expectError says one console error is meant (a scenario provoking serve's
 // refusal: the browser logs the 4xx it gets): the next console error that
@@ -89,7 +73,9 @@ function expectError(text) {
 const helpers = { check, checkList, until, eventually, expectError };
 
 let e2eServe = null;
-function cleanup() {
+// stopServes stops every serve the groups started: at the scaffolding's
+// cleanup (after the browser closes, and on SIGINT/SIGTERM), and on exit.
+function stopServes() {
   if (e2eServe) {
     e2eServe.stop();
     e2eServe = null;
@@ -98,18 +84,7 @@ function cleanup() {
   stopDecideServes();
   stopWalkthroughServes();
 }
-
-process.on('SIGTERM', () => {
-  cleanup();
-  process.exit(143); // 128 + SIGTERM(15)
-});
-process.on('SIGINT', () => {
-  cleanup();
-  process.exit(130); // 128 + SIGINT(2)
-});
-process.on('exit', () => {
-  cleanup();
-});
+process.on('exit', stopServes);
 
 // ---- the page end to end ----------------------------------------------------
 //
@@ -556,47 +531,38 @@ let throttled = 0;
 
 async function run() {
   if (only && !PROBE_GROUPS.includes(only)) {
-    console.error(
+    check(
       `probe: PROBE_ONLY=${only} is not a group (${PROBE_GROUPS.join(', ')})`,
+      false,
     );
-    fails++;
     return;
   }
   if (only && underCI) {
-    console.error(
+    check(
       `probe: PROBE_ONLY=${only} is set under CI; CI runs the whole probe`,
+      false,
     );
-    fails++;
     return;
   }
   if (only && required && !partial) {
-    console.error(
+    check(
       `probe: PROBE_ONLY=${only} is set for a full, required run; unset it, or run the part on purpose with \`just casebook-probe-only ${only}\``,
+      false,
     );
-    fails++;
     return;
   }
+  // Chrome is required under KIT_BROWSER=required and under CI.
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
-  } catch {
-    browser = null;
-  }
-  if (!browser) {
-    if (required || underCI) {
-      console.error(
-        'probe: Chrome is required (KIT_BROWSER=required) but not found.',
-      );
-      console.error(
-        '  Install: node node_modules/playwright-core/cli.js install --with-deps chromium chromium-headless-shell',
-      );
-      process.exit(1);
-    }
-    console.log(
-      'probe: Chrome not found, skipping (set KIT_BROWSER=required to fail instead).',
+    browser = await launchOrSkip({ required: required || underCI });
+  } catch (err) {
+    console.error(
+      '  Install: node node_modules/playwright-core/cli.js install --with-deps chromium chromium-headless-shell',
     );
-    return;
+    throw err;
   }
+  if (!browser) return;
+  onCleanup(stopServes);
 
   // Every context the probe opens records its pages' console errors and
   // uncaught errors. PROBE_THROTTLE=<rate> (opt-in, e.g. 4) slows every
@@ -663,9 +629,6 @@ async function run() {
       }
     }
     group = '';
-  } catch (err) {
-    console.error('probe: unexpected error:', err);
-    fails++;
   } finally {
     console.log('\ninvariant: no page showed a console or page error');
     check(
@@ -695,23 +658,25 @@ async function run() {
         n === 0,
       );
     }
-    await browser.close();
-    cleanup();
   }
 }
 
 let ran = false; // a browser ran the scenarios (not the no-Chrome skip)
 
-void run().then(() => {
-  if (throttle > 1) {
-    console.log(`\nprobe: ${throttled} pages ran at ${throttle}x CPU throttle`);
-  }
-  console.log(`\nprobe: ${passes} passed, ${fails} failed`);
-  if (ran && !only && passes < MIN_CHECKS) {
-    console.error(
-      `probe: a full run passed ${passes} checks, fewer than MIN_CHECKS (${MIN_CHECKS})`,
-    );
-    fails++;
-  }
-  if (fails > 0) process.exit(1);
+void runProbe(run, {
+  after: () => {
+    if (throttle > 1) {
+      console.log(
+        `\nprobe: ${throttled} pages ran at ${throttle}x CPU throttle`,
+      );
+    }
+    if (ran && !only) {
+      const { passes } = counts();
+      check(
+        `a full run passed at least MIN_CHECKS (${MIN_CHECKS}) checks`,
+        passes >= MIN_CHECKS,
+        `it passed ${passes}`,
+      );
+    }
+  },
 });
