@@ -66,11 +66,15 @@ func TestServeForegroundOpenStop(t *testing.T) {
 	done := make(chan int, 1)
 	go func() { code, _, _ := run("serve", "--foreground", "--no-open"); done <- code }()
 	adv := waitRunning(t)
-	// --no-open: pageserve's serve command opens the page with the OS
-	// browser, which no test may reach; servePage's test covers what opens.
-	if code, out, _ := run("serve", "--no-open"); code != 0 || !strings.Contains(out, "casebook serve is running: "+adv.Base) {
+	// Plain `casebook serve` opens through casebook's opener (the seam tests
+	// replace and CASEBOOK_NO_BROWSER silences), never the OS browser.
+	if code, out, _ := run("serve"); code != 0 || !strings.Contains(out, "casebook serve is running: "+adv.Base) {
 		t.Fatalf("serve while running: %d %q", code, out)
 	}
+	if len(*opened) != 1 || !strings.HasPrefix((*opened)[0], adv.URL) {
+		t.Fatalf("plain serve opened %v through casebook's opener; want the running page", *opened)
+	}
+	*opened = nil
 	if code, _, errw := run("serve", "extra", "--no-open"); code != 2 || !strings.Contains(errw, "serve takes no arguments") {
 		t.Fatalf("serve with an argument: %d %q", code, errw)
 	}

@@ -55,6 +55,8 @@ func shell() pageserve.Commands {
 		Group:   "observe",
 		Serve:   serveForeground,
 		Page:    servePage,
+		// casebook's opener, so CASEBOOK_NO_BROWSER covers `casebook serve`.
+		Open: func(url string) error { return openBrowser(url) },
 	}
 }
 
