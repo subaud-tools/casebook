@@ -42,7 +42,7 @@ func Main(args []string, stdin io.Reader, out, errw io.Writer) int {
 		return hooks.Main(args[1:], stdin)
 	}
 	if len(args) > 0 && args[0] == "channel" {
-		return channelMain(stdin, out, errw)
+		return channelMain(args[1:], stdin, out, errw)
 	}
 	a := tools.New(tools.Config{
 		Name:    "casebook",

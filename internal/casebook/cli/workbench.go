@@ -5,17 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/channel"
@@ -23,15 +20,14 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/casebook/internal/version"
 	tools "github.com/subaud-tools/tools-common"
-	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/harness"
 	"github.com/subaud-tools/tools-common/localweb"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // Test seams for the workbench commands.
 var (
 	openBrowser      = localweb.OpenBrowser
-	startDetached    = defaultStartDetached
 	newSettledClient = channel.NewClient
 )
 
@@ -50,17 +46,65 @@ func init() {
 // "" from a plain terminal. The page it opens belongs to that session.
 func callerSession() string { return harness.FromEnv().SessionID }
 
-// defaultStartDetached starts serve in the background from this binary.
-func defaultStartDetached(port int) (serve.Advert, error) { return serve.Start(executable(), port) }
+// shell is casebook's serve, channel, watch and report commands:
+// pageserve's, with casebook's channel, its serve and its page.
+func shell() pageserve.Commands {
+	return pageserve.Commands{
+		Spec:    channel.Spec(version.Number()),
+		Process: pageserve.Process{Live: serve.Live(), Args: []string{"serve", "--foreground", "--no-open"}},
+		Group:   "observe",
+		Serve:   serveForeground,
+		Page:    servePage,
+	}
+}
 
-func serveFlags() *flag.FlagSet {
-	return flags("serve", "casebook serve [--no-open] [--port N] [--foreground] [--stop]",
-		"Starts the casebook page and agent server in the background (one per machine) and opens it. When it's already running, opens the running one.", func(fs *flag.FlagSet) {
-			fs.Bool("no-open", false, "don't open the browser")
-			fs.Bool("foreground", false, "run in this process until stopped (used by the background start)")
-			fs.Bool("stop", false, "stop the running server")
-			fs.Int("port", 0, "port (default: the last one used, else a free one)")
-		})()
+var serveHelp = pageserve.Help{
+	Synopsis: "[--no-open] [--port N] [--stop]",
+	Summary:  "open the casebook page (starts the local server if needed)",
+	Long:     "Starts the casebook page and agent server in the background (one per machine) and opens it. When it's already running, opens the running one.",
+}
+
+var channelHelp = pageserve.Help{Summary: "the MCP channel an agent session runs (stdio; self-routed)"}
+
+var watchHelp = pageserve.Help{
+	Summary: "print the user's messages as JSON lines: the Claude Code plugin's feed",
+	Long: "Registers the session with casebook serve and prints each delivery of the user's messages as one JSON line {\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. " +
+		"The casebook plugin's mod runs it for a Claude Code session and starts a turn with each line's text. Logs go to stderr. Runs until signalled. " +
+		"In a session pi's claude-bridge runs, it prints {\"stop\": ...} and exits 0.",
+}
+
+// serveForeground is `casebook serve --foreground`: the server, in this
+// process until ctx ends. The background start runs it with --no-open; a
+// restart reopens a page that was open (its tab's token died with the old
+// serve), attached to the agent the old tab was (Court, 2026-10-18: restarts
+// left the page with no agent).
+func serveForeground(ctx context.Context, port int, errw io.Writer) error {
+	a, err := open()
+	if err != nil {
+		return err
+	}
+	return serve.Run(ctx, a, serve.Options{Version: version.Number(), Port: port, Idle: 8 * time.Hour, Log: errw,
+		Ready: func(url string, pageWasOpen bool, session string) {
+			if pageWasOpen {
+				_ = openBrowser(url + serve.SessionQuery(session))
+			}
+		},
+		Open: func(url string) error { return openBrowser(url) }})
+}
+
+// servePage is `casebook serve`'s page: it takes no arguments, fails with
+// the init hint before starting serve on a machine casebook isn't set up on,
+// and opens the page attached to the calling session.
+func servePage(_ context.Context, args []string) (fragment, note string, err error) {
+	if len(args) > 0 {
+		return "", "", tools.UsageError{Msg: "serve takes no arguments"}
+	}
+	if _, err := serve.Running(); err != nil {
+		if _, err := open(); err != nil {
+			return "", "", err
+		}
+	}
+	return serve.SessionQuery(callerSession()), "", nil
 }
 
 func settledFlags() *flag.FlagSet {
@@ -87,71 +131,7 @@ func sessionInfoFlags() *flag.FlagSet {
 
 func workbenchCommands(stdin io.Reader) []tools.Command {
 	return []tools.Command{
-		{
-			Name: "serve", Group: "observe", Synopsis: "serve [--no-open] [--port N] [--stop]",
-			Summary: "open the casebook page (starts the local server if needed)", NewFlags: serveFlags,
-			Run: func(args []string, out, errw io.Writer) error {
-				fs := serveFlags()
-				if _, err := parse(fs, args, out); err != nil {
-					return err
-				}
-				ctx := context.Background()
-				if boolFlag(fs, "stop") {
-					if err := serve.Stop(ctx); errors.Is(err, serve.ErrNotRunning) {
-						_, _ = fmt.Fprintln(out, "casebook serve is not running")
-						return nil
-					} else if err != nil {
-						return err
-					}
-					_, _ = fmt.Fprintln(out, "casebook serve stopped")
-					return nil
-				}
-				port := intFlag(fs, "port")
-				if boolFlag(fs, "foreground") {
-					a, err := open()
-					if err != nil {
-						return err
-					}
-					sctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-					defer stop()
-					return serve.Run(sctx, a, serve.Options{Version: version.Number(), Port: port, Idle: 8 * time.Hour, Log: errw,
-						// A restart reopens a page that was open: its tab's
-						// token died with the old serve.
-						// The open Court asked for is attached to the session
-						// that asked (if any); a reopen after a restart is
-						// attached to the agent the old tab was (Court,
-						// 2026-10-18: restarts left the page with no agent).
-						Ready: func(url string, pageWasOpen bool, session string) {
-							switch {
-							case !boolFlag(fs, "no-open"):
-								_ = openBrowser(url + serve.SessionQuery(callerSession()))
-							case pageWasOpen:
-								_ = openBrowser(url + serve.SessionQuery(session))
-							}
-						},
-						Open: func(url string) error { return openBrowser(url) }})
-				}
-				adv, err := serve.Running()
-				switch {
-				case errors.Is(err, serve.ErrNotRunning):
-					if _, err := open(); err != nil {
-						return err
-					}
-					if adv, err = startDetached(port); err != nil {
-						return err
-					}
-					_, _ = fmt.Fprintf(out, "casebook serve started: %s\n", adv.Base)
-				case err != nil:
-					return err
-				default:
-					_, _ = fmt.Fprintf(out, "casebook serve is running: %s\n", adv.Base)
-				}
-				if !boolFlag(fs, "no-open") {
-					_ = openBrowser(adv.URL + serve.SessionQuery(callerSession()))
-				}
-				return nil
-			},
-		},
+		shell().ServeCommand(serveHelp),
 		{
 			Name: "settled", Group: "plumbing", Summary: "report an agent's turn ended (never fails)", NewFlags: settledFlags,
 			Run: func(args []string, out, errw io.Writer) error {
@@ -224,28 +204,16 @@ func workbenchCommands(stdin io.Reader) []tools.Command {
 				return nil
 			},
 		},
-		{Name: "channel", Group: "plumbing", Summary: "the MCP channel an agent session runs (stdio; self-routed)"},
-		{Name: "watch", Group: "plumbing", Summary: "print the user's messages as JSON lines: the Claude Code plugin's feed", NewFlags: watchFlags, Run: runWatch},
-		reportCommand(),
+		plumbing(shell().ChannelCommand(stdin, channelHelp)),
+		plumbing(shell().WatchCommand(watchHelp)),
+		plumbing(shell().ReportCommand()),
 	}
 }
 
-// reportCommand is `casebook report held|landed <token>` and `casebook
-// report turn-ended`, which the Claude Code plugin's mod runs.
-func reportCommand() tools.Command {
-	c := channelmcp.ReportCommand(deliverReport)
+// plumbing lists a shared command under the plumbing commands.
+func plumbing(c tools.Command) tools.Command {
 	c.Group = "plumbing"
 	return c
-}
-
-// deliverReport is `casebook report`'s delivery: it posts the report to
-// serve through the client casebook settled uses, which finds serve and
-// never starts it. A failed post is the command's error, which the mod
-// logs; it is not retried.
-func deliverReport(session string, event channelmcp.ReportEvent, token string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return newSettledClient().Report(ctx, session, event, token)
 }
 
 // chanTagRE matches a <channel ...> opening tag; deliveryRE extracts delivery="N";
@@ -423,52 +391,16 @@ func deliveryList(seen map[int64]bool) []int64 {
 	return out
 }
 
-func watchFlags() *flag.FlagSet {
-	return flags("watch", "casebook watch",
-		"Registers the session with casebook serve and prints each delivery of the user's messages as one JSON line {\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. "+
-			"The casebook plugin's mod runs it for a Claude Code session and starts a turn with each line's text. Logs go to stderr. Runs until signalled. "+
-			"In a session pi's claude-bridge runs, it prints {\"stop\": ...} and exits 0.", nil)()
-}
-
-// runWatch is `casebook watch`: the channel's wake loop, printing each
-// delivery as one JSON line on stdout for the Claude Code plugin's mod.
-func runWatch(args []string, out, errw io.Writer) error {
-	fs := watchFlags()
-	pos, err := parse(fs, args, out)
-	if err != nil {
-		return err
-	}
-	if len(pos) > 0 {
-		return tools.UsageError{Msg: "watch takes no arguments"}
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return watch(ctx, out, errw)
-}
-
-// watch is runWatch after its flags, until ctx ends, so a test can stop it.
+// watch is `casebook watch` after its flags, until ctx ends, so a test can
+// stop it. Its client never starts serve.
 func watch(ctx context.Context, out, errw io.Writer) error {
-	// In a bridge child this prints the stop line and the mod never restarts
-	// watch: the hosting pi session's channel delivers the user's messages.
-	lines, run, err := channelmcp.StartWatch(out, "casebook")
-	if !run || err != nil {
-		return err
-	}
-	ch := channel.New(channel.FromEnv(), channel.NewClient(), version.Number())
-	ch.Log = errw
-	ch.Push = lines
-	return ch.Watch(ctx)
+	return shell().Watch(ctx, out, errw, channel.NewClient())
 }
 
-// channelMain is `casebook channel`: MCP on stdin/stdout, diagnostics on stderr.
-func channelMain(stdin io.Reader, out, errw io.Writer) int {
-	c := channel.NewClient()
-	c.Start = func() (serve.Advert, error) { return startDetached(0) } // any tool call starts serve
-	ch := channel.ForSession(c, version.Number())
-	ch.Log = errw
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := ch.Run(ctx, stdin, out); err != nil {
+// channelMain is `casebook channel`, routed before the App so nothing but MCP
+// reaches stdout: MCP on stdin/stdout, diagnostics on stderr.
+func channelMain(args []string, stdin io.Reader, out, errw io.Writer) int {
+	if err := shell().ChannelCommand(stdin, channelHelp).Run(args, out, errw); err != nil {
 		_, _ = fmt.Fprintf(errw, "casebook channel: %v\n", err)
 		return 1
 	}

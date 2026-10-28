@@ -1,3 +1,12 @@
+// Package channel is `casebook channel`: the MCP server each agent session
+// starts (Claude Code through the casebook plugin, pi through
+// channels.tools). It gives the agent casebook's tools and, under pi,
+// registers the session's presence with casebook serve, holds a long-poll
+// open for the session's deliveries and injects each one into the session as
+// a notifications/claude/channel event (casebook workbench spec §2.2, §6).
+// Under Claude Code `casebook watch` runs that loop instead and prints each
+// delivery as a JSON line for the plugin's mod. The channel, its loop and the
+// client are tools-common pageserve's; casebook's are its Spec.
 package channel
 
 import (
@@ -5,10 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +22,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/deliver"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/tools-common/channelmcp"
-	"github.com/subaud-tools/tools-common/harness"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // Instructions are the standing rules the agent gets with the channel
@@ -35,152 +41,94 @@ Messages from the user arrive as events from casebook: <channel source="casebook
 - Open the page (casebook_open) only when the user asks or when handing them something to review; never repeatedly.
 - Item keys look like repo:owner/name, pr:owner/name#N, issue:owner/name#N, branch:owner/name@branch, worktree:machine:/abs/path.`
 
-// Identity is the session this channel serves.
-type Identity struct {
-	Session string
-	Harness string // "claude" or "pi"
-	Label   string
-	CWD     string
+// Spec is casebook's channel for pageserve: its tools, the presence body
+// casebook serve takes, how a wait's answer becomes an event, and the restart
+// notice.
+func Spec(version string) pageserve.Spec {
+	return pageserve.Spec{
+		Tool: "casebook", Version: version, Instructions: Instructions, Tools: Tools(), Call: call,
+		Wake: wake, Answers: "the user's messages", PresenceBody: presenceBody, OnServe: onServe,
+	}
 }
+
+// Channel, Identity and Client are pageserve's: the channel loop, presence,
+// reports and the client that finds (or, for a tool call, starts) serve.
+type (
+	Channel     = pageserve.Channel
+	Identity    = pageserve.Identity
+	Client      = pageserve.Client
+	StatusError = pageserve.StatusError
+)
+
+// ErrNoServe means casebook serve isn't running (and the client doesn't
+// start it).
+var ErrNoServe = pageserve.ErrNoServe
 
 // FromEnv resolves the session by the family rule (tools-common harness).
-// Session is "" outside a harness.
-func FromEnv() Identity {
-	c := harness.FromEnv()
-	id := Identity{Session: c.SessionID, CWD: c.CWD, Harness: "pi"}
-	if c.IsClaude() {
-		id.Harness = "claude"
-	}
-	if id.CWD == "" {
-		id.CWD, _ = os.Getwd()
-	}
-	id.Label = id.Harness + " · " + filepath.Base(id.CWD)
-	return id
-}
-
-// Channel is a running casebook channel.
-type Channel struct {
-	ID     Identity
-	Client *Client
-	Server *channelmcp.Server
-	Log    io.Writer
-	// Retry is how long to wait before looking for serve again; Presence how
-	// often to refresh presence; Poll the long-poll timeout. Tests shorten them.
-	Retry    time.Duration
-	Presence time.Duration
-	Poll     time.Duration
-	// runCtx is Run's context, set before Server.Run begins; the Call closure
-	// uses it so tool calls end with the channel. Nil before Run has started
-	// (not expected in practice): fall back to Background.
-	runCtx context.Context
-	// Push is where the wake loop sends each event: Server for `casebook
-	// channel`, a JSON line on stdout for `casebook watch`. One loop, two
-	// outputs.
-	Push channelmcp.Pusher
-	// ServeOnly is `casebook channel` under Claude Code: the plugin's mod runs
-	// `casebook watch`, which takes the deliveries, so this process serves
-	// the tools and never waits. Two takers would split a session's messages.
-	ServeOnly bool
-	// reports holds the harness's reports (pi's channels.tools) until
-	// postReports hands them to serve, in order.
-	reports chan report
-}
-
-// report is one report from the harness, waiting to be posted to serve.
-type report struct {
-	event channelmcp.ReportEvent
-	token string
-}
+func FromEnv() Identity { return pageserve.FromEnv() }
 
 // New builds a channel for id.
-func New(id Identity, c *Client, version string) *Channel {
-	ch := &Channel{ID: id, Client: c, Log: io.Discard, Retry: 5 * time.Second, Presence: 30 * time.Second, Poll: 55 * time.Second,
-		reports: make(chan report, 64)}
-	ch.Server = channelmcp.New(channelmcp.Handler{
-		Name: "casebook", Version: version, Instructions: Instructions, Tools: Tools(),
-		Call: func(name string, args json.RawMessage) (string, error) {
-			ctx := ch.runCtx
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			return ch.Call(ctx, name, args)
-		},
-		// Run's read loop hands each report over and goes on: posting it
-		// to serve waits on the network, and tool calls must not.
-		OnReport: func(event channelmcp.ReportEvent, token string) {
-			select {
-			case ch.reports <- report{event, token}:
-			default:
-				_, _ = fmt.Fprintf(ch.Log, "casebook channel: dropped report %s %s: too many waiting\n", event, token)
-			}
-		},
-	})
-	ch.Push = ch.Server
-	return ch
-}
+func New(id Identity, c *Client, version string) *Channel { return pageserve.New(Spec(version), id, c) }
 
 // ForSession is the channel `casebook channel` runs: this session, and
-// serve-only when the session is Claude Code's (see ServeOnly).
-func ForSession(c *Client, version string) *Channel {
-	ch := New(FromEnv(), c, version)
-	ch.ServeOnly = harness.FromEnv().IsClaude()
-	return ch
+// serve-only when the session is Claude Code's (the plugin's `casebook watch`
+// takes the deliveries).
+func ForSession(c *Client, version string) *Channel { return pageserve.ForSession(Spec(version), c) }
+
+// q encodes pairs (key, value, ...) as a URL query, leaving out empty values.
+func q(pairs ...string) string { return pageserve.Query(pairs...) }
+
+// NewClient returns a client that finds serve through its entry and never
+// starts it.
+func NewClient() *Client { return pageserve.NewClient(serve.Live(), nil) }
+
+// presenceBody is the body of POST /api/agent/presence. pid is the HARNESS
+// process's (the channel's parent: pi's channels.tools and Claude Code spawn
+// the channel directly), not the channel's own: pi-subagents runs worker
+// sessions inside their parent's pi process, each with its own channel, so a
+// shared harness pid is how serve tells a worker from a fork (which runs in
+// a pi process of its own). pi-casebook reports the same pid (pi's
+// process.pid).
+func presenceBody(id Identity) any {
+	return map[string]any{"id": id.Session, "harness": id.Harness, "label": id.Label, "cwd": id.CWD, "pid": id.PID}
 }
 
-// Run serves MCP on r/w and, when the session is known and the channel is
-// not serve-only, the wake loop.
-func (ch *Channel) Run(ctx context.Context, r io.Reader, w io.Writer) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	// Tool calls run under ctx, so they end with the channel: channelMain
-	// cancels it on SIGINT/SIGTERM, which is how a harness stops the channel.
-	// Set before Server.Run starts reading, so the Call closure never races it.
-	ch.runCtx = ctx
-	if ch.ServeOnly {
-		_, _ = fmt.Fprintln(ch.Log, "casebook channel: Claude Code session: serving tools only; the casebook plugin's `casebook watch` delivers the user's messages")
-	} else if ch.ID.Session != "" {
-		go ch.loop(ctx)
-		go ch.postReports(ctx)
+// wake reads one answer of GET /api/agent/wait: a delivery becomes one
+// channel event; a wait that timed out (no delivery) pushes nothing.
+func wake(body json.RawMessage) (string, map[string]string, bool) {
+	var got struct {
+		Delivery deliver.Delivery `json:"delivery"`
+		Text     string           `json:"text"`
+		Report   string           `json:"report"`
 	}
-	return ch.Server.Run(r, w)
+	if err := json.Unmarshal(body, &got); err != nil || got.Delivery.ID == 0 {
+		return "", nil, false
+	}
+	var ids []string
+	for _, m := range got.Delivery.Messages {
+		ids = append(ids, strconv.FormatInt(m.ID, 10))
+	}
+	meta := map[string]string{"source": "casebook", "delivery": strconv.FormatInt(got.Delivery.ID, 10), "messages": strings.Join(ids, ",")}
+	if got.Report != "" {
+		meta[channelmcp.MetaReport] = got.Report
+	}
+	return got.Text, meta, true
 }
 
-// postReports posts each report the harness sent to serve, in the order
-// sent, until ctx ends. It never starts serve. A failed post is logged, not
-// retried.
-func (ch *Channel) postReports(ctx context.Context) {
-	c := ch.Client.passive()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case r := <-ch.reports:
-			if err := c.Report(ctx, ch.ID.Session, r.event, r.token); err != nil && ctx.Err() == nil {
-				_, _ = fmt.Fprintf(ch.Log, "casebook channel: report %s: %v\n", r.event, err)
-			}
+// onServe runs when the serve the wait loop reaches is a new process: it
+// tells the agent only if that restart interrupted messages in flight to
+// this session (serve says so); otherwise, or when serve can't say, it stays
+// silent.
+func onServe(ctx context.Context, ch *Channel, e pageserve.Entry) {
+	v, ok := interrupted(ctx, ch, ch.Client.Passive(), e.StartedAt)
+	if !ok {
+		return
+	}
+	if text := restarted(v); text != "" {
+		if err := ch.Push.Notify(text, map[string]string{"source": "casebook", "event": "restarted"}); err != nil {
+			_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
 		}
 	}
-}
-
-// Watch is `casebook watch`: the wake loop alone, until ctx ends.
-func (ch *Channel) Watch(ctx context.Context) error {
-	if ch.ID.Session == "" {
-		return errors.New("no session id (not under Claude Code or pi); the user's messages will not reach this session")
-	}
-	ch.loop(ctx)
-	return nil
-}
-
-// presence announces the session. pid is the HARNESS process's (the
-// channel's parent: pi's channels.tools and Claude Code spawn the channel
-// directly), not the channel's own: pi-subagents runs worker sessions
-// inside their parent's pi process, each with its own channel, so a shared
-// harness pid is how serve tells a worker from a fork (which runs in a pi
-// process of its own). pi-casebook reports the same pid (pi's process.pid).
-func (ch *Channel) presence(ctx context.Context, c *Client) error {
-	_, err := c.Do(ctx, http.MethodPost, "/api/agent/presence", map[string]any{
-		"id": ch.ID.Session, "harness": ch.ID.Harness, "label": ch.ID.Label, "cwd": ch.ID.CWD, "pid": os.Getppid()}, nil)
-	return err
 }
 
 // restarted is the channel event when serve came back as a new process and
@@ -218,7 +166,7 @@ func plural(n int, one, many string) string {
 // clear answer about that serve (an older serve without the endpoint, an
 // error, an answer about another serve) is no answer: ok false, and the
 // channel says nothing.
-func (ch *Channel) interrupted(ctx context.Context, c *Client, startedAt time.Time) (serve.InterruptedView, bool) {
+func interrupted(ctx context.Context, ch *Channel, c *Client, startedAt time.Time) (serve.InterruptedView, bool) {
 	var v serve.InterruptedView
 	if _, err := c.Do(ctx, http.MethodGet, "/api/agent/interrupted?"+q("session", ch.ID.Session), nil, &v); err != nil {
 		return v, false
@@ -227,88 +175,6 @@ func (ch *Channel) interrupted(ctx context.Context, c *Client, startedAt time.Ti
 		return v, false
 	}
 	return v, true
-}
-
-// logLoopErrOnce writes err to w only when it is not ErrNoServe and its
-// message differs from *last. On write it updates *last. Callers clear *last
-// on success so the same error is logged again after a recovery.
-func logLoopErrOnce(w io.Writer, last *string, err error) {
-	if errors.Is(err, ErrNoServe) {
-		return
-	}
-	msg := err.Error()
-	if msg == *last {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "casebook channel: %v\n", err)
-	*last = msg
-}
-
-// loop keeps presence fresh and long-polls for deliveries, emitting each as a
-// channel event. The next poll is armed as soon as an event is queued
-// (channelmcp.Notify only queues), so nothing sent meanwhile is missed. It
-// never starts serve (only tool calls do). When serve came back as a new
-// process it tells the agent only if that restart interrupted messages in
-// flight to this session (serve says so); otherwise, or when serve can't
-// say, it stays silent.
-func (ch *Channel) loop(ctx context.Context) {
-	c := ch.Client.passive()
-	lastPresence := time.Time{}
-	var seen time.Time     // StartedAt of the serve this loop last reached
-	var lastLoopErr string // last non-ErrNoServe loop error logged; "" after success
-	for ctx.Err() == nil {
-		if adv, err := c.Find(); err == nil && !adv.StartedAt.Equal(seen) {
-			if !seen.IsZero() {
-				if v, ok := ch.interrupted(ctx, c, adv.StartedAt); ok {
-					if text := restarted(v); text != "" {
-						if err := ch.Push.Notify(text, map[string]string{"source": "casebook", "event": "restarted"}); err != nil {
-							_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
-						}
-					}
-				}
-			}
-			seen, lastPresence = adv.StartedAt, time.Time{}
-		}
-		if time.Since(lastPresence) > ch.Presence {
-			if err := ch.presence(ctx, c); err != nil {
-				logLoopErrOnce(ch.Log, &lastLoopErr, err)
-				sleep(ctx, ch.Retry)
-				continue
-			}
-			lastPresence = time.Now()
-			lastLoopErr = ""
-		}
-		var got struct {
-			Delivery deliver.Delivery `json:"delivery"`
-			Text     string           `json:"text"`
-			Report   string           `json:"report"`
-		}
-		code, err := c.Do(ctx, http.MethodGet, "/api/agent/wait?"+q("session", ch.ID.Session, "timeout", strconv.Itoa(int(ch.Poll.Seconds()))), nil, &got)
-		switch {
-		case err != nil:
-			var se *StatusError
-			if errors.As(err, &se) && se.Code == http.StatusNotFound {
-				lastPresence = time.Time{} // serve restarted and forgot us
-			}
-			logLoopErrOnce(ch.Log, &lastLoopErr, err)
-			sleep(ctx, ch.Retry)
-		case code == http.StatusOK && got.Delivery.ID != 0:
-			lastLoopErr = ""
-			var ids []string
-			for _, m := range got.Delivery.Messages {
-				ids = append(ids, strconv.FormatInt(m.ID, 10))
-			}
-			meta := map[string]string{"source": "casebook", "delivery": strconv.FormatInt(got.Delivery.ID, 10), "messages": strings.Join(ids, ",")}
-			if got.Report != "" {
-				meta[channelmcp.MetaReport] = got.Report
-			}
-			if err := ch.Push.Notify(got.Text, meta); err != nil {
-				_, _ = fmt.Fprintf(ch.Log, "casebook channel: notify: %v\n", err)
-			}
-		default:
-			lastLoopErr = ""
-		}
-	}
 }
 
 // callSessionBound executes a session-bound API call fn. If serve responds with
@@ -320,7 +186,7 @@ func (ch *Channel) loop(ctx context.Context) {
 // Any other error — including a 404 for a missing message or item — is returned
 // immediately without a retry, so a wrong message id does not cause a spurious
 // presence registration.
-func (ch *Channel) callSessionBound(ctx context.Context, fn func() (string, error)) (string, error) {
+func callSessionBound(ctx context.Context, ch *Channel, fn func() (string, error)) (string, error) {
 	result, err := fn()
 	if err == nil {
 		return result, nil
@@ -331,17 +197,8 @@ func (ch *Channel) callSessionBound(ctx context.Context, fn func() (string, erro
 	}
 	// 404 with code="unknown_session": serve doesn't know our session.
 	// Register presence (ch.Client may start serve) then retry once.
-	if presErr := ch.presence(ctx, ch.Client); presErr != nil {
+	if presErr := ch.Announce(ctx, ch.Client); presErr != nil {
 		return "", err // return the original 404 error, not the presence error
 	}
 	return fn()
-}
-
-func sleep(ctx context.Context, d time.Duration) {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-	case <-t.C:
-	}
 }

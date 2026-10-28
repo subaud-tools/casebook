@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 
-	"github.com/subaud-tools/casebook/internal/casebook/channel"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // The Claude Code plugin's mod runs casebook report: each report reaches
@@ -29,13 +30,11 @@ func TestReportReachesServe(t *testing.T) {
 		_, _ = w.Write([]byte(`{"moved":[]}`))
 	}))
 	t.Cleanup(ts.Close)
-	prev := newSettledClient
-	newSettledClient = func() *channel.Client {
-		c := channel.NewClient()
-		c.Find = func() (serve.Advert, error) { return serve.Advert{Base: ts.URL, Token: "test"}, nil }
-		return c
+	// casebook report finds serve through its entry, as the mod's does.
+	if err := serve.Live().Advertise(pageserve.Entry{URL: ts.URL, Base: ts.URL, Token: "test", PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { newSettledClient = prev })
+	t.Cleanup(func() { serve.Live().Withdraw(os.Getpid()) })
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "cc-9")
 	t.Setenv("AGENT_SESSION_ID", "")
 	t.Setenv("PI_CLAUDE_BRIDGE", "")

@@ -44,7 +44,12 @@ func newRig(t *testing.T) *rig {
 	// A background push still running when the test ends finishes before
 	// the database closes (cleanups run last-registered first).
 	t.Cleanup(s.pushWG.Wait)
-	hs := httptest.NewServer(s.Handler())
+	// The page's stream is pageserve.Run's Options.Stream in serve; the rig
+	// mounts it beside the API as Run does.
+	m := http.NewServeMux()
+	m.HandleFunc("GET /api/events", s.pageStream)
+	m.Handle("/", s.Handler())
+	hs := httptest.NewServer(m)
 	t.Cleanup(hs.Close)
 	return &rig{Rig: ar, s: s, url: hs.URL}
 }

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // recorder is a fake serve that keeps every agent request's JSON body.
@@ -42,7 +42,7 @@ func fakeServe(t *testing.T, status func(path string, n int) int) (*recorder, *C
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	t.Cleanup(ts.Close)
-	return rec, &Client{HTTP: ts.Client(), Find: func() (serve.Advert, error) { return serve.Advert{Base: ts.URL, Token: "tok"}, nil }}
+	return rec, &Client{Tool: "casebook", HTTP: ts.Client(), Find: func() (pageserve.Entry, error) { return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil }}
 }
 
 func (r *recorder) get(path string) []map[string]any {
@@ -57,8 +57,10 @@ func (r *recorder) get(path string) []map[string]any {
 // tells serve a session is a worker. Each channel's own pid is always different.
 func TestPresenceReportsTheHarnessProcess(t *testing.T) {
 	rec, c := fakeServe(t, nil)
-	ch := New(Identity{Session: "s1", Harness: "pi", Label: "pi · w", CWD: "/w"}, c, "test")
-	if err := ch.presence(context.Background(), c); err != nil {
+	id := FromEnv()
+	id.Session, id.Harness, id.Label, id.CWD = "s1", "pi", "pi · w", "/w"
+	ch := New(id, c, "test")
+	if err := ch.Announce(context.Background(), c); err != nil {
 		t.Fatal(err)
 	}
 	got := rec.get("/api/agent/presence")
@@ -82,7 +84,7 @@ func TestOpenSendsTheChannelsSession(t *testing.T) {
 		return http.StatusOK
 	})
 	ch := New(Identity{Session: "s1", Harness: "pi", CWD: "/w"}, c, "test")
-	if _, err := ch.Call(context.Background(), "casebook_open", json.RawMessage(`{"key":"pr:a/b#1"}`)); err != nil {
+	if _, err := call(context.Background(), ch, "casebook_open", json.RawMessage(`{"key":"pr:a/b#1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	opens := rec.get("/api/agent/open")
@@ -95,7 +97,7 @@ func TestOpenSendsTheChannelsSession(t *testing.T) {
 
 	rec2, c2 := fakeServe(t, nil)
 	none := New(Identity{Harness: "pi", CWD: "/w"}, c2, "test")
-	if _, err := none.Call(context.Background(), "casebook_open", json.RawMessage(`{}`)); err != nil {
+	if _, err := call(context.Background(), none, "casebook_open", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	if o := rec2.get("/api/agent/open"); len(o) != 1 || o[0]["session"] != nil && o[0]["session"] != "" {
@@ -129,9 +131,9 @@ func TestOpenAgainstAnOldServeRetriesWithoutTheSession(t *testing.T) {
 		_, _ = w.Write([]byte(`{"url":"http://127.0.0.1:1/?t=x"}`))
 	}))
 	t.Cleanup(ts.Close)
-	c := &Client{HTTP: ts.Client(), Find: func() (serve.Advert, error) { return serve.Advert{Base: ts.URL, Token: "tok"}, nil }}
+	c := &Client{Tool: "casebook", HTTP: ts.Client(), Find: func() (pageserve.Entry, error) { return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil }}
 	ch := New(Identity{Session: "s1", Harness: "pi", CWD: "/w"}, c, "test")
-	out, err := ch.Call(context.Background(), "casebook_open", json.RawMessage(`{"key":"pr:a/b#1"}`))
+	out, err := call(context.Background(), ch, "casebook_open", json.RawMessage(`{"key":"pr:a/b#1"}`))
 	if err != nil {
 		t.Fatalf("open against an old serve: %v", err)
 	}
