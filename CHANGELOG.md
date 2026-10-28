@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.24.0
+
+### Changed
+- casebook's page types, lint rules and browser probe come from the family's shared page build (tools-common 0.33.0), the same pieces galley, diazo, cull and sift use. Nothing you see changes.
+
 ## 0.23.0
 
 ### Changed
