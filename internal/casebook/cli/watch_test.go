@@ -14,6 +14,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/apptest"
 	"github.com/subaud-tools/casebook/internal/casebook/channel"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // Inside pi's claude-bridge the hosting pi session's channel delivers the
@@ -56,7 +57,7 @@ func TestWatchLineCarriesText(t *testing.T) {
 	sctx, scancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- serve.Run(sctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ serve.Advert) { s.Wait = 3 * time.Second; close(started) }})
+		errc <- serve.Run(sctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ pageserve.Entry) { s.Wait = 3 * time.Second; close(started) }})
 	}()
 	select {
 	case <-started:

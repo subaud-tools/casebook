@@ -6,6 +6,13 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.23.0
+
+### Changed
+- casebook's server, its channel and its `serve`, `channel`, `watch` and `report` commands now come from the family's shared server code (tools-common 0.32.1), the same code cull, sift, diazo and galley use. What you see stays the same: sessions still get their attention lines and your replies, a restart that interrupted a message still tells the session and delivers it again, an open page still keeps the server up, and a casebook from before this release and one after still find each other's server.
+- `casebook report` gives up after 5 seconds, as before.
+- `casebook serve --foreground` opens the page only when one was open before a restart.
+
 ## 0.22.0
 
 ### Changed

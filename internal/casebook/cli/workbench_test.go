@@ -20,6 +20,8 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/channel"
 	"github.com/subaud-tools/casebook/internal/casebook/observe"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/casebook/internal/casebook/testgit"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 func wbSetup(t *testing.T) (*apptest.Rig, *[]string) {
@@ -31,7 +33,6 @@ func wbSetup(t *testing.T) (*apptest.Rig, *[]string) {
 	t.Cleanup(func() {
 		newRunner = func() observe.Runner { return observe.ExecRunner{} }
 		openBrowser = nil
-		startDetached = defaultStartDetached
 	})
 	return r, opened
 }
@@ -48,7 +49,7 @@ func runIn(stdin string, args ...string) (int, string) {
 	return code, out.String() + errw.String()
 }
 
-func waitRunning(t *testing.T) serve.Advert {
+func waitRunning(t *testing.T) pageserve.Entry {
 	t.Helper()
 	for i := 0; i < 200; i++ {
 		if a, err := serve.Running(); err == nil {
@@ -57,7 +58,7 @@ func waitRunning(t *testing.T) serve.Advert {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("serve not running")
-	return serve.Advert{}
+	return pageserve.Entry{}
 }
 
 func TestServeForegroundOpenStop(t *testing.T) {
@@ -65,11 +66,17 @@ func TestServeForegroundOpenStop(t *testing.T) {
 	done := make(chan int, 1)
 	go func() { code, _, _ := run("serve", "--foreground", "--no-open"); done <- code }()
 	adv := waitRunning(t)
+	// Plain `casebook serve` opens through casebook's opener (the seam tests
+	// replace and CASEBOOK_NO_BROWSER silences), never the OS browser.
 	if code, out, _ := run("serve"); code != 0 || !strings.Contains(out, "casebook serve is running: "+adv.Base) {
 		t.Fatalf("serve while running: %d %q", code, out)
 	}
-	if len(*opened) != 1 || !strings.Contains((*opened)[0], "?t="+adv.Token) {
-		t.Fatalf("opened %v", *opened)
+	if len(*opened) != 1 || !strings.HasPrefix((*opened)[0], adv.URL) {
+		t.Fatalf("plain serve opened %v through casebook's opener; want the running page", *opened)
+	}
+	*opened = nil
+	if code, _, errw := run("serve", "extra", "--no-open"); code != 2 || !strings.Contains(errw, "serve takes no arguments") {
+		t.Fatalf("serve with an argument: %d %q", code, errw)
 	}
 	if code, out, _ := run("serve", "--stop"); code != 0 || !strings.Contains(out, "stopped") {
 		t.Fatalf("stop %d %q", code, out)
@@ -85,20 +92,9 @@ func TestServeForegroundOpenStop(t *testing.T) {
 	if code, out, _ := run("serve", "--stop"); code != 0 || !strings.Contains(out, "not running") {
 		t.Fatalf("stop when stopped %d %q", code, out)
 	}
-}
-
-func TestServeStartsDetachedWhenNotRunning(t *testing.T) {
-	_, opened := wbSetup(t)
-	stop := make(chan struct{})
-	startDetached = func(port int) (serve.Advert, error) {
-		go func() { run("serve", "--foreground", "--no-open"); close(stop) }()
-		return waitRunning(t), nil
+	if len(*opened) != 0 {
+		t.Fatalf("a --no-open serve opened %v", *opened)
 	}
-	if code, out, _ := run("serve"); code != 0 || !strings.Contains(out, "casebook serve started") || len(*opened) != 1 {
-		t.Fatalf("start %d %q %v", code, out, *opened)
-	}
-	run("serve", "--stop")
-	<-stop
 }
 
 // `casebook serve` run by a session (an agent's shell carries its session in
@@ -106,28 +102,33 @@ func TestServeStartsDetachedWhenNotRunning(t *testing.T) {
 // attached to that session; from a plain terminal it opens a page that
 // belongs to no session.
 func TestServeOpensThePageAttachedToTheCallingSession(t *testing.T) {
-	_, opened := wbSetup(t)
+	wbSetup(t)
 	t.Setenv("AGENT_SESSION_CHILD", "")
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	t.Setenv("AGENT_SESSION_ID", "")
-	done := make(chan int, 1)
-	go func() { code, _, _ := run("serve", "--foreground", "--no-open"); done <- code }()
-	adv := waitRunning(t)
-	defer func() { run("serve", "--stop"); <-done }()
 	for _, c := range []struct{ agent, claude, want string }{
-		{"pi-sess-1", "", "?t=" + adv.Token + "&session=pi-sess-1"},
-		{"", "cc-sess-2", "?t=" + adv.Token + "&session=cc-sess-2"},
-		{"", "", "?t=" + adv.Token},
+		{"pi-sess-1", "", "&session=pi-sess-1"},
+		{"", "cc-sess-2", "&session=cc-sess-2"},
+		{"", "", ""},
 	} {
 		t.Setenv("AGENT_SESSION_ID", c.agent)
 		t.Setenv("CLAUDE_CODE_SESSION_ID", c.claude)
-		before := len(*opened)
-		if code, out, _ := run("serve"); code != 0 || len(*opened) != before+1 {
-			t.Fatalf("serve: %d %q %v", code, out, *opened)
+		got, note, err := servePage(context.Background(), nil)
+		if err != nil || note != "" || got != c.want {
+			t.Fatalf("AGENT_SESSION_ID=%q CLAUDE_CODE_SESSION_ID=%q: page %q %q %v, want %q", c.agent, c.claude, got, note, err, c.want)
 		}
-		if got := (*opened)[before]; !strings.HasSuffix(got, c.want) {
-			t.Fatalf("AGENT_SESSION_ID=%q CLAUDE_CODE_SESSION_ID=%q opened %q, want a URL ending %q", c.agent, c.claude, got, c.want)
-		}
+	}
+}
+
+// On a machine casebook isn't set up on, `casebook serve` says how to set it
+// up before it starts a serve that would fail.
+func TestServePageNeedsInit(t *testing.T) {
+	testgit.Env(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CASEBOOK_HOME", t.TempDir())
+	if code, _, errw := run("serve", "--no-open"); code != 1 || !strings.Contains(errw, "casebook init") {
+		t.Fatalf("exit %d: %s", code, errw)
+	}
+	if _, err := serve.Running(); err == nil {
+		t.Fatal("serve started on an uninitialized machine")
 	}
 }
 
@@ -199,8 +200,8 @@ func TestSettledHarnessClaudeTranscript(t *testing.T) {
 	prev := newSettledClient
 	newSettledClient = func() *channel.Client {
 		c := channel.NewClient()
-		c.Find = func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "test"}, nil
+		c.Find = func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "test"}, nil
 		}
 		return c
 	}
@@ -247,8 +248,8 @@ func TestSettledShownFlag(t *testing.T) {
 	prev := newSettledClient
 	newSettledClient = func() *channel.Client {
 		c := channel.NewClient()
-		c.Find = func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "test"}, nil
+		c.Find = func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "test"}, nil
 		}
 		return c
 	}

@@ -54,7 +54,7 @@ func pretty(v any) string {
 }
 
 // Call runs one tool.
-func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) (string, error) {
+func call(ctx context.Context, ch *Channel, name string, args json.RawMessage) (string, error) {
 	var a struct {
 		View        string   `json:"view"`
 		Kind        string   `json:"kind"`
@@ -100,7 +100,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodGet, "/api/agent/status?"+q("session", ch.ID.Session), nil, &out)
 			if err == nil && ch.ServeOnly {
@@ -126,7 +126,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		var err error
 		note := ""
 		if ch.ID.Session != "" {
-			_, err = ch.callSessionBound(ctx, open(ch.ID.Session))
+			_, err = callSessionBound(ctx, ch, open(ch.ID.Session))
 			if oldServe(err) {
 				// A serve started before pages could belong to a session
 				// refuses the field. Open the page anyway; it asks Court
@@ -145,16 +145,16 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		}
 		return "opened the casebook page" + note, nil
 	case "casebook_attention":
-		return ch.attention(ctx, serve.Query{View: a.View, Kind: a.Kind, Repo: a.Repo, Text: a.Q, Rule: a.Rule, Group: a.Group, Offset: a.Offset, Limit: a.Limit}, a.Filters, matchArg(a.Match))
+		return attention(ctx, ch, serve.Query{View: a.View, Kind: a.Kind, Repo: a.Repo, Text: a.Q, Rule: a.Rule, Group: a.Group, Offset: a.Offset, Limit: a.Limit}, a.Filters, matchArg(a.Match))
 	case "casebook_show":
-		return ch.show(ctx, a.Key)
+		return show(ctx, ch, a.Key)
 	case "casebook_history":
-		return ch.history(ctx, a.Key)
+		return history(ctx, ch, a.Key)
 	case "casebook_propose":
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/propose", map[string]any{"session": ch.ID.Session, "keys": a.Keys,
 				"disposition": a.Disposition, "until": a.Until, "note": a.Note, "from_next": a.FromNext}, &out)
@@ -164,7 +164,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodGet, "/api/agent/next?"+q("session", ch.ID.Session), nil, &out)
 			return pretty(out), err
@@ -173,7 +173,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/evidence", map[string]any{"session": ch.ID.Session, "key": a.Key, "text": a.Text}, &out)
 			return pretty(out), err
@@ -182,7 +182,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/progress", map[string]any{"session": ch.ID.Session, "text": a.Text, "n": a.N, "total": a.Total}, nil)
 			return "ok", err
 		})
@@ -190,7 +190,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			var out map[string]any
 			_, err := ch.Client.Do(ctx, http.MethodPost, "/api/agent/reply", map[string]any{"session": ch.ID.Session, "ids": a.IDs, "state": a.State, "text": a.Text}, &out)
 			return pretty(out), err
@@ -199,7 +199,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			// Parse the tool's own schema fields (lowercase) and translate to the
 			// Go field names the server's rules.Rule JSON decoder expects.
 			var rd struct {
@@ -268,7 +268,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			body := map[string]any{
 				"session": ch.ID.Session,
 				"job":     a.Job,
@@ -287,7 +287,7 @@ func (ch *Channel) Call(ctx context.Context, name string, args json.RawMessage) 
 		if err := needSession(); err != nil {
 			return "", err
 		}
-		return ch.callSessionBound(ctx, func() (string, error) {
+		return callSessionBound(ctx, ch, func() (string, error) {
 			body := map[string]any{
 				"session":  ch.ID.Session,
 				"job":      a.Job,
@@ -335,7 +335,7 @@ func matchArg(m json.RawMessage) string {
 	return string(m)
 }
 
-func (ch *Channel) attention(ctx context.Context, qy serve.Query, filters []string, match string) (string, error) {
+func attention(ctx context.Context, ch *Channel, qy serve.Query, filters []string, match string) (string, error) {
 	if qy.View == "" {
 		qy.View = serve.ViewAll
 	}
@@ -386,7 +386,7 @@ func (ch *Channel) attention(ctx context.Context, qy serve.Query, filters []stri
 	return b.String(), nil
 }
 
-func (ch *Channel) show(ctx context.Context, key string) (string, error) {
+func show(ctx context.Context, ch *Channel, key string) (string, error) {
 	k, err := item.ParseKey(key)
 	if err != nil {
 		return "", err
@@ -396,7 +396,7 @@ func (ch *Channel) show(ctx context.Context, key string) (string, error) {
 	return pretty(out), err
 }
 
-func (ch *Channel) history(ctx context.Context, key string) (string, error) {
+func history(ctx context.Context, ch *Channel, key string) (string, error) {
 	k, err := item.ParseKey(key)
 	if err != nil {
 		return "", err

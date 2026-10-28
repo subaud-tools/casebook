@@ -11,13 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/subaud-tools/casebook/internal/casebook/app"
@@ -30,8 +26,8 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/gitx"
 	"github.com/subaud-tools/casebook/internal/casebook/propose"
 	"github.com/subaud-tools/casebook/internal/casebook/rules"
-	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/localweb/page"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 //go:embed assets
@@ -68,7 +64,6 @@ type Server struct {
 	VerifyRetry       time.Duration     // between reads of a reported step GitHub hasn't caught up on (3s)
 	onLaneStart       func(jobID int64) // test hook: called once per lane that actually starts
 	onBeforeLaneExit  func(jobID int64) // test hook: called just before the lane goroutine clears laneRun
-	activity          atomic.Int64      // unix ms of the last API request
 	streams           atomic.Int32      // open page event streams (connected tabs)
 	streamWG          sync.WaitGroup    // Run waits for streams to end before closing the database
 	rebuilds          atomic.Int32      // count of rebuild calls; exposed for tests to verify no loops
@@ -99,7 +94,6 @@ type Server struct {
 	// session. Both are set in New, before any request, and never change.
 	started     time.Time
 	interrupted map[string][]deliver.Interruption
-	stop        context.CancelFunc
 	// openPage opens the page in Court's browser for casebook_open: suffix
 	// is appended to the page URL (…/?t=<token>), an optional
 	// SessionQuery then an optional route fragment ("#/item/<key>",
@@ -138,8 +132,8 @@ func (s *Server) setPageSession(ctx context.Context, id string) {
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, id)
 }
 
-// pageStream wraps the page's event stream: it counts connected tabs, keeps
-// the flag, and keeps serve from idling out under an open page.
+// pageStream wraps the page's event stream: it counts connected tabs (which
+// keep serve from idling out: Run's Busy) and keeps the flag.
 func (s *Server) pageStream(w http.ResponseWriter, r *http.Request) {
 	s.streamWG.Add(1)
 	defer s.streamWG.Done()
@@ -160,21 +154,7 @@ func (s *Server) pageStream(w http.ResponseWriter, r *http.Request) {
 		s.setPageOpen(connCtx, true)
 	}
 	s.streamMu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		t := time.NewTicker(15 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-t.C:
-				s.activity.Store(time.Now().UnixMilli())
-			}
-		}
-	}()
 	defer func() {
-		close(done)
 		// A stream that ends because serve is stopping doesn't mean the tab
 		// closed: leave the flag set so the next serve reopens the page.
 		// Decrement and the flag write are one critical section (mirrors the
@@ -226,7 +206,7 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 	}
 	// Record the serve lifetime context now so lanes started during New (a
 	// restart resume) are cancelled when serve stops. Run passes the same
-	// cancelable context and re-records it alongside s.stop.
+	// cancelable context and records it again.
 	s.life = ctx
 	s.Runner = apply.Runner{
 		Repo:   a.Repo,
@@ -260,7 +240,6 @@ func New(ctx context.Context, a *app.App, d *db.DB) (*Server, error) {
 	s.verifyReported(ctx)
 	s.pruneEvents(ctx)
 	s.pruneSessions(ctx)
-	s.activity.Store(time.Now().UnixMilli())
 	return s, nil
 }
 
@@ -756,7 +735,7 @@ func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
 	// live events (the kit's live() contract)
 	m.HandleFunc("GET /api/state", s.Bus.ServePoll)
-	m.HandleFunc("GET /api/events", s.pageStream)
+	// GET /api/events (s.pageStream) and POST /api/stop are pageserve.Run's.
 	// page
 	m.HandleFunc("GET /api/summary", s.getSummary)
 	m.HandleFunc("GET /api/items", s.getItems)
@@ -786,7 +765,6 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/session/delivery", s.getSessionDelivery)
 	m.HandleFunc("POST /api/deliveries/release", s.postRelease)
 	m.HandleFunc("POST /api/deliveries/move", s.postMoveDelivery)
-	m.HandleFunc("POST /api/stop", s.postStop)
 	m.HandleFunc("POST /api/sync", s.postSync)
 	// agent (casebook channel)
 	m.HandleFunc("POST /api/agent/presence", s.agentPresence)
@@ -833,10 +811,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/filters", s.getFilters)
 	m.HandleFunc("POST /api/filters/save", s.postFiltersSave)
 	m.HandleFunc("POST /api/filters/delete", s.postFiltersDelete)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.activity.Store(time.Now().UnixMilli())
-		m.ServeHTTP(w, r)
-	})
+	return m
 }
 
 // httpError carries a status out of a handler helper.
@@ -890,31 +865,45 @@ func reply(w http.ResponseWriter, v any, err error) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// Live is where casebook serve's entry is: StateDir/live/serve.json, as its
+// advert always was.
+func Live() pageserve.Live { return pageserve.LiveFor(config.Tool) }
+
+// Running returns the live serve's entry, or an error that is
+// ErrNotRunning when none runs on this machine.
+func Running() (pageserve.Entry, error) { return Live().Running() }
+
+// ErrNotRunning means no live serve on this machine.
+var ErrNotRunning = pageserve.ErrNotRunning
+
 // Options configures Run.
 type Options struct {
 	Version string
 	Port    int           // 0: remembered, else free
-	Idle    time.Duration // shut down after this long with no API traffic (0: never)
+	Idle    time.Duration // shut down after this long with no API traffic and no open tab (0: never)
 	// Ready is called once listening. pageWasOpen: a tab was connected when
 	// the previous serve went away (a stop, an upgrade or a crash), so the
 	// caller should open the page again; the old tab's token died with it.
 	// session is the agent that tab was attached to ("" none): the page opens
 	// for it again.
 	Ready   func(url string, pageWasOpen bool, session string)
-	Open    func(url string) error // opens the page in the browser (casebook_open); nil: can't
-	Log     io.Writer              // diagnostics
-	Assets  fs.FS                  // nil: the embedded placeholder
-	Started func(*Server, Advert)  // test hook
+	Open    func(url string) error         // opens the page in the browser (casebook_open); nil: can't
+	Log     io.Writer                      // diagnostics
+	Assets  fs.FS                          // nil: the embedded placeholder
+	Started func(*Server, pageserve.Entry) // test hook
 }
 
-// Run serves until ctx ends, /api/stop, or the idle limit. It writes the
-// advert while running and removes it on the way out.
+// Run serves until ctx ends, /api/stop, or the idle limit, through
+// pageserve.Run: it writes the entry while running and removes it on the way
+// out. casebook's own are the API, the page's event stream (its bus), the
+// entry's StartedAt (this serve's, which /api/agent/interrupted names) and
+// Reopened, and an open tab keeping serve past the idle limit.
 func Run(ctx context.Context, a *app.App, o Options) error {
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
-	if adv, err := Running(); err == nil {
-		return fmt.Errorf("casebook serve is already running (pid %d, %s)", adv.PID, adv.Base)
+	if e, err := Running(); err == nil {
+		return fmt.Errorf("casebook serve is already running (pid %d, %s)", e.PID, e.Base)
 	}
 	if err := os.MkdirAll(config.StateDir(), 0o700); err != nil {
 		return err
@@ -930,132 +919,48 @@ func Run(ctx context.Context, a *app.App, o Options) error {
 	if err != nil {
 		return err
 	}
-	s.stop, s.life = cancel, ctx
+	s.life = ctx
 	wasOpen, pageSession := s.takePageOpen(ctx)
 	assetsFS := o.Assets
 	if assetsFS == nil {
 		assetsFS, _ = fs.Sub(assets, "assets")
 	}
-	srv, err := localweb.Start(ctx, localweb.Config{Tool: config.Tool, Assets: page.With(assetsFS), API: s.Handler(), Port: o.Port})
-	if err != nil {
-		return err
-	}
-	// Reopened records that a tab was connected when the previous serve went
-	// away, whether or not a Ready callback is set to open the page again.
-	adv := Advert{URL: srv.URL, Base: "http://" + srv.Addr(), Token: srv.Token, PID: os.Getpid(), Version: o.Version, StartedAt: s.StartedAt(),
-		Reopened: wasOpen}
-	if o.Open != nil {
-		// Guard the write: agentOpen reads openPage concurrently once the
-		// handler is registered (localweb.Start already began serving above).
-		s.mu.Lock()
-		s.openPage = func(suffix string) error { return o.Open(srv.URL + suffix) }
-		s.mu.Unlock()
-	}
-	if err := writeAdvert(adv); err != nil {
-		cancel()
-		return err
-	}
-	defer removeAdvert(adv.PID)
-	_, _ = fmt.Fprintf(o.Log, "casebook serve: %s (pid %d)\n", adv.Base, adv.PID)
-	go s.watch(ctx)
-	if o.Idle > 0 {
-		go s.idle(ctx, o.Idle)
-	}
-	if o.Started != nil {
-		o.Started(s, adv)
-	}
-	if o.Ready != nil {
-		o.Ready(srv.URL, wasOpen, pageSession)
-	}
-	err = srv.Wait()
+	var entry pageserve.Entry
+	err = pageserve.Run(ctx, pageserve.Options{
+		Live: Live(), Assets: page.With(assetsFS), API: s.Handler(), Port: o.Port, Idle: o.Idle, Version: o.Version, Log: o.Log,
+		Stream: s.pageStream,
+		Busy:   s.PageOpen,
+		OnStart: func(sctx context.Context, url string) {
+			// serve stops (POST /api/stop, the idle limit) by ending sctx:
+			// casebook's lanes, pushes and page streams end with it.
+			context.AfterFunc(sctx, cancel)
+			if o.Open != nil {
+				// Guard the write: agentOpen reads openPage concurrently once
+				// the handler is registered (localweb already serves).
+				s.mu.Lock()
+				s.openPage = func(suffix string) error { return o.Open(url + suffix) }
+				s.mu.Unlock()
+			}
+			go s.watch(ctx)
+		},
+		// Reopened records that a tab was connected when the previous serve
+		// went away, whether or not a Ready callback is set to open the page
+		// again.
+		Entry: func(e *pageserve.Entry) { e.StartedAt, e.Reopened = s.StartedAt(), wasOpen; entry = *e },
+		Ready: func(url string) {
+			if o.Started != nil {
+				o.Started(s, entry)
+			}
+			if o.Ready != nil {
+				o.Ready(url, wasOpen, pageSession)
+			}
+		},
+	})
 	cancel()          // serve is stopping: a push in flight ends, its commits stay queued
 	s.stopPushes()    // and none starts now (a handler still running may ask)
 	s.pushWG.Wait()   // the pusher writes events: the database closes after it
 	s.streamWG.Wait() // streams end with ctx; the database closes after them
 	return err
-}
-
-func (s *Server) idle(ctx context.Context, limit time.Duration) {
-	t := time.NewTicker(time.Minute)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if time.Since(time.UnixMilli(s.activity.Load())) > limit {
-				s.stop()
-				return
-			}
-		}
-	}
-}
-
-// Stop asks the live serve to exit.
-func Stop(ctx context.Context) error {
-	adv, err := Running()
-	if err != nil {
-		return err
-	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, adv.Base+"/api/stop", strings.NewReader("{}"))
-	req.Header.Set(localweb.TokenHeader, adv.Token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	_ = resp.Body.Close()
-	for i := 0; i < 50; i++ {
-		if _, err := Running(); errors.Is(err, ErrNotRunning) {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("casebook serve (pid %d) did not stop", adv.PID)
-}
-
-func (s *Server) postStop(w http.ResponseWriter, r *http.Request) {
-	reply(w, nil, nil)
-	if s.stop != nil {
-		go func() { time.Sleep(50 * time.Millisecond); s.stop() }()
-	}
-}
-
-// Start runs exe as `casebook serve --foreground --no-open` in its own process
-// group, logging to StateDir/serve.log, and waits for its advert. The CLI and
-// every agent tool call use it: serve starts on demand, never by hand.
-func Start(exe string, port int) (Advert, error) {
-	if exe == "" {
-		return Advert{}, errors.New("can't find the casebook binary to start the server")
-	}
-	if err := os.MkdirAll(config.StateDir(), 0o700); err != nil {
-		return Advert{}, err
-	}
-	logPath := filepath.Join(config.StateDir(), "serve.log")
-	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return Advert{}, err
-	}
-	defer func() { _ = logf.Close() }()
-	args := []string{"serve", "--foreground", "--no-open"}
-	if port > 0 {
-		args = append(args, "--port", strconv.Itoa(port))
-	}
-	cmd := exec.Command(exe, args...)
-	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		return Advert{}, err
-	}
-	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
-	for i := 0; i < 100; i++ {
-		if adv, err := Running(); err == nil && adv.PID == pid {
-			return adv, nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return Advert{}, fmt.Errorf("casebook serve (pid %d) didn't start; see %s", pid, logPath)
 }
 
 // SessionRetention is how long serve keeps an exited session that nothing

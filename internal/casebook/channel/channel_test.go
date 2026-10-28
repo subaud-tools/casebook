@@ -16,6 +16,7 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/apptest"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // mcp is a test MCP client. resps receives JSON-RPC responses (have "id");
@@ -131,7 +132,7 @@ func runServe(t *testing.T, r *apptest.Rig) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ serve.Advert) { s.Wait = 3 * time.Second; close(started) }})
+		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ pageserve.Entry) { s.Wait = 3 * time.Second; close(started) }})
 	}()
 	select {
 	case <-started:
@@ -220,7 +221,7 @@ func startServe(t *testing.T, r *apptest.Rig) *serveCtl {
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ serve.Advert) { s.Wait = 2 * time.Second; close(started) }})
+		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(s *serve.Server, _ pageserve.Entry) { s.Wait = 2 * time.Second; close(started) }})
 	}()
 	select {
 	case <-started:
@@ -240,7 +241,7 @@ func TestToolCallStartsServeTheLoopDoesnt(t *testing.T) {
 	r := apptest.New(t)
 	var starts atomic.Int32
 	c := NewClient()
-	c.Start = func() (serve.Advert, error) {
+	c.Start = func() (pageserve.Entry, error) {
 		starts.Add(1)
 		startServe(t, r)
 		return serve.Running()
@@ -265,7 +266,7 @@ func TestToolCallStartsServeTheLoopDoesnt(t *testing.T) {
 		t.Fatalf("serve started %d time(s), want 1", n)
 	}
 	// A client that doesn't start serve (the Stop hook's) just says so.
-	ch2 := New(Identity{Session: "s2", Harness: "pi"}, &Client{HTTP: c.HTTP, Find: func() (serve.Advert, error) { return serve.Advert{}, serve.ErrNotRunning }}, "test")
+	ch2 := New(Identity{Session: "s2", Harness: "pi"}, &Client{Tool: "casebook", HTTP: c.HTTP, Find: func() (pageserve.Entry, error) { return pageserve.Entry{}, serve.ErrNotRunning }}, "test")
 	ch2.Retry = time.Hour
 	m2 := start(t, ch2)
 	if out, isErr := m2.tool("casebook_propose", map[string]any{"keys": []string{"repo:schuettc/hail"}, "disposition": "keep"}); !isErr || !strings.Contains(out, "casebook serve isn't running") {
@@ -307,8 +308,8 @@ func TestToolCallCancelledWhenRunEnds(t *testing.T) {
 
 	c := &Client{
 		HTTP: &http.Client{Timeout: 90 * time.Second},
-		Find: func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "tok"}, nil
+		Find: func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil
 		},
 	}
 	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
@@ -398,7 +399,7 @@ func TestPresenceRetryOnFirstStatusCall(t *testing.T) {
 	r := apptest.New(t)
 	var started atomic.Bool
 	c := NewClient()
-	c.Start = func() (serve.Advert, error) {
+	c.Start = func() (pageserve.Entry, error) {
 		started.Store(true)
 		startServe(t, r)
 		return serve.Running()
@@ -437,13 +438,13 @@ func TestPresenceRetryAfterServeRestart(t *testing.T) {
 	// sleeps for the full Retry (1 hour), simulating the window after a restart
 	// where the session is unknown.
 	var serveUp atomic.Bool
-	findFn := func() (serve.Advert, error) {
+	findFn := func() (pageserve.Entry, error) {
 		if !serveUp.Load() {
-			return serve.Advert{}, serve.ErrNotRunning
+			return pageserve.Entry{}, serve.ErrNotRunning
 		}
 		return serve.Running()
 	}
-	c := &Client{HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findFn}
+	c := &Client{Tool: "casebook", HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findFn}
 	ch := New(Identity{Session: "s1", Harness: "pi", Label: "pi·w", CWD: "/w"}, c, "test")
 	ch.Retry = time.Hour // loop: Find→not-running, presence→fails, sleep 1h
 	ch.Poll = 2 * time.Second
@@ -527,7 +528,7 @@ func TestLoopNoLogWhenServeDown(t *testing.T) {
 	var buf syncBuffer
 	c := &Client{
 		HTTP: &http.Client{Timeout: 5 * time.Second},
-		Find: func() (serve.Advert, error) { return serve.Advert{}, serve.ErrNotRunning },
+		Find: func() (pageserve.Entry, error) { return pageserve.Entry{}, serve.ErrNotRunning },
 	}
 	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
 	ch.Log = &buf
@@ -538,7 +539,7 @@ func TestLoopNoLogWhenServeDown(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ch.loop(ctx)
+		_ = ch.Watch(ctx)
 	}()
 
 	time.Sleep(300 * time.Millisecond)
@@ -564,8 +565,8 @@ func TestLoopDeduplicatesPresenceErrors(t *testing.T) {
 	var buf syncBuffer
 	c := &Client{
 		HTTP: &http.Client{Timeout: 5 * time.Second},
-		Find: func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "tok"}, nil
+		Find: func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil
 		},
 	}
 	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
@@ -577,7 +578,7 @@ func TestLoopDeduplicatesPresenceErrors(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ch.loop(ctx)
+		_ = ch.Watch(ctx)
 	}()
 
 	time.Sleep(300 * time.Millisecond)
@@ -630,8 +631,8 @@ func TestUnknownSessionRetries(t *testing.T) {
 
 	c := &Client{
 		HTTP: &http.Client{Timeout: 10 * time.Second},
-		Find: func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "tok"}, nil
+		Find: func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil
 		},
 	}
 	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
@@ -697,8 +698,8 @@ func TestReplyNotFoundNoPresence(t *testing.T) {
 
 	c := &Client{
 		HTTP: &http.Client{Timeout: 10 * time.Second},
-		Find: func() (serve.Advert, error) {
-			return serve.Advert{Base: ts.URL, Token: "tok"}, nil
+		Find: func() (pageserve.Entry, error) {
+			return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil
 		},
 	}
 	ch := New(Identity{Session: "s1", Harness: "pi"}, c, "test")
@@ -903,7 +904,7 @@ func TestAgentTextNamesNoOne(t *testing.T) {
 func TestAttentionFilters(t *testing.T) {
 	r := apptest.New(t)
 	c := NewClient()
-	c.Start = func() (serve.Advert, error) {
+	c.Start = func() (pageserve.Entry, error) {
 		startServe(t, r)
 		return serve.Running()
 	}

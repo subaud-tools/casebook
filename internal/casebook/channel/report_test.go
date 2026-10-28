@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/casebook/internal/casebook/serve"
 	"github.com/subaud-tools/tools-common/channelmcp"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // reportServe is serve answering the channel's loop: presence, a quiet
@@ -35,8 +35,8 @@ func reportServe(t *testing.T, wait func(w http.ResponseWriter) bool, handle fun
 		}
 	}))
 	t.Cleanup(ts.Close)
-	return &Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Find: func() (serve.Advert, error) {
-		return serve.Advert{Base: ts.URL, Token: "tok"}, nil
+	return &Client{Tool: "casebook", HTTP: &http.Client{Timeout: 10 * time.Second}, Find: func() (pageserve.Entry, error) {
+		return pageserve.Entry{Base: ts.URL, Token: "tok"}, nil
 	}}
 }
 

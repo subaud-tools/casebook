@@ -13,6 +13,7 @@ import (
 
 	"github.com/subaud-tools/casebook/internal/casebook/apptest"
 	"github.com/subaud-tools/casebook/internal/casebook/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // watchedFind is serve.Running that remembers the StartedAt of every serve
@@ -22,7 +23,7 @@ type watchedFind struct {
 	seen map[time.Time]int
 }
 
-func (f *watchedFind) find() (serve.Advert, error) {
+func (f *watchedFind) find() (pageserve.Entry, error) {
 	adv, err := serve.Running()
 	if err == nil {
 		f.mu.Lock()
@@ -57,15 +58,15 @@ func (f *watchedFind) reached(t *testing.T, started time.Time) {
 // leaves serve's Wait alone: channels here are already polling for the
 // advert, so they may reach serve before a Started hook could set it (a
 // race), and their own Poll (1s) caps the long-poll anyway.
-func startServeAt(t *testing.T, r *apptest.Rig) (*serveCtl, serve.Advert) {
+func startServeAt(t *testing.T, r *apptest.Rig) (*serveCtl, pageserve.Entry) {
 	t.Helper()
-	started := make(chan serve.Advert, 1)
+	started := make(chan pageserve.Entry, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(_ *serve.Server, a serve.Advert) { started <- a }})
+		errc <- serve.Run(ctx, r.App, serve.Options{Version: "test", Started: func(_ *serve.Server, a pageserve.Entry) { started <- a }})
 	}()
-	var adv serve.Advert
+	var adv pageserve.Entry
 	select {
 	case adv = <-started:
 	case err := <-errc:
@@ -96,8 +97,8 @@ func TestServeRestartTellsOnlyTheInterruptedSession(t *testing.T) {
 	r := apptest.New(t)
 	first, _ := startServeAt(t, r)
 	findA, findB := &watchedFind{}, &watchedFind{}
-	chA := New(Identity{Session: "a", Harness: "pi", Label: "pi · a", CWD: "/a"}, &Client{HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findA.find}, "test")
-	chB := New(Identity{Session: "b", Harness: "pi", Label: "pi · b", CWD: "/b"}, &Client{HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findB.find}, "test")
+	chA := New(Identity{Session: "a", Harness: "pi", Label: "pi · a", CWD: "/a"}, &Client{Tool: "casebook", HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findA.find}, "test")
+	chB := New(Identity{Session: "b", Harness: "pi", Label: "pi · b", CWD: "/b"}, &Client{Tool: "casebook", HTTP: &http.Client{Timeout: 30 * time.Second}, Find: findB.find}, "test")
 	for _, ch := range []*Channel{chA, chB} {
 		ch.Retry, ch.Poll = 50*time.Millisecond, time.Second
 	}
@@ -205,9 +206,9 @@ func newFakeRestartServe(t *testing.T, reopened bool, interrupted func(w http.Re
 	}
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	c := &Client{HTTP: ts.Client(), Find: func() (serve.Advert, error) {
+	c := &Client{Tool: "casebook", HTTP: ts.Client(), Find: func() (pageserve.Entry, error) {
 		f.finds.Add(1)
-		return serve.Advert{Base: ts.URL, Token: "tok", StartedAt: time.Unix(0, f.started.Load()).UTC(), Reopened: f.reopened}, nil
+		return pageserve.Entry{Base: ts.URL, Token: "tok", StartedAt: time.Unix(0, f.started.Load()).UTC(), Reopened: f.reopened}, nil
 	}}
 	return f, c
 }
