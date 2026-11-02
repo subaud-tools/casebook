@@ -80,7 +80,7 @@ func setup(t *testing.T) *env {
 
 func (e *env) run(stdin string, args ...string) (int, string, string) {
 	var out, errw bytes.Buffer
-	code := Main(args, strings.NewReader(stdin), &out, &errw)
+	code := Main(args, strings.NewReader(stdin), &out, &errw, nil)
 	return code, out.String(), errw.String()
 }
 

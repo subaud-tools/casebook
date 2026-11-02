@@ -40,13 +40,27 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
       - id: rel
-        uses: subaud-tools/tools-actions/release-version@v0.11.1
+        uses: subaud-tools/tools-actions/release-version@v0.13.1
         with:
           mode: version-file
           dispatch-tag: ${{ inputs.tag }}
       - if: steps.rel.outputs.skip != 'true'
-        uses: subaud-tools/tools-actions/go-release@v0.11.1
+        uses: actions/setup-go@v7.0.0
         with:
+          go-version-file: go.mod
+      - name: Build the release setup bundle
+        if: steps.rel.outputs.skip != 'true'
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          mkdir -p dist
+          go run ./cmd/casebook setup-bundle --version "$RELEASE_VERSION" --out dist/casebook_setup.tar.gz
+      - if: steps.rel.outputs.skip != 'true'
+        uses: subaud-tools/tools-actions/go-release@v0.13.1
+        with:
+          setup-go: "false"
+          extra-assets: dist/casebook_setup.tar.gz
           binaries: |
             casebook=./cmd/casebook
           ldflags: >-

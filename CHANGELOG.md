@@ -6,6 +6,15 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.25.0
+
+### Added
+- Releases include a setup bundle built from Casebook's existing declaration: Claude record/brief hooks, plugin and pi channel registrations, and the existing sync service. The bundle uses exact hook reconciliation with kempt 0.13. Private data initialization and global Git recorder setup remain separate personal actions.
+
+### Changed
+- tools-common 0.38 provides the shared setup-bundle command. Its shared card headings use a fixed-height single row with ellipsis; the existing Casebook page passed its browser probe and visual review.
+- All tools-actions callers use 0.13.1, including the setup-archive publisher.
+
 ## 0.24.0
 
 ### Changed

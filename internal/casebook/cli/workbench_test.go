@@ -39,13 +39,13 @@ func wbSetup(t *testing.T) (*apptest.Rig, *[]string) {
 
 func run(args ...string) (int, string, string) {
 	var out, errw bytes.Buffer
-	code := Main(args, strings.NewReader(""), &out, &errw)
+	code := Main(args, strings.NewReader(""), &out, &errw, nil)
 	return code, out.String(), errw.String()
 }
 
 func runIn(stdin string, args ...string) (int, string) {
 	var out, errw bytes.Buffer
-	code := Main(args, strings.NewReader(stdin), &out, &errw)
+	code := Main(args, strings.NewReader(stdin), &out, &errw, nil)
 	return code, out.String() + errw.String()
 }
 
@@ -412,7 +412,7 @@ func TestSettledClaudeHungStdinReturns(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		var out, errw bytes.Buffer
-		code := Main([]string{"settled", "--harness", "claude"}, pr, &out, &errw)
+		code := Main([]string{"settled", "--harness", "claude"}, pr, &out, &errw, nil)
 		done <- result{code, out.String() + errw.String()}
 	}()
 
