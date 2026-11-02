@@ -8,4 +8,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/cli"
 )
 
-func main() { os.Exit(cli.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
+func main() {
+	source := setupSource()
+	os.Exit(cli.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, &source))
+}

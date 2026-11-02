@@ -16,6 +16,8 @@ A casebook installed before 0.15.0 (built in github.com/subaud-tools/tackle) upd
 
 A merge to `main` that raises `VERSION` releases casebook: signed and notarized, published to GitHub and to casebook.tools/dl. `version-guard` fails a pull request that doesn't raise it (or carry the `no-release` label).
 
+Releases also publish `casebook_setup.tar.gz`, built with `casebook setup-bundle --version X.Y.Z --out PATH`. This build-only command packages the embedded declaration without reading personal configuration or installing anything. The fragment requires kempt 0.13 or newer for exact Claude hook reconciliation and includes the existing sync service, plugin and channel configuration. It contains no binary download or filesystem assets. Private data initialization and the global Git recorder with prior-hook chaining remain explicit personal actions (`casebook init` and `casebook hooks install`); the bundle does not perform them.
+
 ## Develop
 
     go build ./cmd/casebook

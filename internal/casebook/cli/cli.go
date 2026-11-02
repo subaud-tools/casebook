@@ -15,6 +15,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/observe"
 	"github.com/subaud-tools/casebook/internal/version"
 	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/setupbundle"
 )
 
 // Test seams.
@@ -37,7 +38,7 @@ func defaultExecutable() string {
 
 // Main runs `casebook args...` and returns the exit code. `casebook hook` is
 // handled before dispatch: it must never fail, print or wait.
-func Main(args []string, stdin io.Reader, out, errw io.Writer) int {
+func Main(args []string, stdin io.Reader, out, errw io.Writer, source *setupbundle.Source) int {
 	if len(args) > 0 && args[0] == "hook" {
 		return hooks.Main(args[1:], stdin)
 	}
@@ -57,6 +58,9 @@ func Main(args []string, stdin io.Reader, out, errw io.Writer) int {
 	})
 	for _, c := range append(commands(stdin), workbenchCommands(stdin)...) {
 		a.Register(c)
+	}
+	if source != nil {
+		a.Register(setupbundle.BundleCommand("casebook", version.Number(), *source))
 	}
 	return a.Dispatch(args, out, errw)
 }
