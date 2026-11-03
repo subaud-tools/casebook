@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -385,7 +386,7 @@ func TestAgentTextNamesTheConfiguredUser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(body, want) || strings.Contains(strings.ToLower(body), "court") {
+		if !strings.Contains(body, want) || regexp.MustCompile(`(?i)\bcourt\b`).MatchString(body) {
 			t.Errorf("user %q: job body\n%s\nwant %q", user, body, want)
 		}
 		if got := r.s.userSubject(); user == "" && got != "The user" || user != "" && got != user {

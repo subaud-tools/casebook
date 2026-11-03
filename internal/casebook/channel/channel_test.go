@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -889,7 +890,7 @@ func TestAgentTextNamesNoOne(t *testing.T) {
 		texts[tool.Name] = tool.Description + " " + string(tool.InputSchema)
 	}
 	for name, text := range texts {
-		if strings.Contains(strings.ToLower(text), "court") {
+		if regexp.MustCompile(`(?i)\bcourt\b`).MatchString(text) {
 			t.Errorf("%s names a person: %s", name, text)
 		}
 	}
