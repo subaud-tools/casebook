@@ -1,7 +1,7 @@
 // Package propose holds the agent's contributions that aren't messages:
-// proposals (a suggested decision waiting for Court), evidence (a finding
+// proposals (a suggested decision waiting for the user), evidence (a finding
 // attached to an item) and the live progress line. Proposals never decide:
-// Court accepts, changes or rejects them (casebook workbench spec §6.4).
+// the user accepts, changes or rejects them (casebook workbench spec §6.4).
 package propose
 
 import (
@@ -19,10 +19,10 @@ import (
 const (
 	Pending    = "pending"
 	Accepted   = "accepted"   // decided as proposed
-	Changed    = "changed"    // accepted, but Court decided differently
-	Rejected   = "rejected"   // Court said no
-	Superseded = "superseded" // replaced by a newer proposal, or Court decided directly
-	// Withdrawn: Court cleared it so the agent recommends the item again,
+	Changed    = "changed"    // accepted, but the user decided differently
+	Rejected   = "rejected"   // the user said no
+	Superseded = "superseded" // replaced by a newer proposal, or the user decided directly
+	// Withdrawn: the user cleared it so the agent recommends the item again,
 	// or its rule no longer makes it (turned off, edited, deleted), with no
 	// judgement. It is no rejection: no track record counts it
 	// (Tally, Overruled and RejectedFor read the other states).
@@ -41,7 +41,7 @@ type Proposal struct {
 	Note        string    `json:"note,omitempty"`
 	Source      string    `json:"source"` // "pi:<session>", "claude:<session>" or "rule:<id>"
 	State       string    `json:"state"`
-	Reason      string    `json:"reason,omitempty"` // rejected: Court's why; changed: what he decided instead
+	Reason      string    `json:"reason,omitempty"` // rejected: the user's why; changed: what they decided instead
 	CreatedAt   time.Time `json:"created_at"`
 	SettledAt   time.Time `json:"settled_at,omitzero"`
 }
@@ -208,7 +208,7 @@ func (s *Store) Settle(ctx context.Context, id int64, state, reason string) erro
 }
 
 // SupersedeKey retires every pending proposal for a key except one. Pass
-// except=0 to supersede all pending proposals for the key (e.g. when Court
+// except=0 to supersede all pending proposals for the key (e.g. when the user
 // decides directly); pass a non-zero proposal ID to spare that one (e.g.
 // when accepting one proposal among several from different sources).
 func (s *Store) SupersedeKey(ctx context.Context, key string, except int64) error {
@@ -399,7 +399,7 @@ func (s *Store) RejectedFor(ctx context.Context, source string, since time.Time)
 	return out, rows.Err()
 }
 
-// Overruled returns source's proposals Court changed or rejected since t,
+// Overruled returns source's proposals the user changed or rejected since t,
 // newest first, at most limit of them, and how many there are in all.
 func (s *Store) Overruled(ctx context.Context, source string, since time.Time, limit int) ([]Proposal, int, error) {
 	const where = "source = ? AND state IN ('changed', 'rejected') AND settled_at >= ?"

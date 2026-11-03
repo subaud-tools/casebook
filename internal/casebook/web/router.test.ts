@@ -270,7 +270,7 @@ describe('old addresses land on decide', () => {
   }
 });
 
-// apply became review and run (Court, 2026-10-17): #/apply and its group
+// apply became review and run (the user, 2026-10-17): #/apply and its group
 // land on review; #/apply/<job> opens the job in run.
 describe('old apply addresses land on review or run', () => {
   for (const [hash, want] of [

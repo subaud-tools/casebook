@@ -152,7 +152,7 @@ func TestChannelEndToEnd(t *testing.T) {
 	ch.Retry, ch.Poll = 100*time.Millisecond, 2*time.Second
 	m := start(t, ch)
 
-	// Presence arrives; Court opens a thread and sends a message from the page.
+	// Presence arrives; the user opens a thread and sends a message from the page.
 	ctx := context.Background()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -889,8 +889,8 @@ func TestAgentTextNamesNoOne(t *testing.T) {
 		texts[tool.Name] = tool.Description + " " + string(tool.InputSchema)
 	}
 	for name, text := range texts {
-		if strings.Contains(text, "Court") {
-			t.Errorf("%s names Court: %s", name, text)
+		if strings.Contains(strings.ToLower(text), "court") {
+			t.Errorf("%s names a person: %s", name, text)
 		}
 	}
 	if !strings.Contains(Instructions, "the user") {

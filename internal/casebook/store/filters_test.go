@@ -43,7 +43,7 @@ func TestTidySeedsExampleFiltersOnce(t *testing.T) {
 	r, _ := newStore(t)
 	testgit.Git(t, r.Dir, "rm", "-r", "-q", "filters")
 	testgit.Git(t, r.Dir, "commit", "-q", "-m", "an older repo")
-	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	subj := strings.Split(testgit.Git(t, r.Dir, "log", "-2", "--format=%s"), "\n")
@@ -54,21 +54,21 @@ func TestTidySeedsExampleFiltersOnce(t *testing.T) {
 		t.Fatalf("seed commit holds %q, want %q", got, exampleFilterPaths)
 	}
 
-	if err := r.DeleteFilter(ctx, "incoming", "filter incoming deleted by court"); err != nil {
+	if err := r.DeleteFilter(ctx, "incoming", "filter incoming deleted by user"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(r.Dir, "filters", "incoming.toml")); !os.IsNotExist(err) {
 		t.Fatalf("incoming.toml came back: %v", err)
 	}
 	for _, id := range []string{"outgoing-prs", "quiet-14d", "unpushed", "dormant-repos"} {
-		if err := r.DeleteFilter(ctx, id, "filter "+id+" deleted by court"); err != nil {
+		if err := r.DeleteFilter(ctx, id, "filter "+id+" deleted by user"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := r.Decide(ctx, item.IssueKey("a/b", 3), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 3), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
@@ -85,7 +85,7 @@ func TestTidySeedsExampleFiltersOnce(t *testing.T) {
 func TestWriteFilterRefusesInvalid(t *testing.T) {
 	r, _ := newStore(t)
 	before := testgit.Git(t, r.Dir, "rev-parse", "HEAD")
-	err := r.WriteFilter(ctx, filters.Filter{ID: "empty", Name: "Empty"}, "filter empty saved by court")
+	err := r.WriteFilter(ctx, filters.Filter{ID: "empty", Name: "Empty"}, "filter empty saved by user")
 	if err == nil {
 		t.Fatal("WriteFilter accepted a filter with no conditions")
 	}
@@ -144,7 +144,7 @@ func TestFilterIDMustMatchFileName(t *testing.T) {
 	if _, err := r.ReadFilter("custom"); !errors.As(err, &fe) || fe.ID != "custom" {
 		t.Fatalf("ReadFilter(custom) err %v, want *FilterFileError for custom", err)
 	}
-	if err := r.DeleteFilter(ctx, "custom", "filter custom deleted by court"); err != nil {
+	if err := r.DeleteFilter(ctx, "custom", "filter custom deleted by user"); err != nil {
 		t.Fatalf("DeleteFilter(custom): %v", err)
 	}
 	if got, err := r.ReadFilter("incoming"); err != nil || got == nil {
@@ -155,14 +155,14 @@ func TestFilterIDMustMatchFileName(t *testing.T) {
 func TestDeleteFilterCommits(t *testing.T) {
 	r, _ := newStore(t)
 	f := filters.Filter{ID: "open-issues", Name: "Open issues", Match: []rules.Condition{{Field: "kind", Op: "is", Value: "issue"}}}
-	if err := r.WriteFilter(ctx, f, "filter open-issues saved by court"); err != nil {
+	if err := r.WriteFilter(ctx, f, "filter open-issues saved by user"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := r.ReadFilter("open-issues")
 	if err != nil || got == nil || got.Name != "Open issues" {
 		t.Fatalf("ReadFilter = %+v, %v", got, err)
 	}
-	msg := "filter open-issues deleted by court"
+	msg := "filter open-issues deleted by user"
 	if err := r.DeleteFilter(ctx, "open-issues", msg); err != nil {
 		t.Fatal(err)
 	}

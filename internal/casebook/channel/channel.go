@@ -134,8 +134,8 @@ func onServe(ctx context.Context, ch *Channel, e pageserve.Entry) {
 // restarted is the channel event when serve came back as a new process and
 // its start interrupted messages in flight to this session; "" when it
 // interrupted none (then the restart is none of this session's business).
-// It speaks only of the session's own work: whether Court's page reopened
-// is about Court's browser, not the agent's.
+// It speaks only of the session's own work: whether the user's page reopened
+// is about the user's browser, not the agent's.
 func restarted(v serve.InterruptedView) string {
 	n := len(v.Messages)
 	if n == 0 {

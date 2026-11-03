@@ -13,7 +13,7 @@ import (
 // with clone /r holding branch feat/x; mod changes it before the build.
 func holdsInput(mod func(in *Input, c *observe.Clone)) Input {
 	g := observe.NewGitHub()
-	g.User = "court"
+	g.User = "user"
 	g.Owners["o"] = &observe.Owner{Login: "o", Reachable: true, FetchedAt: now, Repos: []observe.RepoObs{{Repo: "o/r", DefaultBranch: "main"}}}
 	c := observe.Clone{Path: "/r", Repo: "o/r", Head: "main", Branches: []observe.Branch{{Name: "main", Tip: "m"}, {Name: "feat/x", Tip: "e46d896"}}}
 	in := Input{Now: now, GitHub: g, Machine: "work", Decisions: map[string]item.Decision{}, Seen: map[string]time.Time{}}

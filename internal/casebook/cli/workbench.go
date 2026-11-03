@@ -78,7 +78,7 @@ var watchHelp = pageserve.Help{
 // serveForeground is `casebook serve --foreground`: the server, in this
 // process until ctx ends. The background start runs it with --no-open; a
 // restart reopens a page that was open (its tab's token died with the old
-// serve), attached to the agent the old tab was (Court, 2026-10-18: restarts
+// serve), attached to the agent the old tab was (the user, 2026-10-18: restarts
 // left the page with no agent).
 func serveForeground(ctx context.Context, port int, errw io.Writer) error {
 	a, err := open()

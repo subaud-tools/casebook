@@ -12,7 +12,7 @@ import (
 )
 
 // A branch checked out in a clone or worktree is never deleted: deleting it
-// left applied-ai-research on an unborn dev (Court, 2026-10-18).
+// left applied-ai-research on an unborn dev (the user, 2026-10-18).
 func TestCheckedOutBranchIsNeverDeleted(t *testing.T) {
 	testgit.Env(t)
 	ctx := context.Background()
@@ -41,7 +41,7 @@ func TestCheckedOutBranchIsNeverDeleted(t *testing.T) {
 
 // A long-lived branch (dev, develop, staging, main, master or the repo's
 // default) is never deleted, even when a job already holds the step: a
-// dev → main release PR made dev look landed (Court, 2026-10-18).
+// dev → main release PR made dev look landed (the user, 2026-10-18).
 func TestLongLivedBranchIsNeverDeleted(t *testing.T) {
 	testgit.Env(t)
 	ctx := context.Background()

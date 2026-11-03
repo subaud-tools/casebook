@@ -125,7 +125,7 @@ func TestServeNumbersConditionsFromOne(t *testing.T) {
 
 // N2: the agent's draft is refused when it isn't valid, with serve's
 // reason, and nothing is written: the agent is never told a bad draft
-// was saved, and Court never finds one it didn't know about.
+// was saved, and the user never finds one it didn't know about.
 func TestAgentDraftMustBeValid(t *testing.T) {
 	r := newRig(t)
 	r.attach(t, "s1")

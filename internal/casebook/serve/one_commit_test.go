@@ -19,7 +19,7 @@ func commits(t *testing.T, r *rig) int {
 	return n
 }
 
-// TestAGroupIsOneCommit (Court, 2026-10-18: 1,757 landed branches took six
+// TestAGroupIsOneCommit (the user, 2026-10-18: 1,757 landed branches took six
 // minutes, one commit each): accepting several recommendations, or deciding
 // several items, writes all their decisions in one commit; each item still
 // has its decision and its history names it.

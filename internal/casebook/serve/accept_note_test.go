@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// A recommendation's note is written to Court (the agent's reason). It is
+// A recommendation's note is written to the user (the agent's reason). It is
 // never a closing comment: accepting a close recommendation records no note
-// (the plan's step posts nothing), unless Court gives the comment himself
+// (the plan's step posts nothing), unless the user gives the comment themselves
 // with the accept. The note stays on the proposal. Other dispositions post
 // nothing, and their accepts keep the note.
 const recReason = "A usage question on an example repo no longer maintained."
@@ -64,7 +64,7 @@ func TestAcceptingACloseRecommendationRecordsNoComment(t *testing.T) {
 	}
 }
 
-func TestAcceptingACloseWithCourtsComment(t *testing.T) {
+func TestAcceptingACloseWithTheUsersComment(t *testing.T) {
 	r := newRig(t)
 	const key = "issue:schuettc/hail#5"
 	id := r.proposeOne(t, key, "close", recReason)
@@ -73,11 +73,11 @@ func TestAcceptingACloseWithCourtsComment(t *testing.T) {
 
 	d := r.decisionOf(t, key)
 	if d == nil || d.Disposition != "close" || d.Note != said {
-		t.Fatalf("decision %+v, want close with Court's comment", d)
+		t.Fatalf("decision %+v, want close with the user's comment", d)
 	}
 	cmd, posts := r.planStep(t, key)
 	if cmd != "gh issue close 5 -R 'schuettc/hail' --comment '"+said+"'" || !posts {
-		t.Errorf("plan step %q posts=%v, want Court's comment, posted", cmd, posts)
+		t.Errorf("plan step %q posts=%v, want the user's comment, posted", cmd, posts)
 	}
 }
 

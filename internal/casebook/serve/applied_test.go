@@ -7,7 +7,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/apply"
 )
 
-// TestDoneUntilObserved (Court, 2026-10-17): an item casebook verified done
+// TestDoneUntilObserved (the user, 2026-10-17): an item casebook verified done
 // stays out of review until GitHub has been read for its owner after it;
 // the index's build time doesn't count (a restart rebuilds from the cache).
 func TestDoneUntilObserved(t *testing.T) {
@@ -45,7 +45,7 @@ func TestDoneUntilObserved(t *testing.T) {
 	}
 }
 
-// TestDoneSaysHow (Court, 2026-10-18: "we can't claim something in browser
+// TestDoneSaysHow (the user, 2026-10-18: "we can't claim something in browser
 // if it's not real"): a done item says whether casebook did it (which job,
 // verified when) or found it already so, with nothing run.
 func TestDoneSaysHow(t *testing.T) {

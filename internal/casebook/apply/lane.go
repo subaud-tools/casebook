@@ -191,7 +191,7 @@ func observeGitHubBranch(ctx context.Context, step JobStep, gh observe.Runner) i
 
 // RunCasebookLane runs the job's runnable casebook-lane steps in order. After
 // each step it honours pause() (§5.3), stopping both lanes after the current
-// step. A failed step opens a needs-you card of kind "failed" so Court can hand
+// step. A failed step opens a needs-you card of kind "failed" so the user can hand
 // it to the agent lane (§5.2); a drift is recorded as failed with detail
 // "drift" and returns the item to Attention (§5.5).
 func (s *Store) RunCasebookLane(ctx context.Context, job Job, r Runner, env Env, pause func() bool) error {

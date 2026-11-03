@@ -94,7 +94,7 @@ type Server struct {
 	// session. Both are set in New, before any request, and never change.
 	started     time.Time
 	interrupted map[string][]deliver.Interruption
-	// openPage opens the page in Court's browser for casebook_open: suffix
+	// openPage opens the page in the user's browser for casebook_open: suffix
 	// is appended to the page URL (…/?t=<token>), an optional
 	// SessionQuery then an optional route fragment ("#/item/<key>",
 	// "#/attention/<view>"). nil when serve can't open a browser.
@@ -369,7 +369,7 @@ func (s *Server) startCasebookLane(job apply.Job) {
 		// After the casebook lane drains, check whether the job has reached a
 		// terminal state (all steps done or nothing left to run).
 		s.settleJob(bgCtx, job.ID)
-		// Re-read the branches it deleted on GitHub (Court, 2026-10-20).
+		// Re-read the branches it deleted on GitHub (the user, 2026-10-20).
 		if j, err := s.Apply.Get(bgCtx, job.ID); err == nil {
 			var keys []string
 			for _, st := range j.Steps {

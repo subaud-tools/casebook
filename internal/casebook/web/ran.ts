@@ -1,7 +1,7 @@
 // ran.ts — a job, and what ran on one item.
 //
 // renderJob draws a running or finished job (#/run/<id>): its facts, the
-// cards that need Court, and the steps table. renderRan draws an item run
+// cards that need the user, and the steps table. renderRan draws an item run
 // lists (#/run?item=<key>): its head, what ran on it (every step on it,
 // across jobs, with undo and its cards' skip and hand to agent), then its
 // job: the latest job it ran in, the steps around this item's ("this
@@ -55,12 +55,12 @@ export interface JobHooks {
 
 /**
  * renderJob draws a running or finished job: its facts, the cards that need
- * Court (signal edge) or say the agent paused (amber), and the steps table.
+ * the user (signal edge) or say the agent paused (amber), and the steps table.
  */
 /**
  * stepKeyLines is a step's key in the steps table (stepKey): for a branch,
  * the repo (muted, the row's full width) over the branch, which shares its
- * line with the state; neither wraps mid-word (Court, 2026-10-18). Any other
+ * line with the state; neither wraps mid-word (the user, 2026-10-18). Any other
  * key, a worktree by its label, is the one line beside the state. The full
  * key is the hover.
  */
@@ -152,7 +152,7 @@ export function renderJob(_ctx: Ctx, v: JobView, hooks: JobHooks): HTMLElement {
   return doc;
 }
 
-// needsCard is one open card: what serve asks Court, with serve's actions.
+// needsCard is one open card: what serve asks the user, with serve's actions.
 export function needsCard(
   c: NeedsYou,
   step: JobStep | undefined,
@@ -206,7 +206,7 @@ export function needsCard(
       // edit text: the comment becomes a field; save sends it to serve (the
       // card stays open with the new text). While it is open its text is
       // kept by the section, so a redraw (a live event) draws it again as
-      // Court left it.
+      // the user left it.
       const startEdit = (text: string, focus: boolean) => {
         const field = h('textarea', {
           class: 'cb-needs-edit',

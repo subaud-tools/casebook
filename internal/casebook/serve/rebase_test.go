@@ -48,11 +48,11 @@ func TestRebuildNeverReadsAMidRebaseTree(t *testing.T) {
 	const key = "issue:schuettc/hail#4"
 	ru := rules.Rule{
 		ID: "close-issues", Name: "Close issues", Status: rules.StatusActive,
-		CreatedBy: "court", CreatedAt: r.s.Now(), EditedAt: r.s.Now(),
+		CreatedBy: "user", CreatedAt: r.s.Now(), EditedAt: r.s.Now(),
 		Match:   []rules.Condition{{Field: "kind", Op: "is", Value: "issue"}},
 		Propose: rules.RuleAction{Disposition: "close"},
 	}
-	if err := r.App.Repo.WriteRule(ctx, ru, "rule close-issues created by court"); err != nil {
+	if err := r.App.Repo.WriteRule(ctx, ru, "rule close-issues created by user"); err != nil {
 		t.Fatal(err)
 	}
 	// The rule is on the remote too: the mid-rebase tree has it.

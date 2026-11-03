@@ -779,7 +779,7 @@ func TestRenderNamesTheConfiguredUser(t *testing.T) {
 	}
 	for from, want := range map[string]string{"lena": "casebook: 1 message from lena.", "": "casebook: 1 message from the user."} {
 		got := Render(*d, "", "", from, time.UTC)
-		if !strings.HasPrefix(got, want) || strings.Contains(got, "Court") {
+		if !strings.HasPrefix(got, want) || strings.Contains(strings.ToLower(got), "court") {
 			t.Errorf("from %q: got\n%s\nwant it to start %q", from, got, want)
 		}
 	}

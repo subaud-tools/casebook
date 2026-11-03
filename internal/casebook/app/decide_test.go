@@ -44,7 +44,7 @@ func TestDecidePushesAndValidates(t *testing.T) {
 			t.Errorf("accepted %v", bad)
 		}
 	}
-	if _, _, err := r.app.Decide(ctx, "pr:a/b#1", "wait", DecideOptions{Until: "date(2026-10-01)", By: "court"}); err != nil {
+	if _, _, err := r.app.Decide(ctx, "pr:a/b#1", "wait", DecideOptions{Until: "date(2026-10-01)", By: "user"}); err != nil {
 		t.Error(err)
 	}
 }
@@ -81,7 +81,7 @@ func TestTriageRoundTrip(t *testing.T) {
 
 func TestDecideRecordsProposal(t *testing.T) {
 	r := newRig(t)
-	d, _, err := r.app.Decide(ctx, "repo:schuettc/hail", "keep", DecideOptions{By: "court", ProposedBy: "pi:s-1", Rule: "active-repos"})
+	d, _, err := r.app.Decide(ctx, "repo:schuettc/hail", "keep", DecideOptions{By: "user", ProposedBy: "pi:s-1", Rule: "active-repos"})
 	if err != nil || d.ProposedBy != "pi:s-1" || d.Rule != "active-repos" {
 		t.Fatalf("got %+v %v", d, err)
 	}

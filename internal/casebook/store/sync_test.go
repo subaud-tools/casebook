@@ -27,10 +27,10 @@ func TestDecisionRaceLaterWins(t *testing.T) {
 	a, b, _ := twoMachines(t)
 	k := item.RepoKey("schuettc/old")
 	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
-	if err := a.Decide(ctx, k, dec(item.Archive, "court@a", t0)); err != nil {
+	if err := a.Decide(ctx, k, dec(item.Archive, "user@a", t0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Decide(ctx, k, dec(item.Keep, "court@b", t0.Add(time.Minute))); err != nil {
+	if err := b.Decide(ctx, k, dec(item.Keep, "user@b", t0.Add(time.Minute))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Sync(ctx); err != nil {
@@ -51,7 +51,7 @@ func TestDecisionRaceLaterWins(t *testing.T) {
 		if err != nil || d == nil {
 			t.Fatalf("%s: %v %v", name, d, err)
 		}
-		if d.Disposition != item.Keep || d.Conflict == nil || d.Conflict.Disposition != item.Archive || d.Conflict.DecidedBy != "court@a" {
+		if d.Disposition != item.Keep || d.Conflict == nil || d.Conflict.Disposition != item.Archive || d.Conflict.DecidedBy != "user@a" {
 			t.Errorf("%s: %+v conflict=%+v", name, d, d.Conflict)
 		}
 		if item.Compute(k, d, item.Observed{}, nil, time.Now(), false) != item.StatusConflict {
@@ -71,14 +71,14 @@ func TestSameDecisionRaceIsNotAConflict(t *testing.T) {
 	a, b, _ := twoMachines(t)
 	k := item.RepoKey("schuettc/old")
 	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
-	must(t, a.Decide(ctx, k, dec(item.Archive, "court@a", t0)))
-	must(t, b.Decide(ctx, k, dec(item.Archive, "court@b", t0.Add(time.Minute))))
+	must(t, a.Decide(ctx, k, dec(item.Archive, "user@a", t0)))
+	must(t, b.Decide(ctx, k, dec(item.Archive, "user@b", t0.Add(time.Minute))))
 	_, err := a.Sync(ctx)
 	must(t, err)
 	_, err = b.Sync(ctx)
 	must(t, err)
 	d, _ := b.ReadDecision(k)
-	if d.Conflict != nil || d.DecidedBy != "court@b" {
+	if d.Conflict != nil || d.DecidedBy != "user@b" {
 		t.Fatalf("got %+v", d)
 	}
 }
@@ -155,7 +155,7 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// TestRacedIncludesGitHubsLockRace (Court, 2026-10-18): GitHub reports a push
+// TestRacedIncludesGitHubsLockRace (the user, 2026-10-18): GitHub reports a push
 // that lost to another machine's as "[remote rejected] … (cannot lock ref …
 // is at X but expected Y)". That is a race, tried again after a rebase, not
 // a refusal to show.

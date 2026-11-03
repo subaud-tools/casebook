@@ -15,7 +15,7 @@ import (
 
 // TestPlanEndpointRefusesStale verifies that POST /api/apply/plan returns 409
 // when the index observation is older than one sync interval. The error message
-// must name a sync and must not contain any command for Court to run.
+// must name a sync and must not contain any command for the user to run.
 func TestPlanEndpointRefusesStale(t *testing.T) {
 	r := newRig(t)
 
@@ -31,7 +31,7 @@ func TestPlanEndpointRefusesStale(t *testing.T) {
 		t.Fatalf("stale plan: got %d, want 409; body: %v", code, out)
 	}
 
-	// The error message must mention "sync" and must not tell Court to run a
+	// The error message must mention "sync" and must not tell the user to run a
 	// command (no "$", no backticks, no shell keywords like "git " or "gh ").
 	errMsg, _ := out["error"].(string)
 	if errMsg == "" {
@@ -50,8 +50,8 @@ func TestPlanEndpointRefusesStale(t *testing.T) {
 // TestApproveRunsCasebookLaneAndDispatchesAgentLane verifies that
 // POST /api/apply/approve:
 //   - approves the job,
-//   - opens no batch card: Court's approve (and confirm, for what can't be
-//     undone) is the last thing he presses (Court, 2026-10-18),
+//   - opens no batch card: the user's approve (and confirm, for what can't be
+//     undone) is the last thing they press (the user, 2026-10-18),
 //   - dispatches the agent job exactly once (idempotent),
 //   - starts the casebook lane in the background.
 func TestApproveRunsCasebookLaneAndDispatchesAgentLane(t *testing.T) {
@@ -471,7 +471,7 @@ func truncate(s string, n int) string {
 
 func toApply(k item.Key, d item.Disposition, locs ...string) engine.Item {
 	return engine.Item{Key: k, ID: k.String(), Kind: k.Kind, Repo: k.Repo(), Status: item.StatusToApply,
-		Decision: &item.Decision{Disposition: d, DecidedBy: "court", DecidedAt: time.Now().Add(-time.Hour)}, Locations: locs}
+		Decision: &item.Decision{Disposition: d, DecidedBy: "user", DecidedAt: time.Now().Add(-time.Hour)}, Locations: locs}
 }
 
 // TestPlanAddsTheWorktreeABranchNeeds: reviewing a branch whose clean

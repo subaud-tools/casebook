@@ -13,7 +13,7 @@
 //     one decision, one commit; u undoes it; u after a re-decide puts the
 //     earlier decision back
 //   another button decides differently (the rule's record counts it)
-//   a recommendation that arrives while Court is picking a Not now still
+//   a recommendation that arrives while the user is picking a Not now still
 //     counts as decided differently
 
 import { openGroups, startServe } from './serve.mjs';
@@ -160,7 +160,7 @@ async function decisionsScenario(context, t, s) {
     };
   };
 
-  // Only this scenario's items wait on Court.
+  // Only this scenario's items wait on the user.
   const new0 = await api('GET', '/api/items?view=new&limit=500');
   const mine = (k) => k.includes(`/${IP}#`) || k.includes('/rd-old-');
   const others = (new0.items ?? []).map((it) => it.key).filter((k) => !mine(k));
@@ -331,7 +331,7 @@ async function decisionsScenario(context, t, s) {
       !posts.includes('/api/decide'),
   );
 
-  // ---- a recommendation that comes while Court is picking a Not now ------
+  // ---- a recommendation that comes while the user is picking a Not now ------
   // (review 2026-10-17): the decision still counts against it, not over it.
   {
     const S = 'probe-item-late';

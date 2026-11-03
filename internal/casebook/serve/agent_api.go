@@ -145,7 +145,7 @@ func (s *Server) userSubject() string {
 const overruledShown = 10
 
 // summary is the "since you last looked" paragraph for a session: accepted
-// proposals as a count, every changed or rejected one with Court's reason (up
+// proposals as a count, every changed or rejected one with the user's reason (up
 // to overruledShown, then how many more), and direct decisions as a count.
 func (s *Server) summary(ctx context.Context, sess deliver.Session) string {
 	since := sess.LookedAt
@@ -220,7 +220,7 @@ func (s *Server) agentWait(w http.ResponseWriter, r *http.Request) {
 			// The messages are in the delivery and still sent (see
 			// deliver.Queue.Next): the harness reports when they land. The
 			// delivery stays in flight until the agent settles it, the turn
-			// ends after it landed, or Court intervenes.
+			// ends after it landed, or the user intervenes.
 			s.publish(ctx, "delivery", map[string]any{"id": d.ID, "session": sess.ID, "state": deliver.InFlight, "messages": len(d.Messages)})
 			reply(w, WaitView{Delivery: d, Text: text, Report: d.Token}, nil)
 			return
@@ -300,10 +300,10 @@ func (s *Server) agentPropose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Proposals are only valid for items that exist in the casebook index and
-	// are currently in attention (awaiting Court's decision). Agents receive
+	// are currently in attention (awaiting the user's decision). Agents receive
 	// keys from casebook's own tools (casebook_show, casebook_status), so an
 	// unknown key is a programming error
-	// — the proposal would sit orphaned, invisible to Court.
+	// — the proposal would sit orphaned, invisible to the user.
 	//
 	// A wait/watch decision whose until has lapsed returns the item to
 	// attention (StatusDue); such items are accepted by InAttention().
@@ -494,7 +494,7 @@ func (s *Server) agentProgress(w http.ResponseWriter, r *http.Request) {
 
 // agentStatus is casebook_status: the attention counts, whether the page is
 // open, and what changed since the session last looked. It carries no live
-// page context; what Court was looking at travels with each message.
+// page context; what the user was looking at travels with each message.
 func (s *Server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sess, err := s.session(ctx, r.URL.Query().Get("session"))
@@ -525,15 +525,15 @@ func (s *Server) agentInterrupted(w http.ResponseWriter, r *http.Request) {
 	reply(w, v, nil)
 }
 
-// agentOpen is casebook_open: open the page in Court's browser.
-// agentOpen is casebook_open: open the page in Court's browser, at one item
+// agentOpen is casebook_open: open the page in the user's browser.
+// agentOpen is casebook_open: open the page in the user's browser, at one item
 // (key) or at the front (no key).
 //
 // The page belongs to the session that opened it (galley's rule: an editor
 // belongs to the one session that opened it). The channel sends its session,
 // and the page opens attached to it: the URL carries ?session=<id>, so a
 // reload keeps it. A channel with no session opens a page that belongs to
-// no one; the page then asks Court to choose.
+// no one; the page then asks the user to choose.
 func (s *Server) agentOpen(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Session string `json:"session"`
@@ -873,8 +873,8 @@ func (s *Server) agentJobStep(w http.ResponseWriter, r *http.Request) {
 }
 
 // agentJobAsk is POST /api/agent/job-ask: the agent drafts public text or
-// asks a question, opening a needs-you card so Court can review and answer it.
-// Nothing is posted until Court approves (spec §5.4, Court 2026-09-27).
+// asks a question, opening a needs-you card so the user can review and answer it.
+// Nothing is posted until the user approves (spec §5.4, the user, 2026-09-27).
 func (s *Server) agentJobAsk(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Session  string `json:"session"`
@@ -962,7 +962,7 @@ func buildJobBody(job apply.Job, user string) (string, error) {
 	b.WriteString("Work through each step in order. Check preconditions live before running.\n")
 
 	// Approving in casebook was the user's confirmation: the agent runs the
-	// steps without asking again in chat (Court, 2026-10-18).
+	// steps without asking again in chat (the user, 2026-10-18).
 	fmt.Fprintf(&b, "%s approved these exact steps in casebook; that is their confirmation.\n", user)
 	b.WriteString("Do not ask again in chat: run them now, pausing a step only if its precondition fails.\n")
 

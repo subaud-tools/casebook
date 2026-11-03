@@ -86,7 +86,7 @@ function sess(id: string, over: Partial<Session> = {}): Session {
     id,
     harness: 'pi',
     label: '',
-    cwd: '/Users/court/GitHub/schuettc/tools-workspace',
+    cwd: '/Users/user/GitHub/schuettc/tools-workspace',
     pid: 1,
     first_seen: '2026-10-06T00:00:00Z',
     last_seen: '2026-10-06T00:00:00Z',

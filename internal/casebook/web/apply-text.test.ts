@@ -397,7 +397,7 @@ describe('heldOutside', () => {
   });
 });
 
-// Court 2026-10-17: a plan says how many it acts on, "Delete 7 repos".
+// The user, 2026-10-17: a plan says how many it acts on, "Delete 7 repos".
 describe('planTitle', () => {
   const job = (steps: Array<[string, string]>): Job =>
     ({
@@ -633,7 +633,7 @@ describe('review rows', () => {
       'deleted here',
     );
   });
-  // Court, 2026-10-20: ghmr-bench's ten branches read "held" while their
+  // The user, 2026-10-20: ghmr-bench's ten branches read "held" while their
   // GitHub deletes were in the plan; only their local copies waited.
   test('a local copy on another Mac waits; the GitHub delete still runs', () =>
     assert.deepEqual(
@@ -704,7 +704,7 @@ describe('review rows', () => {
       },
     );
   });
-  // Court, 2026-10-20: "removed it" read as if the worktree were gone.
+  // The user, 2026-10-20: "removed it" read as if the worktree were gone.
   test('reviewLine says a worktree here is removed here, one elsewhere waits', () => {
     const wt = (over: Partial<ItemView> = {}): ItemView =>
       ({
@@ -808,7 +808,7 @@ describe('waits and held wording', () => {
 describe('run rows', () => {
   const mk = (over: Partial<JobStep>): JobStep =>
     step(over.action ?? 'pr-close', over.lane ?? 'casebook', over.state, over);
-  // Court, 2026-10-20: a half-done item says what waits.
+  // The user, 2026-10-20: a half-done item says what waits.
   test('ranLine says when the local copy waits for another Mac', () =>
     assert.equal(
       ranLine(
@@ -975,7 +975,7 @@ describe('ticked run items', () => {
     ));
 });
 
-// Court, 2026-10-20: "this is also not an intelligible command".
+// The user, 2026-10-20: "this is also not an intelligible command".
 describe('stepLine', () => {
   test('a GitHub delete reads as what it does; the key line above names the branch', () =>
     assert.equal(

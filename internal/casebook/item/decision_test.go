@@ -10,7 +10,7 @@ import (
 )
 
 func TestDecisionEncodeDecodeRoundTrip(t *testing.T) {
-	d := Decision{Disposition: Watch, Note: "retire when merged", Until: "merged(pr:a/b#97)", DecidedBy: "court",
+	d := Decision{Disposition: Watch, Note: "retire when merged", Until: "merged(pr:a/b#97)", DecidedBy: "user",
 		DecidedAt: time.Date(2026, 9, 24, 10, 12, 0, 500, time.FixedZone("x", -5*3600))}
 	b, err := EncodeDecision(d)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestDecisionConflictRoundTrip(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownField(t *testing.T) {
-	_, err := DecodeDecision([]byte("disposition = \"keep\"\ndecided_by = \"court\"\ndecided_at = 2026-09-24T00:00:00Z\ncolour = \"red\"\n"))
+	_, err := DecodeDecision([]byte("disposition = \"keep\"\ndecided_by = \"user\"\ndecided_at = 2026-09-24T00:00:00Z\ncolour = \"red\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "colour") {
 		t.Fatalf("got %v", err)
 	}
@@ -80,7 +80,7 @@ func TestValidate(t *testing.T) {
 
 func TestDecisionFormat2FieldsRoundTrip(t *testing.T) {
 	at := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	d := Decision{Disposition: Close, DecidedBy: "court", DecidedAt: at, ProposedBy: "pi:s-1", Rule: "stale-bots"}
+	d := Decision{Disposition: Close, DecidedBy: "user", DecidedAt: at, ProposedBy: "pi:s-1", Rule: "stale-bots"}
 	b, err := EncodeDecision(d)
 	if err != nil {
 		t.Fatal(err)
@@ -92,15 +92,15 @@ func TestDecisionFormat2FieldsRoundTrip(t *testing.T) {
 	if err != nil || got.ProposedBy != "pi:s-1" || got.Rule != "stale-bots" {
 		t.Fatalf("got %+v %v", got, err)
 	}
-	plain, _ := EncodeDecision(Decision{Disposition: Keep, DecidedBy: "court", DecidedAt: at})
+	plain, _ := EncodeDecision(Decision{Disposition: Keep, DecidedBy: "user", DecidedAt: at})
 	if strings.Contains(string(plain), "proposed_by") || strings.Contains(string(plain), "rule") {
 		t.Errorf("empty format-2 fields encoded:\n%s", plain)
 	}
 }
 
 func TestDecisionJSONIsSnakeCase(t *testing.T) {
-	b, _ := json.Marshal(Decision{Disposition: Keep, DecidedBy: "court", ProposedBy: "rule:x"})
-	for _, want := range []string{`"disposition":"keep"`, `"decided_by":"court"`, `"proposed_by":"rule:x"`} {
+	b, _ := json.Marshal(Decision{Disposition: Keep, DecidedBy: "user", ProposedBy: "rule:x"})
+	for _, want := range []string{`"disposition":"keep"`, `"decided_by":"user"`, `"proposed_by":"rule:x"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("json %s lacks %s", b, want)
 		}

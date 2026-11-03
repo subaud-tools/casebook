@@ -52,7 +52,7 @@ func TestPruneSparesASessionAnythingReferences(t *testing.T) {
 		{"a job approved for it", func(t *testing.T, q *Queue) {
 			exec(t, q, `INSERT INTO jobs(plan_json, machine, session, state, created_at) VALUES ('{}', 'm', 'old', 'approved', 1)`)
 		}, nil},
-		{"a job approved for it, waiting on Court (needs_you)", func(t *testing.T, q *Queue) {
+		{"a job approved for it, waiting on the user (needs_you)", func(t *testing.T, q *Queue) {
 			res, err := q.DB.ExecContext(ctx, `INSERT INTO jobs(plan_json, machine, session, state, created_at) VALUES ('{}', 'm', 'old', 'running', 1)`)
 			if err != nil {
 				t.Fatal(err)

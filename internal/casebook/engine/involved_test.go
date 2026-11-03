@@ -10,7 +10,7 @@ import (
 )
 
 // orgFixture is the fixture with a fresh org, ft, whose repo ft/team has an
-// open PR; Court has no clone of it and is not its admin.
+// open PR; the user has no clone of it and is not its admin.
 func orgFixture() Input {
 	in := fixture()
 	in.GitHub.Owners["ft"] = &observe.Owner{Login: "ft", Reachable: true, FetchedAt: now, Repos: []observe.RepoObs{
@@ -28,7 +28,7 @@ func TestOrgRepoWithoutCloneOrAdminIsNoItem(t *testing.T) {
 		t.Error("an org repo with no clone and no admin became an item")
 	}
 	mustFind(t, r, "pr:ft/team#7")
-	// Court's own repos need neither.
+	// The user's own repos need neither.
 	mustFind(t, r, "repo:schuettc/old")
 }
 

@@ -86,7 +86,7 @@ describe('authorOf', () => {
   });
   test('the configured user is "you"', () => {
     assert.deepEqual(authorOf('schuettc'), { agent: false, name: 'you' });
-    assert.deepEqual(authorOf('court'), { agent: false, name: 'you' });
+    assert.deepEqual(authorOf('user'), { agent: false, name: 'you' });
   });
 });
 

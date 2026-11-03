@@ -20,17 +20,17 @@ func ago(d int) time.Time { return kindsNow.Add(-time.Duration(d) * 24 * time.Ho
 // worktree, and a branch whose upstream was deleted.
 func everyKind() engine.Result {
 	g := observe.NewGitHub()
-	g.User = "court"
-	pr := observe.PRObs{Repo: "court/hail", Number: 1, Title: "deps", Author: "renovate", AuthorIsBot: true,
+	g.User = "user"
+	pr := observe.PRObs{Repo: "user/hail", Number: 1, Title: "deps", Author: "renovate", AuthorIsBot: true,
 		State: "OPEN", CreatedAt: ago(9), UpdatedAt: ago(3), Labels: []string{"deps"}, ReviewRequested: true, Assigned: true}
-	issue := observe.PRObs{Repo: "court/hail", Number: 2, Title: "bug", Author: "bob", State: "OPEN",
+	issue := observe.PRObs{Repo: "user/hail", Number: 2, Title: "bug", Author: "bob", State: "OPEN",
 		CreatedAt: ago(8), UpdatedAt: ago(2), Labels: []string{"bug"}, Assigned: true}
-	g.Owners["court"] = &observe.Owner{Login: "court", Reachable: true, FetchedAt: kindsNow, Repos: []observe.RepoObs{
-		{Repo: "court/hail", Archived: true, Fork: true, Parent: "up/hail", PushedAt: ago(1), DefaultBranch: "main",
+	g.Owners["user"] = &observe.Owner{Login: "user", Reachable: true, FetchedAt: kindsNow, Repos: []observe.RepoObs{
+		{Repo: "user/hail", Archived: true, Fork: true, Parent: "up/hail", PushedAt: ago(1), DefaultBranch: "main",
 			PRs: []observe.PRObs{pr}, Issues: []observe.PRObs{issue}},
 	}}
 	snap := observe.Snapshot{Version: 1, Machine: "mbp", Clones: []observe.Clone{{
-		Path: "/c/hail", Repo: "court/hail",
+		Path: "/c/hail", Repo: "user/hail",
 		Branches: []observe.Branch{
 			{Name: "main", Tip: "a"},
 			{Name: "feat/x", Tip: "b", TipAt: ago(4), Unpushed: 2, OldestUnpushed: ago(5),
@@ -192,7 +192,7 @@ func TestFieldMustApplyToType(t *testing.T) {
 func TestInWithOneValue(t *testing.T) {
 	res := everyKind()
 	ms, err := Rule{Match: []Condition{{Field: "kind", Op: "in", Value: "issue"}}}.MatchAll(res, kindsNow)
-	if err != nil || len(ms) != 1 || ms[0].Key != "issue:court/hail#2" {
+	if err != nil || len(ms) != 1 || ms[0].Key != "issue:user/hail#2" {
 		t.Errorf("kind in issue: %v %v", ms, err)
 	}
 }

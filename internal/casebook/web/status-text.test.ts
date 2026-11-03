@@ -1,4 +1,4 @@
-// status-text.test.ts — the bar's push status (Court, 2026-10-18: it said
+// status-text.test.ts — the bar's push status (the user, 2026-10-18: it said
 // "offline" while a big accept's decisions only waited for the push).
 
 import { test } from 'node:test';

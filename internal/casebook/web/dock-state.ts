@@ -9,7 +9,7 @@ import { pluralize } from './decide-math.ts';
 
 /**
  * dockOpen is whether the agent pane shows in full: never hidden under a
- * focused composer; else as Court last made it with a click (manual), and
+ * focused composer; else as the user last made it with a click (manual), and
  * with no click, open while there is a conversation (hasMessages), a strip
  * otherwise. A message arriving or the page asking the agent clears or sets
  * manual (dock.ts); this only reads it.
@@ -26,7 +26,7 @@ export function dockOpen(
 
 /**
  * pillState is the kit pill a message row shows: its state when it is one
- * of msgstate's (a message Court sent), null for a draft (still in the batch
+ * of msgstate's (a message the user sent), null for a draft (still in the batch
  * tray), the agent's reply and a worked row.
  */
 export function pillState(state: ThreadState): MessageState | null {

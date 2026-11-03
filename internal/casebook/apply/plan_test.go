@@ -18,7 +18,7 @@ func decided(d item.Disposition, note string) *item.Decision {
 	return &item.Decision{
 		Disposition: d,
 		Note:        note,
-		DecidedBy:   "court",
+		DecidedBy:   "user",
 		DecidedAt:   epoch.Add(-time.Hour),
 	}
 }
@@ -576,7 +576,7 @@ func TestEveryPlanGroupSaysWhetherItCanBeUndone(t *testing.T) {
 	}
 }
 
-// TestPermanentIsWhatCannotBeUndone (Court, 2026-10-17: confirm on
+// TestPermanentIsWhatCannotBeUndone (the user, 2026-10-17: confirm on
 // irrevocable changes): a step is permanent exactly when its undo note
 // says it cannot be undone.
 func TestPermanentIsWhatCannotBeUndone(t *testing.T) {

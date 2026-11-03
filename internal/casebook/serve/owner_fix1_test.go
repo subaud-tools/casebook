@@ -49,7 +49,7 @@ func TestStalePageCannotSendToTheSessionAThreadMovedTo(t *testing.T) {
 	if c := r.do(t, "GET", "/api/agent/wait?session=s1", nil, &w); c != http.StatusOK || w.Delivery.ID == 0 {
 		t.Fatalf("wait: %d %+v", c, w)
 	}
-	// The delivery is stuck; Court moves it to s2. The thread goes with it.
+	// The delivery is stuck; the user moves it to s2. The thread goes with it.
 	if c := r.do(t, "POST", "/api/deliveries/move", map[string]any{"id": w.Delivery.ID, "session": "s2"}, nil); c != http.StatusOK {
 		t.Fatalf("move: %d", c)
 	}

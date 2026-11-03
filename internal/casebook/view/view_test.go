@@ -19,9 +19,9 @@ func result() engine.Result {
 			{ID: "branch:schuettc/hail@feat/client", Kind: item.KindBranch, Status: item.StatusNew, Evidence: []string{"2 unpushed on mbp:/c/hail"}},
 			{ID: "pr:elidickinson/pi-claude-bridge#97", Kind: item.KindPR, Relation: "outgoing", Status: item.StatusWaiting, Title: "side | request\n<b>x</b>",
 				URL:      "https://github.com/elidickinson/pi-claude-bridge/pull/97",
-				Decision: &item.Decision{Disposition: item.Wait, Until: "date(2026-12-01)", DecidedBy: "court", DecidedAt: now.Add(-48 * time.Hour)}},
+				Decision: &item.Decision{Disposition: item.Wait, Until: "date(2026-12-01)", DecidedBy: "user", DecidedAt: now.Add(-48 * time.Hour)}},
 			{ID: "repo:schuettc/old", Kind: item.KindRepo, Status: item.StatusConflict, Decision: &item.Decision{Disposition: item.Keep, DecidedBy: "a", DecidedAt: now, Conflict: &item.Conflict{Disposition: item.Archive, DecidedBy: "b"}}},
-			{ID: "repo:schuettc/hail", Kind: item.KindRepo, Status: item.StatusDone, Decision: &item.Decision{Disposition: item.Keep, DecidedBy: "court", DecidedAt: now}},
+			{ID: "repo:schuettc/hail", Kind: item.KindRepo, Status: item.StatusDone, Decision: &item.Decision{Disposition: item.Keep, DecidedBy: "user", DecidedAt: now}},
 		},
 	}
 }
@@ -66,7 +66,7 @@ func TestRender(t *testing.T) {
 func TestReadmeLeftOpen(t *testing.T) {
 	r := result()
 	r.Items = append(r.Items, engine.Item{ID: "pr:schuettc/hail#3", Kind: item.KindPR, Status: item.StatusLeftOpen,
-		Decision: &item.Decision{Disposition: item.Keep, DecidedBy: "court", DecidedAt: now}})
+		Decision: &item.Decision{Disposition: item.Keep, DecidedBy: "user", DecidedAt: now}})
 	readme := string(Render(r, nil)["README.md"])
 	if !strings.Contains(readme, "1 left open") || !strings.Contains(readme, "## Left open (1)") {
 		t.Fatalf("README lacks the left-open lane or count:\n%s", readme)

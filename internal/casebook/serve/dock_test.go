@@ -7,7 +7,7 @@ import (
 )
 
 // TestSessionQueuedCount verifies that GET /api/sessions returns the queued
-// message count on each session. When Court has queued messages waiting for the
+// message count on each session. When the user has queued messages waiting for the
 // agent's next turn, that count appears on the session row.
 func TestSessionQueuedCount(t *testing.T) {
 	r := newRig(t)

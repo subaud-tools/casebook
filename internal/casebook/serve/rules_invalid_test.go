@@ -22,7 +22,7 @@ func writeRuleFile(t *testing.T, r *rig, id, body string) {
 const badBotActive = `id = "bad-bot"
 name = "Bot PRs"
 status = "active"
-created_by = "court"
+created_by = "user"
 created_at = 2026-09-27T10:00:00Z
 edited_at = 2026-09-27T10:00:00Z
 [[match]]
@@ -39,7 +39,7 @@ disposition = "close"
 
 // Spec §4.1: an unknown value is a validation error. A rule file holding one
 // (hand-written, or older than the check) is listed and shown as invalid,
-// naming the condition, never previewed or proposed from, and Court can get
+// naming the condition, never previewed or proposed from, and the user can get
 // it out of that state: deactivate it, fix it and save.
 func TestInvalidRuleIsShownRefusedAndRecoverable(t *testing.T) {
 	r := newRig(t)
@@ -113,7 +113,7 @@ func TestInvalidRuleIsShownRefusedAndRecoverable(t *testing.T) {
 }
 
 // An active invalid rule is fixed by saving directly: the save is allowed
-// (serve otherwise edits only drafts) and leaves it a draft for Court to
+// (serve otherwise edits only drafts) and leaves it a draft for the user to
 // activate again.
 func TestInvalidActiveRuleCanBeSavedFixed(t *testing.T) {
 	r := newRig(t)

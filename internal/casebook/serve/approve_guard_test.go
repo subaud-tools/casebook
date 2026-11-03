@@ -10,7 +10,7 @@ import (
 )
 
 // TestApproveOutwardStepsNeedsAPresentSession: a plan with agent-lane steps
-// (archiving repos, closing PRs) goes to a session Court names, so serve
+// (archiving repos, closing PRs) goes to a session the user names, so serve
 // refuses to approve it with no session (the store's check), or with a
 // session that has left (serve's: named but not present);
 // the plan stays planned and nothing is dispatched. A plan of local steps

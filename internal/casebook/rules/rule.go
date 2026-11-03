@@ -118,7 +118,7 @@ func Version(r Rule) string {
 
 // ValidateStructure checks only what a rule file needs to be a rule: a safe
 // id and a known status. A draft may be saved in any state of completion or
-// correctness (Court fixes it on the page); Validate is what activation and
+// correctness (the user fixes it on the page); Validate is what activation and
 // evaluation require.
 func (r Rule) ValidateStructure() error {
 	if !idRe.MatchString(r.ID) {
@@ -131,7 +131,7 @@ func (r Rule) ValidateStructure() error {
 }
 
 // ValidateConditions checks every condition, naming the first bad one.
-// Conditions are numbered from 1, as Court and the agent count them. Each
+// Conditions are numbered from 1, as the user and the agent count them. Each
 // must be valid on its own; a field may appear once (several values of one
 // field are one condition: in, not-in); and every field must apply to some
 // type the type conditions leave (Field.Kinds), or the conditions can never

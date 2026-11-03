@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestAcceptingAGroupIsOneDecidedEvent (Court, 2026-10-18: pressing a
+// TestAcceptingAGroupIsOneDecidedEvent (the user, 2026-10-18: pressing a
 // group's button made the page count down one item at a time): accepting
 // several recommendations announces them in one "decided" event, so a tab
 // redraws once.

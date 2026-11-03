@@ -59,7 +59,7 @@ func (r *Repo) replaceDormantRepos(ctx context.Context) error {
 		return err
 	}
 	if !isShippedDormantRepos(b) {
-		return nil // edited (or not a rule casebook can read): Court's
+		return nil // edited (or not a rule casebook can read): the user's
 	}
 	// A fixed time, not now: two machines that both replace it before
 	// syncing write the same files, so their sync goes through.

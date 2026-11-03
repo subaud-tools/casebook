@@ -318,7 +318,7 @@ func TestWithdrawFlatIsTheWholeView(t *testing.T) {
 	}
 }
 
-// TestItemsOpenListsOnlyTheOpenGroups: with every group collapsed (Court,
+// TestItemsOpenListsOnlyTheOpenGroups: with every group collapsed (the user,
 // 2026-10-17), the page asks for the rows of the open groups alone (open=, a JSON
 // list; an empty list lists no rows), and still gets every
 // group's count.

@@ -68,7 +68,7 @@ func jobOpen(j apply.Job) bool {
 }
 
 // runGroup is the group a job's steps on one item put it in, the first
-// that fits: needs you (a step that needs Court, in a job still open),
+// that fits: needs you (a step that needs the user, in a job still open),
 // running, undone, done. A step that failed in a job that has finished
 // needs nothing: the item is back where its decision puts it.
 func runGroup(j apply.Job, steps []apply.JobStep) string {
@@ -96,7 +96,7 @@ func runGroupFor(m RunMark, status item.Status, toApply bool) (group string, in 
 	}
 	// To apply again with nothing verified (it failed or was skipped): it
 	// waits in review. Something verified (or undone) on it, its other half
-	// waiting, is still listed (Court, 2026-10-20).
+	// waiting, is still listed (the user, 2026-10-20).
 	if m.Finished && toApply && !slices.ContainsFunc(m.Steps, func(st apply.JobStep) bool { return st.State == apply.StepVerified }) {
 		return "", false
 	}

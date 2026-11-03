@@ -162,7 +162,7 @@ func TestExclusionRemovesAMatch(t *testing.T) {
 		},
 		Propose: RuleAction{Disposition: "delete"},
 		Exclude: []Exclusion{
-			{Key: "branch:schuettc/galley@feat/keep", By: "court", At: testNow},
+			{Key: "branch:schuettc/galley@feat/keep", By: "user", At: testNow},
 		},
 	}
 
@@ -197,7 +197,7 @@ func TestRuleSkipsDecidedPendingAndRejected(t *testing.T) {
 		Propose: RuleAction{Disposition: "archive"},
 	}
 
-	dec := item.Decision{Disposition: item.Archive, DecidedBy: "court", DecidedAt: testNow}
+	dec := item.Decision{Disposition: item.Archive, DecidedBy: "user", DecidedAt: testNow}
 	items := []engine.Item{
 		// decided → excluded
 		{ID: "repo:schuettc/decided", Kind: item.KindRepo, Repo: "schuettc/decided",
@@ -259,7 +259,7 @@ func TestNeverOverridesADecision(t *testing.T) {
 		Propose: RuleAction{Disposition: "archive"},
 	}
 
-	dec := item.Decision{Disposition: item.Archive, DecidedBy: "court", DecidedAt: testNow}
+	dec := item.Decision{Disposition: item.Archive, DecidedBy: "user", DecidedAt: testNow}
 	result := engine.Result{Items: []engine.Item{
 		{ID: "repo:schuettc/decided", Kind: item.KindRepo, Decision: &dec},
 	}}
@@ -272,7 +272,7 @@ func TestNeverOverridesADecision(t *testing.T) {
 
 // TestRuleRecordCountsDecidedDifferently verifies that RuleRecord counts a
 // rule's proposals from a real propose.Store: accepted → Accepted, changed
-// (Court decided the item another way) → DecidedDifferently, rejected →
+// (the user decided the item another way) → DecidedDifferently, rejected →
 // Rejected, pending → Pending; proposals from other sources are ignored.
 func TestRuleRecordCountsDecidedDifferently(t *testing.T) {
 	d, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "casebook.db"))

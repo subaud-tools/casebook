@@ -243,10 +243,10 @@ func TestJobAskCreatesNeedsYouCard(t *testing.T) {
 	}
 }
 
-// TestPostsStepWaitsForCourtsAnswer verifies that casebook_job_ask opens a
+// TestPostsStepWaitsForTheUsersAnswer verifies that casebook_job_ask opens a
 // needs-you card (kind "text") and no additional delivery automatically tells
 // the agent to post until the answer endpoint (Task 12) runs.
-func TestPostsStepWaitsForCourtsAnswer(t *testing.T) {
+func TestPostsStepWaitsForTheUsersAnswer(t *testing.T) {
 	r := newRig(t)
 	r.attach(t, "s1")
 
@@ -311,7 +311,7 @@ func TestPostsStepWaitsForCourtsAnswer(t *testing.T) {
 	}
 	code := r.do(t, "GET", "/api/agent/wait?session=s1&timeout=1", nil, &w2)
 	if code != http.StatusNoContent {
-		t.Fatalf("expected 204 (no delivery) while waiting for Court's answer, got %d", code)
+		t.Fatalf("expected 204 (no delivery) while waiting for the user's answer, got %d", code)
 	}
 }
 
@@ -566,7 +566,7 @@ func TestKnownPreconditionIsDescribed(t *testing.T) {
 }
 
 // laggingGh answers a PR view OPEN the first times, then CLOSED: GitHub's
-// read lagging just after a close (Court, 2026-10-18: two closed PRs stayed
+// read lagging just after a close (the user, 2026-10-18: two closed PRs stayed
 // "reported").
 type laggingGh struct {
 	mu    sync.Mutex

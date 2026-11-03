@@ -6,7 +6,7 @@
 // adopts it). casebook_open and `casebook serve` run by a session put
 // ?session=<id> in the page URL; a reload keeps it. A page opened with no
 // session (a plain terminal, a bookmark) is attached to nothing and asks
-// Court to choose, except when exactly one eligible session is here. Nothing
+// the user to choose, except when exactly one eligible session is here. Nothing
 // is guessed: no "last used", no "most recently seen".
 //
 // serve computes which sessions are eligible (live and not a subagent
@@ -21,7 +21,7 @@ export function folderOf(s: Session): string {
 
 /**
  * sessionTitle is what a session is called: its harness name (pi's session
- * name, which Court sets), else its folder, else its harness, else its id.
+ * name, which the user sets), else its folder, else its harness, else its id.
  */
 export function sessionTitle(s: Session): string {
   return s.name || folderOf(s) || s.harness || s.id;

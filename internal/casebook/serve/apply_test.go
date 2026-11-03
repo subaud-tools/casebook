@@ -21,7 +21,7 @@ func activeRepoRule(id string, now time.Time) rules.Rule {
 		ID:        id,
 		Name:      "Test: " + id,
 		Status:    rules.StatusActive,
-		CreatedBy: "court",
+		CreatedBy: "user",
 		CreatedAt: now,
 		EditedAt:  now.Add(-time.Hour),
 		Match: []rules.Condition{
@@ -38,7 +38,7 @@ func TestRebuildRunsActiveRulesAndProposesMatches(t *testing.T) {
 	r := newRig(t)
 
 	ru := activeRepoRule("archive-repos", r.Now)
-	if err := r.App.Repo.WriteRule(ctx, ru, "rule archive-repos active by court"); err != nil {
+	if err := r.App.Repo.WriteRule(ctx, ru, "rule archive-repos active by user"); err != nil {
 		t.Fatalf("WriteRule: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestRebuildSkipsInvalidRuleAndKeepsPending(t *testing.T) {
 	invalidTOML := []byte("id = \"bad-rule\"\n" +
 		"name = \"Bad rule\"\n" +
 		"status = \"active\"\n" +
-		"created_by = \"court\"\n" +
+		"created_by = \"user\"\n" +
 		"created_at = 2026-09-27T12:00:00Z\n" +
 		"edited_at = 2026-09-27T12:00:00Z\n" +
 		"[[match]]\n" +
@@ -207,7 +207,7 @@ func TestRebuildNoticesAtomic(t *testing.T) {
 	invalidTOML := []byte("id = \"atomic-bad\"\n" +
 		"name = \"Atomic bad\"\n" +
 		"status = \"active\"\n" +
-		"created_by = \"court\"\n" +
+		"created_by = \"user\"\n" +
 		"created_at = 2026-09-27T12:00:00Z\n" +
 		"edited_at = 2026-09-27T12:00:00Z\n" +
 		"[[match]]\n" +
@@ -321,7 +321,7 @@ func TestUndoOfAGitHubDeleteRunsThroughGh(t *testing.T) {
 		t.Fatalf("gh calls %q, want %q first", calls, want)
 	}
 	// Then it re-reads that branch on GitHub, so the item says its GitHub
-	// copy is back without waiting for the next full sync (Court, 2026-10-20).
+	// copy is back without waiting for the next full sync (the user, 2026-10-20).
 	eventually(t, "a re-read of feat/x on GitHub", func() bool {
 		for _, c := range gh.snapshot() {
 			if c == "api repos/schuettc/hail/git/ref/heads/feat/x" {
@@ -338,10 +338,10 @@ func (g *okGh) snapshot() []string {
 	return append([]string(nil), g.calls...)
 }
 
-// TestTestsNeverWriteCourtsState: the package's state folder is a temp dir.
-func TestTestsNeverWriteCourtsState(t *testing.T) {
+// TestTestsNeverWriteTheUsersState: the package's state folder is a temp dir.
+func TestTestsNeverWriteTheUsersState(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if p := config.CachePath(); strings.HasPrefix(p, filepath.Join(home, ".local", "state")) {
-		t.Fatalf("CachePath %s is Court's", p)
+		t.Fatalf("CachePath %s is the user's", p)
 	}
 }

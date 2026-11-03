@@ -31,8 +31,8 @@ func testPlan() Plan {
 				Key:          "branch:schuettc/hail@feat/thing",
 				Action:       "branch-delete-local",
 				Lane:         LaneCasebook,
-				Command:      "git -C '/home/court/hail' branch -D 'feat/thing'",
-				Precondition: "git -C '/home/court/hail' rev-parse --verify feat/thing",
+				Command:      "git -C '/home/user/hail' branch -D 'feat/thing'",
+				Precondition: "git -C '/home/user/hail' rev-parse --verify feat/thing",
 				Posts:        false,
 				ExpectedTip:  "deadbeef",
 			},
@@ -40,7 +40,7 @@ func testPlan() Plan {
 				Key:     "branch:schuettc/hail@feat/thing",
 				Action:  "branch-delete-remote",
 				Lane:    LaneCasebook,
-				Command: "git -C '/home/court/hail' push origin --delete 'feat/thing'",
+				Command: "git -C '/home/user/hail' push origin --delete 'feat/thing'",
 				Posts:   false,
 			},
 			{
@@ -1469,7 +1469,7 @@ func TestSettleFailedStepWithNoCardEndsFailed(t *testing.T) {
 }
 
 // TestSettleJobWithOpenCardStaysRunning verifies that a job with a failed step
-// and an open needs-you card does not transition (Court must act first).
+// and an open needs-you card does not transition (the user must act first).
 func TestSettleJobWithOpenCardStaysRunning(t *testing.T) {
 	ctx := context.Background()
 	s := NewStore(openTestDB(t))

@@ -786,7 +786,7 @@ export function conditionEditor(
   // leaves (with none, every field, a field that applies to some types
   // naming them), narrowed by the search; a used field shows, not offered.
   // fillMenu shows every field that applies, as chips grouped by the types
-  // it applies to (Court, 2026-10-17: the whole list at once, short); a
+  // it applies to (the user, 2026-10-17: the whole list at once, short); a
   // chip's hint is its tooltip; a used field is greyed.
   function fillMenu(): void {
     const kind = fieldOf('kind');
@@ -853,7 +853,7 @@ export function conditionEditor(
   render();
   if (editable) {
     // The field chips go first and keep their height; conditions are added
-    // under them, so the editor only grows downward (Court, 2026-10-17).
+    // under them, so the editor only grows downward (the user, 2026-10-17).
     menu.hidden = false;
     add.hidden = true;
     el.prepend(addWrap);

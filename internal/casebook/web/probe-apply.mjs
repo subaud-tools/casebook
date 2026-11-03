@@ -1,4 +1,4 @@
-// probe-apply.mjs — nothing runs without Court's click, and what runs is
+// probe-apply.mjs — nothing runs without the user's click, and what runs is
 // exactly what review showed: review's and run's probe scenarios, run by
 // probe.mjs with its check helpers (t.check, t.checkList, t.until,
 // t.eventually).
@@ -249,7 +249,7 @@ async function applyScenariosOn(context, t, serveHandle) {
     (v.job?.steps ?? []).map((x) => `${x.key} ${x.command}`).join('\n');
   const home = serveHandle.home;
 
-  // Court's decisions: the landed branches deleted, two dormant repos
+  // The user's decisions: the landed branches deleted, two dormant repos
   // archived and one deleted, the bot's PR closed with a comment.
   await agent.api('POST', '/api/decide', {
     keys: [BR('feat/l1'), BR('feat/l2')],
@@ -625,7 +625,7 @@ async function applyScenariosOn(context, t, serveHandle) {
 }
 
 // sameGroupScenario: two tabs open the same group: each previews it and
-// serve stores nothing (a plan is stored only when Court runs it). Three
+// serve stores nothing (a plan is stored only when the user runs it). Three
 // tabs share one live connection (web/shared-stream.ts).
 async function sameGroupScenario(context, t, serveHandle) {
   const { check, checkList, until } = t;
@@ -707,7 +707,7 @@ async function sameGroupScenario(context, t, serveHandle) {
 }
 
 // ---- running ticked items stays on the job ---------------------------------
-// Court 2026-10-18: after running one ticked PR, the page went to run and,
+// The user, 2026-10-18: after running one ticked PR, the page went to run and,
 // 200ms later, jumped back to review showing every PR left in the group.
 const TPR = (n) => `pr:schuettc/tk-prs#${n}`;
 const TICKED_SEED = {
@@ -889,7 +889,7 @@ async function tickedRunScenario(context, t, s) {
 // ---- a plan that changed since it was shown --------------------------------
 // Review 2026-10-18: a press whose stored plan differed from the one shown
 // swapped the plan in without drawing it, so the next press ran commands
-// Court had never seen. Running only ever acts on the plan on the page.
+// the user had never seen. Running only ever acts on the plan on the page.
 const CPR = 'pr:schuettc/ch-prs#1';
 const CHANGED_SEED = {
   seedRepos: [
@@ -1054,7 +1054,7 @@ async function changedPlanScenario(context, t, s) {
 }
 
 // ---- what stands in the way ------------------------------------------------
-// Court 2026-10-18: two PR closes failed because their repos are archived;
+// The user, 2026-10-18: two PR closes failed because their repos are archived;
 // review didn't say so. A held item shows in review under Held, with why.
 const T11_PR = 'pr:schuettc/t11-archived#3';
 const T11_REPO = 'repo:schuettc/t11-dormant';
@@ -1177,7 +1177,7 @@ async function holdsScenario(context, t, s) {
 }
 
 // ---- one frame: every tab's lines at the same place and height -------------
-// Spec one-frame (Court, 2026-10-19): decide, review and run share one list
+// Spec one-frame (the user, 2026-10-19): decide, review and run share one list
 // pane, its top block 178px, a group's head 32px, a row 44px; ticked items
 // show in the middle with every line at a fixed place; labels lower case.
 // Four landed branches (the starter rule recommends deleting them): one
@@ -1477,7 +1477,7 @@ async function frameScenario(context, t, s) {
       ),
     );
 
-    // At Court's width (1352px) every button of a ticked document is
+    // At the user's width (1352px) every button of a ticked document is
     // whole: the buttons' block wraps onto its fixed second line.
     await pg.setViewportSize({ width: 1352, height: 900 });
     // With a session attached: decide's line holds "ask agent" too.
@@ -1542,7 +1542,7 @@ async function frameScenario(context, t, s) {
 }
 
 // ---- review follows the ticks it has ---------------------------------------
-// Court 2026-10-20: a search hid the ticked items and the middle pane kept
+// The user, 2026-10-20: a search hid the ticked items and the middle pane kept
 // the old plan, its button off; a refused run said nothing that stayed.
 const STALE_SEED = {
   seedClones: [{ name: 'st-local', branches: ['feat/a', 'feat/b'] }],

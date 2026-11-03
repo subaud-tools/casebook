@@ -40,7 +40,7 @@ func TestRunMarksGroupsEachItemByItsLatestJob(t *testing.T) {
 }
 
 // TestRunMarksAFailedStepInAFinishedJobNotNeedsYou: needs you holds only
-// steps that need Court in a job still open (approved, running, paused). A
+// steps that need the user in a job still open (approved, running, paused). A
 // step that failed in a job that has finished needs nothing.
 func TestRunMarksAFailedStepInAFinishedJobNotNeedsYou(t *testing.T) {
 	st := func(job int64, key, state string) apply.JobStep {
@@ -83,7 +83,7 @@ func TestRunMarksADoneItemDoneDespiteAnOldFailedStep(t *testing.T) {
 	}
 }
 
-// TestRunListsAHalfDoneItem: ghmr-bench's ten branches (Court, 2026-10-20)
+// TestRunListsAHalfDoneItem: ghmr-bench's ten branches (the user, 2026-10-20)
 // had their GitHub copies deleted and verified while their local copies
 // waited for the other Mac, so they were to apply again; run must still list
 // them, in done (and in undone once undone), not only the job page.

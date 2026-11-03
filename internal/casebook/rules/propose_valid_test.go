@@ -133,7 +133,7 @@ func TestAValidRuleNeverProposesARefusedDecision(t *testing.T) {
 	}
 }
 
-// (a): conditions are numbered from 1, as Court and the agent count them.
+// (a): conditions are numbered from 1, as the user and the agent count them.
 func TestConditionsAreNumberedFromOne(t *testing.T) {
 	bad := Condition{Field: "bot", Op: "is", Value: "yes"}
 	err := rule("keep", "", kindIs("pr"), bad).Validate()

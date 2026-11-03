@@ -427,7 +427,7 @@ type recorded struct {
 	err  error
 }
 
-// recordAll records reqs in one commit (Court, 2026-10-18: a group is one
+// recordAll records reqs in one commit (the user, 2026-10-18: a group is one
 // commit, not one per item), without pushing; By defaults to the user. Each
 // result is its request's: its normalized key, the decision committed, what
 // it had before (for an undo) or why it wasn't recorded. err is the
@@ -796,7 +796,7 @@ func (s *Server) postDecide(w http.ResponseWriter, r *http.Request) {
 }
 
 // proposalOpts is how a proposal is decided when it is accepted. Its note is
-// the recommendation's reason, written to Court; a close posts its decision's
+// the recommendation's reason, written to the user; a close posts its decision's
 // note as the public closing comment, so a close takes no note from its
 // proposal (the reason stays on the proposal). Other dispositions post
 // nothing and keep it.
@@ -811,7 +811,7 @@ func proposalOpts(p propose.Proposal) app.DecideOptions {
 	return o
 }
 
-// postAccept is POST /api/proposals/accept. note, when given, is Court's
+// postAccept is POST /api/proposals/accept. note, when given, is the user's
 // closing comment for an accepted close (the page's closing-comment field);
 // without it an accepted close records no note, so nothing is posted. It
 // does nothing for other dispositions.
@@ -832,7 +832,7 @@ func (s *Server) postAccept(w http.ResponseWriter, r *http.Request) {
 	prevs := map[string]*Committed{}
 	var keys []string
 	// What was decided, announced once per decision and recommender after
-	// the loop (Court, 2026-10-18: one event per item made a group's press
+	// the loop (the user, 2026-10-18: one event per item made a group's press
 	// redraw the page once per item).
 	type made1 struct{ disposition, source string }
 	var order []made1
@@ -944,7 +944,7 @@ func (s *Server) postReject(w http.ResponseWriter, r *http.Request) {
 	reply(w, RejectResult{Rejected: n}, nil)
 }
 
-// postWithdraw is POST /api/proposals/withdraw: Court clears the agent's
+// postWithdraw is POST /api/proposals/withdraw: the user clears the agent's
 // recommendations so the agent makes them again (casebook_next hands their
 // items out once more). No judgement: a withdrawn recommendation is no
 // rejection. Either {ids} (those proposals) or a view and its filters, as
@@ -1007,7 +1007,7 @@ func (s *Server) postWithdraw(w http.ResponseWriter, r *http.Request) {
 // plus each session named by ?session= (comma-separated, or repeated:
 // the page's attached session, shown even after it left, and To apply's
 // jobs' sessions), whatever their state. ?all=1 answers every known session
-// (the page never asks for that; Court's table held 288, 39 live).
+// (the page never asks for that; the user's table held 288, 39 live).
 func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 	ss, err := s.Queue.Sessions(r.Context())
 	if err != nil {
@@ -1201,7 +1201,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		// back) is refused: see ownedBy.
 		Session string `json:"session"`
 		// Purpose: what the page posts the message for. "" is a message
-		// Court wrote; PurposeLookInto is "Look into it" or "look into all N"
+		// the user wrote; PurposeLookInto is "Look into it" or "look into all N"
 		// (items attached), which marks each item while it is underway.
 		Purpose string `json:"purpose"`
 	}
@@ -1420,7 +1420,7 @@ func (s *Server) postMoveDelivery(w http.ResponseWriter, r *http.Request) {
 	reply(w, nil, err)
 }
 
-// changedTo is what Court decided instead of a proposal, for the agent's
+// changedTo is what the user decided instead of a proposal, for the agent's
 // since-summary: "decided keep", "decided wait until merged(#12): after the demo".
 func changedTo(disposition, until, note string) string {
 	out := "decided " + disposition

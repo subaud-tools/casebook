@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// poolSize is how many gh calls run at once (Court, 2026-10-20). One call at
+// poolSize is how many gh calls run at once (the user, 2026-10-20). One call at
 // a time made a full refresh about 640 calls of half a second each, 6½
 // minutes holding the sync lock. 8 brings that under a minute while staying
 // far below the concurrency GitHub's secondary rate limits punish, and keeps

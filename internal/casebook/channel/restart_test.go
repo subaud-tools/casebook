@@ -104,7 +104,7 @@ func TestServeRestartTellsOnlyTheInterruptedSession(t *testing.T) {
 	}
 	mA, mB := start(t, chA), start(t, chB)
 
-	// Both sessions are present; Court sends A a message, which goes out
+	// Both sessions are present; the user sends A a message, which goes out
 	// (A's delivery is in flight: A does not settle it before the restart).
 	c := NewClient()
 	ctx := context.Background()
@@ -266,7 +266,7 @@ func TestRestartIsSilentWhenServeCantSay(t *testing.T) {
 }
 
 // The notice names what was interrupted (the messages, by count and id) and
-// says nothing about Court's browser, even when the page reopened.
+// says nothing about the user's browser, even when the page reopened.
 func TestRestartNoticeNamesTheInterruptedMessagesNotTheTab(t *testing.T) {
 	apptest.New(t)
 	var at atomic.Int64

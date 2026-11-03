@@ -26,18 +26,18 @@ func TestDefaultRootsCoverTheSystemTempFolders(t *testing.T) {
 func TestPathMatchesWholeSegments(t *testing.T) {
 	m := New(nil)
 	for p, want := range map[string]bool{
-		"/tmp":                 true,
-		"/tmp/x/y":             true,
-		"/private/tmp/scratch": true,
-		"/var/folders/92/abc/T/pytest-of-court/x": true,
-		"/private/var/folders/92/abc/T/tmp.AbC":   true,
-		"/tmpfoo":                                 false,
-		"/tmpfoo/bar":                             false,
-		"/var/foldersx/a":                         false,
-		"/Users/court/GitHub/tackle":              false,
-		"/Users/court/tmp/x":                      false,
-		"":                                        false,
-		"relative/tmp":                            false,
+		"/tmp":                                   true,
+		"/tmp/x/y":                               true,
+		"/private/tmp/scratch":                   true,
+		"/var/folders/92/abc/T/pytest-of-user/x": true,
+		"/private/var/folders/92/abc/T/tmp.AbC":  true,
+		"/tmpfoo":                                false,
+		"/tmpfoo/bar":                            false,
+		"/var/foldersx/a":                        false,
+		"/Users/user/GitHub/tackle":              false,
+		"/Users/user/tmp/x":                      false,
+		"":                                       false,
+		"relative/tmp":                           false,
 	} {
 		if got := m.Path(p); got != want {
 			t.Errorf("Path(%q) = %v, want %v", p, got, want)

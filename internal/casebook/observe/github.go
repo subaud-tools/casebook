@@ -17,7 +17,7 @@ import (
 	"github.com/subaud-tools/casebook/internal/casebook/item"
 )
 
-// casebook reads GitHub through REST only (Court, 2026-10-20): one GraphQL
+// casebook reads GitHub through REST only (the user, 2026-10-20): one GraphQL
 // query for an org's repos with their open PRs and issues timed out (HTTP
 // 502) on Fundamental-Technologies, and GraphQL's hourly budget ran out
 // twice. GraphQL stays for the atomic branch delete and its undo
@@ -851,7 +851,7 @@ func fetchAuthored(c rest, user string, sw sweep, prevPRs map[string]PRObs, merg
 
 // LookupRefs re-reads just keys on GitHub into a copy of prev: after a step
 // changed them (a branch deleted, or made again by an undo), so items say so
-// without waiting for the next full sync (Court, 2026-10-20). RefsAt, the
+// without waiting for the next full sync (the user, 2026-10-20). RefsAt, the
 // last full lookup, stays. The error says what failed.
 func LookupRefs(ctx context.Context, r Runner, prev *GitHub, keys []item.Key, now time.Time) (*GitHub, error) {
 	g := clone(prev)

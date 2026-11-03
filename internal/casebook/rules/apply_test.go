@@ -218,8 +218,8 @@ func TestRuleNeverReProposesAfterAccept(t *testing.T) {
 		t.Fatalf("first EvaluateActive: %v", err)
 	}
 
-	// Court accepts the proposal → the item now has a Decision in the result.
-	dec := item.Decision{Disposition: item.Archive, DecidedBy: "court", DecidedAt: applyTestNow}
+	// The user accepts the proposal → the item now has a Decision in the result.
+	dec := item.Decision{Disposition: item.Archive, DecidedBy: "user", DecidedAt: applyTestNow}
 	decided := engine.Item{
 		ID:       "repo:schuettc/hail",
 		Kind:     item.KindRepo,

@@ -16,4 +16,4 @@ func git(t *testing.T, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func appOpts() app.DecideOptions { return app.DecideOptions{By: "court", NoPush: true} }
+func appOpts() app.DecideOptions { return app.DecideOptions{By: "user", NoPush: true} }

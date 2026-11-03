@@ -86,7 +86,7 @@ func TestFieldsMethodDerivesBotFromAuthor(t *testing.T) {
 		ID:     "pr:schuettc/galley#2",
 		Kind:   item.KindPR,
 		Repo:   "schuettc/galley",
-		Author: "court",
+		Author: "user",
 		Status: item.StatusNew,
 	}
 	fh := humanItem.Fields(now)

@@ -138,7 +138,7 @@ func UndoNote(action string) string {
 }
 
 // Permanent reports whether a step of action can never be undone (a
-// deleted repository, a merge): the page asks Court to confirm before it
+// deleted repository, a merge): the page asks the user to confirm before it
 // runs.
 func Permanent(action string) bool {
 	return action == "repo-delete" || action == "pr-merge"

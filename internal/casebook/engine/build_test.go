@@ -43,7 +43,7 @@ func fixture() Input {
 }
 
 func decide(in Input, key string, d item.Disposition, until string) {
-	in.Decisions[key] = item.Decision{Disposition: d, Until: until, DecidedBy: "court", DecidedAt: days(1)}
+	in.Decisions[key] = item.Decision{Disposition: d, Until: until, DecidedBy: "user", DecidedAt: days(1)}
 }
 
 func mustFind(t *testing.T, r Result, id string) Item {
@@ -493,7 +493,7 @@ func TestKeepLeavesItOpen(t *testing.T) {
 }
 
 // TestKeepBroughtBackByOthersActivity: someone else's comment newer than the
-// decision brings a kept PR back, needing a decision; Court's own doesn't.
+// decision brings a kept PR back, needing a decision; the user's own doesn't.
 func TestKeepBroughtBackByOthersActivity(t *testing.T) {
 	in := fixture()
 	decide(in, "pr:schuettc/hail#3", item.Keep, "")
@@ -511,19 +511,19 @@ func TestKeepBroughtBackByOthersActivity(t *testing.T) {
 		t.Error("brought back, not marked new activity")
 	}
 
-	// Court's own newer comment does not bring it back.
+	// The user's own newer comment does not bring it back.
 	p.LastCommentAuthor = "SchuettC"
 	r = Build(in)
 	if it := mustFind(t, r, "pr:schuettc/hail#3"); it.Status != item.StatusLeftOpen {
-		t.Errorf("Court's own comment: status %s, want left-open", it.Status)
+		t.Errorf("the user's own comment: status %s, want left-open", it.Status)
 	}
 	// Nor does someone else's comment older than the decision.
 	p.LastCommentAt, p.LastCommentAuthor = days(3), "bob"
 	if it := mustFind(t, Build(in), "pr:schuettc/hail#3"); it.Status != item.StatusLeftOpen {
 		t.Errorf("older comment: status %s, want left-open", it.Status)
 	}
-	// An own PR with no comments: its creation is Court's, never another's.
-	in.Decisions["issue:schuettc/hail#4"] = item.Decision{Disposition: item.Keep, DecidedBy: "court", DecidedAt: days(5)}
+	// An own PR with no comments: its creation is the user's, never another's.
+	in.Decisions["issue:schuettc/hail#4"] = item.Decision{Disposition: item.Keep, DecidedBy: "user", DecidedAt: days(5)}
 	if it := mustFind(t, Build(in), "issue:schuettc/hail#4"); it.Status != item.StatusLeftOpen {
 		t.Errorf("own issue created after the decision: status %s, want left-open", it.Status)
 	}
@@ -575,7 +575,7 @@ func TestNotNowBroughtBackByOthersActivity(t *testing.T) {
 	}
 	p.LastCommentAuthor = "schuettc"
 	if it := mustFind(t, Build(in), "pr:schuettc/hail#3"); it.Status != item.StatusWaiting {
-		t.Errorf("Court's own comment: status %s, want waiting", it.Status)
+		t.Errorf("the user's own comment: status %s, want waiting", it.Status)
 	}
 }
 

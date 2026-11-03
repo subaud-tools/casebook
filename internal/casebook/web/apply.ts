@@ -1,7 +1,7 @@
-// apply.ts — review and run (spec §5, points 17-19; Court, 2026-10-17:
+// apply.ts — review and run (spec §5, points 17-19; the user, 2026-10-17:
 // decide → review → run): decided items wait in review, grouped by what
-// will happen; a group's button runs it, and the job runs in run while Court
-// answers what needs him.
+// will happen; a group's button runs it, and the job runs in run while the user
+// answers what needs them.
 //
 // review lists the decided items waiting, grouped by what will happen
 // (serve's to-apply groups, "Delete 3 branches"), each group collapsed with
@@ -25,7 +25,7 @@
 //
 // run lists jobs approved, running or paused on top (each row its lanes,
 // its title, a thin progress bar and n/total or "queued", a signal line when
-// something needs Court), then the finished ones (done, failed) collapsed.
+// something needs the user), then the finished ones (done, failed) collapsed.
 // #/run/<job> opens a job: its facts, the needs-you cards (signal edge; a
 // text card's post and close · edit text · close without comment · skip, a
 // batch's confirm, a failed step's hand to the agent, the agent's paused
@@ -37,7 +37,7 @@
 // runs, Resume while it is paused. Live job, step and needs_you events mark
 // the job they name; one reload runs at a time (at most one more queued)
 // and fetches only those jobs; decisions (index, decided) reload the waiting
-// groups. A redraw keeps what Court was doing: an open "edit text" field's
+// groups. A redraw keeps what the user was doing: an open "edit text" field's
 // text, the focused control and the caret. A reload never draws over a newer
 // reply. While review or run is the active section it feeds the composer
 // {job: <id>} for the open job and {} otherwise; hidden, it never touches the
@@ -154,7 +154,7 @@ function message(err: unknown): string {
 
 // ---- keeping focus across a redraw ------------------------------------------
 //
-// A live event redraws the open job. What Court was doing there survives it:
+// A live event redraws the open job. What the user was doing there survives it:
 // the focused control is found again in the new drawing by what it is (its
 // card, step or session, its kind, its label), and a text field keeps its
 // caret. (An edit's text itself is kept by the section, per card.)
@@ -226,9 +226,9 @@ export function makeApply(ctx: Ctx): Section {
   let groups: GroupView[] = [];
   // serve's decision vocabulary: a group's words for a count.
   let vocab: DecisionVocabView | null = null;
-  // The parts Court opened or closed (flipped from how they start): run's
+  // The parts the user opened or closed (flipped from how they start): run's
   // Running starts open; Done and every waiting group start collapsed
-  // (Court, 2026-10-17: what a group is about stands out).
+  // (the user, 2026-10-17: what a group is about stands out).
   const flipped = new Set<string>();
   const startsOpen = (id: string): boolean =>
     id === RUNNING || id === NEEDS_YOU;
@@ -284,7 +284,7 @@ export function makeApply(ctx: Ctx): Section {
   // Whether a sync (POST /api/sync) is running: a refused plan waits for it.
   let syncing = false;
   let syncError = '';
-  // A refused plan is asked for again once a sync Court asked for here
+  // A refused plan is asked for again once a sync the user asked for here
   // (sync first, in this tab) is done.
   let afterSync = false;
   // An open "edit text" field's text, by card id: a redraw keeps it.
@@ -545,7 +545,7 @@ export function makeApply(ctx: Ctx): Section {
     }, 250);
   });
 
-  // What needs Court (a paused step is counted as paused, not twice).
+  // What needs the user (a paused step is counted as paused, not twice).
   const cardsFor = (jobId: number) =>
     openCardsByJob(cards.filter((c) => c.kind !== 'paused')).get(jobId) ?? 0;
 
@@ -746,7 +746,7 @@ export function makeApply(ctx: Ctx): Section {
     got.forEach((v, i) => {
       if (!v) return;
       if (ids[i] === at) {
-        // A newer reply (Court's own action) drew it: this one is older.
+        // A newer reply (the user's own action) drew it: this one is older.
         if (!jobSeq.isLatest(openMine) || openId !== at) return;
         drawn = v;
       }
@@ -891,7 +891,7 @@ export function makeApply(ctx: Ctx): Section {
     }
   }
 
-  // setOpen draws a job serve sent (a reload, or a reply to Court's own
+  // setOpen draws a job serve sent (a reload, or a reply to the user's own
   // action, which is sequenced like a reload).
   function setOpen(v: JobView): void {
     const first = open?.job.id !== v.job.id;
@@ -910,7 +910,7 @@ export function makeApply(ctx: Ctx): Section {
     feed();
   }
 
-  // act posts one of Court's actions on the open job; a JobView reply is
+  // act posts one of the user's actions on the open job; a JobView reply is
   // drawn in order with the reloads. ok runs once serve has taken it, before
   // the job is drawn again.
   async function act<T>(
@@ -1023,7 +1023,7 @@ export function makeApply(ctx: Ctx): Section {
     note = '';
     if (!reviewView) drawReview();
     try {
-      // Review only shows: the plan is stored when Court runs it, so two
+      // Review only shows: the plan is stored when the user runs it, so two
       // tabs reviewing one group change nothing.
       const v = await ctx.api.post<PlanView>('/apply/plan', {
         keys,
@@ -1214,7 +1214,7 @@ export function makeApply(ctx: Ctx): Section {
       .map((k) => runItemOf.get(k))
       .filter((x): x is ItemView => !!x?.ran);
   // bulkNow is the steps each button acts on, for what is ticked and shown
-  // now (worked out again as Court presses).
+  // now (worked out again as the user presses).
   function bulkNow(): { skip: JobStep[]; hand: JobStep[]; undo: JobStep[] } {
     const marks = runTicked()
       .map((it) => it.ran)
@@ -1273,7 +1273,7 @@ export function makeApply(ctx: Ctx): Section {
   }
 
   // answerAll answers the open card of every step of each ticked item that
-  // needs Court (skip, hand to agent), one post per step; the items it acted
+  // needs the user (skip, hand to agent), one post per step; the items it acted
   // on are unticked.
   async function answerAll(action: string): Promise<void> {
     if (busy || runPending) return;
@@ -1361,7 +1361,7 @@ export function makeApply(ctx: Ctx): Section {
   // live wire says when it is done, and the plan is asked for again.
   async function syncFirst(): Promise<void> {
     syncError = '';
-    // Armed here, in the tab where Court asked, before serve is asked (its
+    // Armed here, in the tab where the user asked, before serve is asked (its
     // done can be heard before its reply): another tab's sync opens nothing.
     afterSync = true;
     try {
@@ -1467,7 +1467,7 @@ export function makeApply(ctx: Ctx): Section {
   // review shows the new plan to look at again.
   async function saveAndRun(shown: PlanView, session: string): Promise<void> {
     if (busy) return;
-    // The keys sent are what is ticked and shown as Court presses: the
+    // The keys sent are what is ticked and shown as the user presses: the
     // plan drawn must be for exactly them (serve checks the same).
     const keys = tickedKeys();
     if (reviewPending || !sameKeys(keys, reviewKeys)) return;
