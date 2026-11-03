@@ -2,7 +2,7 @@
 //
 // The dock belongs to ONE session, the one that opened the page (see
 // sessions.ts): casebook_open and `casebook serve` from a session put
-// ?session=<id> in the URL. With none, the dock asks Court to choose (and
+// ?session=<id> in the URL. With none, the dock asks the user to choose (and
 // attaches on its own only when exactly one eligible session is here). If
 // the attached session leaves, the dock says so and asks again: it never
 // re-targets on its own.
@@ -14,7 +14,7 @@
 //   2. Thread chips    — one per thread + "+"  (active chip filled)
 //   3. Message cards   — signal edge for you, amber for the agent;
 //                        mono header YOU/PI with age on right;
-//                        Court's cards carry the delivery-state footer;
+//                        the user's cards carry the delivery-state footer;
 //                        agent cards link items/rules/jobs (underlined, open the route)
 //   4. Stuck delivery  — release + move to another session
 //   5. Left session    — pi · <cwd> left · N queued · move to…
@@ -213,7 +213,7 @@ function renderAgentBody(msg: MessageView): Node {
 
 // ---- message card rendering -------------------------------------------------
 
-// Render a single message card (Court or agent).
+// Render a single message card (the user or agent).
 function renderMsgCard(
   msg: MessageView,
   delivery: Delivery | null,
@@ -225,7 +225,7 @@ function renderMsgCard(
   // A settled turn's progress folds into the thread as `worked for …`.
   if (msg.state === 'worked') return workedFold(msg);
 
-  const isAgent = msg.author !== 'court';
+  const isAgent = msg.author !== 'user';
 
   // Build the card header: NAME · age on the right.
   const authorLabel = isAgent ? agentName.toUpperCase() : 'YOU';
@@ -255,7 +255,7 @@ function renderMsgCard(
     bodyContent = bodyEl;
   }
 
-  // Court's cards show where the message stands: the kit's pill, with the
+  // The user's cards show where the message stands: the kit's pill, with the
   // line under it (what the agent is doing, or who has it). A draft is in
   // the batch tray and has none.
   let stateEl: HTMLElement | null = null;
@@ -531,7 +531,7 @@ export function makeDock(ctx: Ctx): DockHandle {
   let messages: MessageView[] = [];
   let currentDelivery: Delivery | null = null;
   // The URL's session is read once, at the first load: after that the
-  // attachment is what Court (or the lone-session rule) made it.
+  // attachment is what the user (or the lone-session rule) made it.
   let urlRead = false;
   // auto: the attachment is the lone-session guess, not a choice. It holds
   // only while that session is the only eligible one here.
@@ -615,7 +615,7 @@ export function makeDock(ctx: Ctx): DockHandle {
   );
 
   // The chooser: shown when no session is attached, or the attached one
-  // left. It never picks for Court.
+  // left. It never picks for the user.
   const chooser = h('div', {
     class: 'cb-dock-chooser',
     'data-testid': 'dock-chooser',
@@ -685,7 +685,7 @@ export function makeDock(ctx: Ctx): DockHandle {
 
   // ---- open or a strip ------------------------------------------------------
 
-  // manual is Court's last click on the pane (null: none, or a message
+  // manual is the user's last click on the pane (null: none, or a message
   // arrived since): kept for the tab.
   let manual = storedPane();
   function setManual(v: boolean | null): void {
@@ -787,7 +787,7 @@ export function makeDock(ctx: Ctx): DockHandle {
   // renderChooser shows the chooser when there is no session to talk to:
   // none attached (the threads and messages hide: there are none), or the
   // attached one left (its threads stay readable below). Choosing attaches
-  // the page to that session; nothing is chosen for Court.
+  // the page to that session; nothing is chosen for the user.
   function renderChooser(
     state: 'none' | 'here' | 'left' | 'unknown',
     sess: Session | null,
@@ -857,8 +857,8 @@ export function makeDock(ctx: Ctx): DockHandle {
   function renderMessages() {
     // The draft batch is the last card (it hides itself when empty). It
     // stays put while the cards before it are drawn again: moved out and
-    // back, a draft Court is editing in it would lose his focus, and the
-    // edit would commit what he had typed so far.
+    // back, a draft the user is editing in it would lose their focus, and the
+    // edit would commit what they had typed so far.
     for (const c of [...messageArea.children]) {
       if (c !== batchTray.el) c.remove();
     }
@@ -900,7 +900,7 @@ export function makeDock(ctx: Ctx): DockHandle {
       sessions = sv.sessions ?? [];
       if (!currentSessionId) {
         // The URL's session (read once), else the lone eligible session,
-        // else none: Court chooses.
+        // else none: the user chooses.
         const fromUrl = urlRead ? '' : urlSession(location.href);
         urlRead = true;
         const r = resolveAttachment(fromUrl, sessions);
@@ -910,7 +910,7 @@ export function makeDock(ctx: Ctx): DockHandle {
         }
       } else if (auto && pickable(sessions).length > 1) {
         // A second session arrived: the lone-session guess no longer
-        // holds. The dock goes back to asking (Court's text stays).
+        // holds. The dock goes back to asking (the user's text stays).
         detach();
         return;
       } else {
@@ -926,7 +926,7 @@ export function makeDock(ctx: Ctx): DockHandle {
   }
 
   // attach makes id the page's session. explicit: the session opened the
-  // page (the URL) or Court chose it: the URL carries it, so a reload keeps
+  // page (the URL) or the user chose it: the URL carries it, so a reload keeps
   // it, and To apply offers it for a plan. The lone-session attachment is
   // not a choice: it shows in the header but isn't written anywhere, so a
   // reload with more sessions here asks again.
@@ -990,7 +990,7 @@ export function makeDock(ctx: Ctx): DockHandle {
       messages = next;
       shownThread = thread;
       loaded = true;
-      // A message arriving opens a pane Court folded.
+      // A message arriving opens a pane the user folded.
       if (arrived && manual === false) setManual(null);
       renderMessages();
     } catch (err) {
@@ -1232,7 +1232,7 @@ export function makeDock(ctx: Ctx): DockHandle {
     void loadSessions();
   });
 
-  // message: Court posted a message (sent or drafted).
+  // message: the user posted a message (sent or drafted).
   ctx.on('message', (data: unknown) => {
     const m = data as Message;
     if (m.thread_id === currentThreadId) {

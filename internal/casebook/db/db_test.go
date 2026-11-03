@@ -14,7 +14,7 @@ import (
 
 var ctx = context.Background()
 
-func TestFreshDatabaseMigratesToVersion5(t *testing.T) {
+func TestFreshDatabaseMigratesToVersion6(t *testing.T) {
 	d, err := Open(ctx, filepath.Join(t.TempDir(), "casebook.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,8 +27,8 @@ func TestFreshDatabaseMigratesToVersion5(t *testing.T) {
 	if v != SchemaVersion {
 		t.Fatalf("user_version %d, want %d", v, SchemaVersion)
 	}
-	if v != 5 {
-		t.Fatalf("expected version 5, got %d", v)
+	if v != 6 {
+		t.Fatalf("expected version 6, got %d", v)
 	}
 	// v3: a session has a name, a parent and an end.
 	if _, err := d.ExecContext(ctx, `INSERT INTO sessions(id, first_seen, last_seen, name, parent, ended_at) VALUES ('s', 1, 1, 'tools-workspace/casebook', 'p', 2)`); err != nil {
@@ -38,7 +38,7 @@ func TestFreshDatabaseMigratesToVersion5(t *testing.T) {
 	if _, err := d.ExecContext(ctx, `INSERT INTO threads(session_id, name, created_at) VALUES ('s', 't', 1)`); err != nil {
 		t.Fatalf("thread: %v", err)
 	}
-	if _, err := d.ExecContext(ctx, `INSERT INTO messages(thread_id, author, body, state, created_at, purpose) VALUES (1, 'court', 'b', 'sent', 1, 'look-into')`); err != nil {
+	if _, err := d.ExecContext(ctx, `INSERT INTO messages(thread_id, author, body, state, created_at, purpose) VALUES (1, 'user', 'b', 'sent', 1, 'look-into')`); err != nil {
 		t.Fatalf("messages.purpose: %v", err)
 	}
 	// jobs table exists; insert a row
@@ -97,8 +97,8 @@ func TestAdoptsAP1aVersion1Database(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Fatalf("version %d, want 5", v)
+	if v != SchemaVersion {
+		t.Fatalf("version %d, want %d", v, SchemaVersion)
 	}
 	// sessions table from schemaV1 still intact
 	var n int
@@ -277,8 +277,8 @@ func TestSchema5RenamesTheStoredMessageStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = d.Close() }()
-	if v, _ := d.Version(ctx); v != 5 {
-		t.Fatalf("user_version %d, want 5", v)
+	if v, _ := d.Version(ctx); v != SchemaVersion {
+		t.Fatalf("user_version %d, want %d", v, SchemaVersion)
 	}
 	want := map[string]string{"q": "sent/0/0", "d": "with_agent/1/0", "r": "with_agent/1/0", "u": "no_reply/1/2", "i": "sent/0/0"}
 	rows, err := d.QueryContext(ctx, `SELECT body, state, COALESCE(delivery_id, 0), settled_at FROM messages`)
@@ -305,5 +305,45 @@ func TestSchema5RenamesTheStoredMessageStates(t *testing.T) {
 	}
 	if _, err := d.ExecContext(ctx, `UPDATE messages SET line = 'reading'`); err != nil {
 		t.Fatalf("messages.line: %v", err)
+	}
+}
+
+// A schema 5 database's messages by "court" are the user's at schema 6:
+// author "user". An agent session's messages keep their author.
+func TestSchema6RenamesTheUserAuthor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "casebook.db")
+	old, err := sqlitedb.Open(ctx, path, sqlitedb.Options{Migrations: Migrations[:5]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO sessions(id, first_seen, last_seen) VALUES ('s', 1, 1)`,
+		`INSERT INTO threads(session_id, name, created_at) VALUES ('s', 't', 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at) VALUES (1, 'court', 'mine', 'sent', 1)`,
+		`INSERT INTO messages(thread_id, author, body, state, created_at) VALUES (1, 's', 'agent', 'answered', 1)`,
+	} {
+		if _, err := old.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	_ = old.Close()
+
+	d, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
+	if v, _ := d.Version(ctx); v != 6 {
+		t.Fatalf("user_version %d, want 6", v)
+	}
+	want := map[string]string{"mine": "user", "agent": "s"}
+	for body, author := range want {
+		var got string
+		if err := d.QueryRowContext(ctx, `SELECT author FROM messages WHERE body = ?`, body).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != author {
+			t.Errorf("message %q: author %q, want %q", body, got, author)
+		}
 	}
 }

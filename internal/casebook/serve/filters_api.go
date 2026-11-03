@@ -11,7 +11,7 @@ import (
 )
 
 // filtersView is every saved filter in id order: a file that can't be read
-// is listed too, as not valid, so Court can replace or delete it.
+// is listed too, as not valid, so the user can replace or delete it.
 func (s *Server) filtersView() FiltersView {
 	all, errs := s.App.Repo.Filters()
 	rows := make([]FilterRow, 0, len(all)+len(errs))
@@ -109,7 +109,7 @@ func (s *Server) postFiltersDelete(w http.ResponseWriter, r *http.Request) {
 // by is who a page write is by: the config user.
 func (s *Server) by() string {
 	if s.App.Cfg.User == "" {
-		return "court"
+		return "user"
 	}
 	return s.App.Cfg.User
 }

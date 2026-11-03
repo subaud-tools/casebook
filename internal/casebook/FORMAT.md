@@ -1,4 +1,4 @@
-# casebook repository format, version 2
+# casebook repository format, version 3
 
 A casebook data repository is a private git repository written only by the
 `casebook` binary. History is linear: no merge commits, no branches.
@@ -13,7 +13,7 @@ never stages another process's half-written files.
 
 | Path | Content |
 |---|---|
-| `casebook.toml` | `format_version = 2`. A casebook binary refuses a repo with a newer version, and upgrades an older one in place with one commit (`upgrade casebook repo to format 2`). |
+| `casebook.toml` | `format_version = 3`. A casebook binary refuses a repo with a newer version, and upgrades an older one in place with one commit (`upgrade casebook repo to format 3`). |
 | `README.md`, `CONTRIBUTIONS.md`, `MACHINES.md` | Rendered views. On a sync conflict the upstream copy wins and the next sync re-renders. |
 | `.gitignore` | Holds `.*.tmp`: the temp files casebook writes beside a file before renaming it over (`.<name>-*.tmp`) are never committed. `casebook init` writes it; a binary opening a repo without the line appends it with one commit (`ignore casebook's temp files`), keeping any other lines. On a sync conflict the upstream copy wins and the next open adds the line again if it went. |
 
@@ -37,14 +37,14 @@ Owner and name are lower-case. Branch names and paths keep their case.
 disposition = "watch"                                  # keep archive close delete merge wait watch ignore
 note        = "retire the fork when this lands"        # optional
 until       = "merged(pr:elidickinson/pi-claude-bridge#97)"  # optional; required for wait and watch
-decided_by  = "court"                                  # user login, claude:<session>, pi:<session>
+decided_by  = "user"                                   # user login, claude:<session>, pi:<session>
 decided_at  = 2026-09-24T10:12:00Z                     # UTC, second precision
 proposed_by = "pi:<session>"                           # format 2, optional: who proposed it (agent session or rule:<id>)
 rule        = "<rule id>"                              # format 2, optional: the standing rule that proposed it
 
 [conflict]                                             # only after a decision race
 disposition = "archive"
-decided_by  = "court"
+decided_by  = "user"
 decided_at  = 2026-09-24T10:11:00Z
 ```
 
@@ -125,7 +125,7 @@ One TOML file per rule at `rules/<id>.toml`. The `id` must match `^[a-z0-9-]+$`.
 id = "landed-branches"
 name = "Landed branches → delete"
 status = "draft"                      # draft | active
-created_by = "court"                  # user login, or "pi:<session>"
+created_by = "user"                   # user login, or "pi:<session>"
 created_at = 2026-09-27T10:00:00Z
 edited_at = 2026-09-27T10:00:00Z     # last edit of the conditions or the proposal
 
@@ -150,7 +150,7 @@ note = "landed ({how}); restore tip {tip}"
 [[exclude]]
 key = "branch:schuettc/galley@feat/headcount-licensing"
 reason = "keep for reference"
-by = "court"
+by = "user"
 at = 2026-09-27T10:05:00Z
 ```
 
@@ -260,9 +260,10 @@ key	action	before	restore-command
 
 The GitHub observation cache (`~/.local/state/casebook/github.json`), the drift record (`seen.json`), the event spool and the hook shims are machine-local.
 
-So is `casebook serve`'s working state, `~/.local/state/casebook/casebook.db` (SQLite, `0600`): agent sessions, threads, messages and their deliveries, pending and settled proposals, evidence, progress and the live event log. It records collaboration, never intent: a proposal becomes intent only when Court accepts it, as a decision file with `proposed_by`.
+So is `casebook serve`'s working state, `~/.local/state/casebook/casebook.db` (SQLite, `0600`): agent sessions, threads, messages and their deliveries, pending and settled proposals, evidence, progress and the live event log. It records collaboration, never intent: a proposal becomes intent only when the user accepts it, as a decision file with `proposed_by`.
 
 ## Version history
 
 - **1** (casebook 0.1.x): decisions, journal, snapshots, views.
 - **2** (casebook 0.2.0): decisions gain the optional `proposed_by` and `rule` fields. Standing rules under `rules/` and restore records under `restores/` are new directories (no format bump; older binaries ignore them). Nothing else changes; the upgrade rewrites only `casebook.toml`. casebook 0.6.0 drops `policy.toml` and the `policy-hit` rule field, still at format 2: an older binary reads a missing `policy.toml` as its defaults. casebook 0.7.0 adds saved filters under `filters/`, a new directory with no format bump (older binaries ignore it).
+- **3**: the value a page write records when the config names no user is `"user"` (it was `"court"`). The upgrade rewrites `casebook.toml` and, in the same commit, every `decided_by` (a `[conflict]`'s too), rule `created_by` and `[[exclude]]` `by` whose value is exactly `"court"` to `"user"`; every other byte stays. `casebook serve`'s machine-local database (schema 6) renames its stored message author `court` to `user` the same way, when it opens.

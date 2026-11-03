@@ -8660,7 +8660,7 @@ function fmtAge(ts) {
 
 // thread.ts
 function at(m) {
-  const ts = m.author === "court" ? m.queued_at ?? m.created_at : m.created_at;
+  const ts = m.author === "user" ? m.queued_at ?? m.created_at : m.created_at;
   return Date.parse(ts);
 }
 function threadOrder(ms) {
@@ -9464,7 +9464,7 @@ function renderAgentBody(msg) {
 }
 function renderMsgCard(msg, delivery, sessions, here, ctx, agentName) {
   if (msg.state === "worked") return workedFold(msg);
-  const isAgent = msg.author !== "court";
+  const isAgent = msg.author !== "user";
   const authorLabel = isAgent ? agentName.toUpperCase() : "YOU";
   const age = fmtAge(msg.created_at);
   const headEl = h17(
