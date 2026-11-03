@@ -81,7 +81,7 @@ func TestLookingIntoFollowsTheMessage(t *testing.T) {
 	}
 }
 
-// A message Court types himself, with the very same words and the item
+// A message the user types themselves, with the very same words and the item
 // attached, is just a message: only the purpose the button sends marks the
 // item.
 func TestHandTypedLookIntoMarksNothing(t *testing.T) {

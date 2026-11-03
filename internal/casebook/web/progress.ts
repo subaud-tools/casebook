@@ -33,7 +33,7 @@ export interface BatchTrayHandle {
 export interface BatchTrayDock {
   /** Why nothing can be sent now ('' when it can): see ComposerDock.blocked. */
   blocked(): string;
-  /** Say it where Court looks (the composer's note). */
+  /** Say it where the user looks (the composer's note). */
   say(text: string): void;
   /** The session the page is attached to: serve refuses another's thread. */
   currentSession(): string;
@@ -69,9 +69,9 @@ export function makeBatchTray(ctx: Ctx, dock: BatchTrayDock): BatchTrayHandle {
   el.setAttribute('data-testid', 'batch-tray');
   el.hidden = true;
 
-  // The field of the draft Court is editing. A redraw (a live reload: a
-  // drafts or message event) waits until his edit ends: it would take the
-  // field from under his typing, and its leaving commits what he has typed
+  // The field of the draft the user is editing. A redraw (a live reload: a
+  // drafts or message event) waits until their edit ends: it would take the
+  // field from under their typing, and its leaving commits what they have typed
   // so far. The edit's end draws the tray as it is by then.
   let editing: HTMLElement | null = null;
 
@@ -158,7 +158,7 @@ export function makeBatchTray(ctx: Ctx, dock: BatchTrayDock): BatchTrayHandle {
         const body = v.trim();
         if (body && body !== d.body) {
           d.body = body;
-          // A reload while he edited brought the draft anew: it shows his.
+          // A reload while they edited brought the draft anew: it shows theirs.
           const now = drafts.find((x) => x.id === d.id);
           if (now) now.body = body;
           void ctx.api
@@ -219,7 +219,7 @@ export function makeBatchTray(ctx: Ctx, dock: BatchTrayDock): BatchTrayHandle {
   async function sendBatch(): Promise<void> {
     if (!batch || !drafts.length) return;
     // A batch goes to the attached session while it is here, and nowhere
-    // else: the drafts stay until Court chooses.
+    // else: the drafts stay until the user chooses.
     const why = dock.blocked();
     if (why) {
       dock.say(why);

@@ -232,7 +232,7 @@ export function renderChoices(
       document.removeEventListener('keydown', onEsc, true);
     }
     // Opening doesn't scroll: the buttons and what is above them stay where
-    // Court clicked. A decided close starts from its comment.
+    // the user clicked. A decided close starts from its comment.
     function open(): void {
       field.value = opts.chosen === CLOSE ? (opts.note ?? '') : '';
       el.hidden = false;

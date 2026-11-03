@@ -15,9 +15,9 @@ import (
 type JobState = string
 
 const (
-	// JobPlanned is built and shown to Court, awaiting approval.
+	// JobPlanned is built and shown to the user, awaiting approval.
 	JobPlanned JobState = "planned"
-	// JobApproved is approved by Court, ready to run.
+	// JobApproved is approved by the user, ready to run.
 	JobApproved JobState = "approved"
 	// JobRunning is actively executing steps.
 	JobRunning JobState = "running"
@@ -49,7 +49,7 @@ const (
 	StepPaused StepState = "paused"
 	// StepFailed means the step failed.
 	StepFailed StepState = "failed"
-	// StepNeedsYou means the step is waiting for Court's input.
+	// StepNeedsYou means the step is waiting for the user's input.
 	StepNeedsYou StepState = "needs_you"
 )
 
@@ -96,7 +96,7 @@ type JobStep struct {
 	Permanent bool `json:"permanent,omitempty"`
 }
 
-// NeedsYou is a card requesting Court's attention for a job (and optionally a step).
+// NeedsYou is a card requesting the user's attention for a job (and optionally a step).
 type NeedsYou struct {
 	ID         int64     `json:"id"`
 	JobID      int64     `json:"job_id"`
@@ -258,7 +258,7 @@ func (s *Store) PlanItems(ctx context.Context, jobID int64) ([]string, error) {
 }
 
 // Preview is the job Create would make of p, not stored (no ids): what
-// review shows before Court runs it.
+// review shows before the user runs it.
 func Preview(p Plan, machine string, now time.Time) Job {
 	steps := make([]JobStep, len(p.Steps))
 	for i, ps := range p.Steps {
@@ -1118,7 +1118,7 @@ func (s *Store) MarkUndone(ctx context.Context, stepID int64) error {
 
 // ReleaseUndoClaim clears an undo claim on a step (resets undone_at to 0) and
 // records a failure detail. It is called when the restore command fails after a
-// successful MarkUndone, so Court can see why the restore failed and retry.
+// successful MarkUndone, so the user can see why the restore failed and retry.
 func (s *Store) ReleaseUndoClaim(ctx context.Context, stepID int64, detail string) error {
 	now := s.Now()
 	_, err := s.DB.ExecContext(ctx,
@@ -1129,7 +1129,7 @@ func (s *Store) ReleaseUndoClaim(ctx context.Context, stepID int64, detail strin
 
 // SetStepDetail writes an informational detail string to a step without
 // changing its state. It is called on a best-effort basis when an undo-claim
-// release fails, so Court can see the claim is still held.
+// release fails, so the user can see the claim is still held.
 func (s *Store) SetStepDetail(ctx context.Context, stepID int64, detail string) error {
 	now := s.Now()
 	_, err := s.DB.ExecContext(ctx,

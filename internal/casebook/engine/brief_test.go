@@ -10,7 +10,7 @@ import (
 func TestBrief(t *testing.T) {
 	in := fixture()
 	decide(in, "repo:schuettc/hail", item.Keep, "")
-	in.Decisions["repo:schuettc/hail"] = item.Decision{Disposition: item.Keep, Note: "active", DecidedBy: "court", DecidedAt: days(1)}
+	in.Decisions["repo:schuettc/hail"] = item.Decision{Disposition: item.Keep, Note: "active", DecidedBy: "user", DecidedAt: days(1)}
 	r := Build(in)
 	b := Brief(r, "schuettc/hail", 10)
 	for _, want := range []string{"schuettc/hail", "pr:schuettc/hail#3", "branch:schuettc/hail@feat/client", "keep", "active"} {

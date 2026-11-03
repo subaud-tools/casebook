@@ -366,9 +366,9 @@ func TestRefreshRecordsMergeState(t *testing.T) {
 		case q != "":
 			return searchJSON(0), nil
 		case p == "repos/schuettc/hail/pulls":
-			return `[{"number":7,"head":{"ref":"feat/x","repo":{"full_name":"Court/Hail"}}},{"number":8,"head":{"ref":"feat/y","repo":{"full_name":"schuettc/hail"}}}]`, nil
+			return `[{"number":7,"head":{"ref":"feat/x","repo":{"full_name":"Alice/Hail"}}},{"number":8,"head":{"ref":"feat/y","repo":{"full_name":"schuettc/hail"}}}]`, nil
 		case p == "repos/schuettc/hail/pulls/7":
-			return `{"number":7,"state":"open","mergeable_state":"behind","head":{"ref":"feat/x","repo":{"full_name":"Court/Hail"}}}`, nil
+			return `{"number":7,"state":"open","mergeable_state":"behind","head":{"ref":"feat/x","repo":{"full_name":"Alice/Hail"}}}`, nil
 		}
 		return "", fmt.Errorf("unexpected gh %s", j)
 	}}
@@ -380,8 +380,8 @@ func TestRefreshRecordsMergeState(t *testing.T) {
 	for _, p := range g.Owners["schuettc"].Repos[0].PRs {
 		prs[p.Number] = p
 	}
-	if p := prs[7]; p.MergeState != "BEHIND" || p.HeadRef != "feat/x" || p.HeadRepo != "court/hail" {
-		t.Errorf("pr %+v, want MergeState BEHIND, HeadRef feat/x and HeadRepo court/hail", p)
+	if p := prs[7]; p.MergeState != "BEHIND" || p.HeadRef != "feat/x" || p.HeadRepo != "alice/hail" {
+		t.Errorf("pr %+v, want MergeState BEHIND, HeadRef feat/x and HeadRepo alice/hail", p)
 	}
 	if p := prs[8]; p.MergeState != "" || p.HeadRef != "feat/y" {
 		t.Errorf("pr 8 %+v, want no merge state and HeadRef feat/y", p)
@@ -468,7 +468,7 @@ func TestRefreshKeepsAnUnchangedLastComment(t *testing.T) {
 	}
 }
 
-// A branch lookup records what Court may do in its repository: a delete on
+// A branch lookup records what the user may do in its repository: a delete on
 // GitHub needs write access.
 func TestLookupRecordsTheViewerPermission(t *testing.T) {
 	gh := &fakeGh{handle: func(a []string) (string, error) {
@@ -555,7 +555,7 @@ func TestLookupListsABranchRepoOnce(t *testing.T) {
 }
 
 // TestLookupRefsRechecksOnlyThoseKeys: after an undo put feat/boot-trace back
-// on GitHub (Court, 2026-10-20), casebook re-reads just that ref: it is
+// on GitHub (the user, 2026-10-20), casebook re-reads just that ref: it is
 // updated, the others keep theirs, and RefsAt (the last full lookup) stays.
 func TestLookupRefsRechecksOnlyThoseKeys(t *testing.T) {
 	at := time.Date(2026, 10, 20, 18, 5, 0, 0, time.UTC)

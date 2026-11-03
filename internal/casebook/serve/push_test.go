@@ -640,7 +640,7 @@ func TestRemoteRefusalReachesTheSummary(t *testing.T) {
 	}
 }
 
-// TestWatchAnnouncesAPushMadeElsewhere (Court, 2026-10-18: the bar stayed on
+// TestWatchAnnouncesAPushMadeElsewhere (the user, 2026-10-18: the bar stayed on
 // "offline · 1 queued" after another process's sync pushed): when what waits
 // to be pushed changes without HEAD moving, the watcher announces it, so the
 // page reads its status again.
@@ -671,7 +671,7 @@ func TestWatchAnnouncesAPushMadeElsewhere(t *testing.T) {
 	}
 }
 
-// TestOfflineIsOnlyAPushThatCouldNotReachTheRemote (Court, 2026-10-18: the
+// TestOfflineIsOnlyAPushThatCouldNotReachTheRemote (the user, 2026-10-18: the
 // bar said "offline" while a big accept's decisions were only waiting for
 // the background push): push_offline is true only after a push failed for
 // the network; commits merely waiting to be pushed are not offline.

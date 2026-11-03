@@ -112,7 +112,7 @@ func call(ctx context.Context, ch *Channel, name string, args json.RawMessage) (
 	case "casebook_open":
 		// The page opens attached to this channel's session (galley_open's
 		// rule: what's opened belongs to the session that opened it), so
-		// Court's messages from it come here. No session: nobody's page.
+		// the user's messages from it come here. No session: nobody's page.
 		open := func(session string) func() (string, error) {
 			return func() (string, error) {
 				body := map[string]any{"key": a.Key}
@@ -129,7 +129,7 @@ func call(ctx context.Context, ch *Channel, name string, args json.RawMessage) (
 			_, err = callSessionBound(ctx, ch, open(ch.ID.Session))
 			if oldServe(err) {
 				// A serve started before pages could belong to a session
-				// refuses the field. Open the page anyway; it asks Court
+				// refuses the field. Open the page anyway; it asks the user
 				// which session to talk to.
 				_, err = open("")()
 				note = "; it is not attached to this session: the running casebook serve is older than this casebook, so it needs a restart first (run `casebook serve --stop`, then casebook_open again, to attach it)"

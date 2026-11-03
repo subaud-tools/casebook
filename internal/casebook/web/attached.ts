@@ -14,7 +14,7 @@
 //                    (a draft previewing: `list match="[...]"`).
 //   parseAttached  — reads an edited line back into an Attached. Words it
 //                    doesn't recognise are dropped; the line then re-renders
-//                    from what was parsed, so what Court sees is what is sent.
+//                    from what was parsed, so what the user sees is what is sent.
 
 import type { Attached, AttachedList } from './wire.d.ts';
 import { keyWithoutKind, kindFromKey, pluralize } from './decide-math.ts';

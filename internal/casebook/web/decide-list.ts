@@ -103,7 +103,7 @@ const PAGE_SIZE = 200;
 // Shared selection store.
 export const selection: Selection = createSelection();
 
-// The list has no field filter chips (Court, 2026-10-10: search only);
+// The list has no field filter chips (the user, 2026-10-10: search only);
 // serve's filter parameters stay, for agents' tools. Saved filters
 // (filters.ts) are the chip row at the top; there are no view chips: decide
 // is one list (view=all).
@@ -167,7 +167,7 @@ export function makeDecide(ctx: Ctx): Section {
   let loads = 0;
   let totalItemsForView = 0; // updated after every load
   // The view's groups (serve's order and counts, every page) and the ones
-  // Court opened (in memory only). Every group starts collapsed (Court,
+  // the user opened (in memory only). Every group starts collapsed (the user,
   // 2026-10-17: what's waiting reads as a list of groups); serve sends the
   // rows of the open ones alone (open=), so j and k pass over the rest.
   let groups: GroupView[] = [];
@@ -1515,7 +1515,7 @@ export function makeDecide(ctx: Ctx): Section {
             class: 'kit-btn cb-ticked-ask',
             disabled: looked,
             onclick() {
-              // What is ticked and shown as Court presses.
+              // What is ticked and shown as the user presses.
               if (viewPending) return;
               void lookInto(tickedItems().map((it) => it.key));
             },
@@ -1537,7 +1537,7 @@ export function makeDecide(ctx: Ctx): Section {
             type: 'button',
             class: 'kit-btn cb-ticked-discard',
             onclick() {
-              // What is ticked and shown as Court presses.
+              // What is ticked and shown as the user presses.
               if (viewPending) return;
               const now = tickedItems()
                 .map((it) => it.proposal)
@@ -1837,7 +1837,7 @@ export function makeDecide(ctx: Ctx): Section {
 
   // refreshLooking reads whether a session is looking into key (the open
   // item) and shows it in place, first in the reading, without re-rendering
-  // the item (Court may be mid-input on it).
+  // the item (the user may be mid-input on it).
   let lookingSeq = 0;
   async function refreshLooking(key: string): Promise<void> {
     const mine = ++lookingSeq;
@@ -1875,9 +1875,9 @@ export function makeDecide(ctx: Ctx): Section {
     void reload();
   }
 
-  // midInput: Court is in the middle of answering the open item: its
+  // midInput: the user is in the middle of answering the open item: its
   // closing-comment field is open with text typed, or its Not now picker
-  // is open. A re-render then would wipe what he is doing.
+  // is open. A re-render then would wipe what they are doing.
   function midInput(): boolean {
     const comment = readEl.querySelector<HTMLElement>('.cb-close-comment');
     const typed =
@@ -1889,7 +1889,7 @@ export function makeDecide(ctx: Ctx): Section {
 
   // proposalsChanged: a proposal for the open item came, or went (a live
   // "proposals" event naming key), or evidence for it came (why). The item re-renders, so its
-  // recommendation and the "recommended" mark appear or go; while Court is
+  // recommendation and the "recommended" mark appear or go; while the user is
   // mid-input it doesn't, and a quiet line first in the reading says what
   // changed, with "show" to re-render.
   let freshSeq = 0;
@@ -2130,7 +2130,7 @@ export function makeDecide(ctx: Ctx): Section {
       if (key) void openDetail(key);
       return;
     }
-    // Court opened something else meanwhile: leave it open.
+    // The user opened something else meanwhile: leave it open.
     if ((currentOpenKey ?? '') !== key) return;
     if (next) openKey(next);
     else {
@@ -2154,7 +2154,7 @@ export function makeDecide(ctx: Ctx): Section {
     deciding = key;
     const order = await orderFor(key);
     // The item's recommendation as serve has it now: one may have come (or
-    // gone) while Court was typing a closing comment or picking a Not now,
+    // gone) while the user was typing a closing comment or picking a Not now,
     // and the decision must count for or against it.
     let p = shownProposal();
     try {
@@ -2508,7 +2508,7 @@ export function makeDecide(ctx: Ctx): Section {
         )
           void proposalsChanged(currentOpenKey, 'evidence');
       } else if (type === 'message') {
-        // Court's message posted (this tab or another): an ask to look into
+        // The user's message posted (this tab or another): an ask to look into
         // an item marks it.
         const keys = (data as Message | null)?.attached?.keys ?? [];
         if (

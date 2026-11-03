@@ -286,7 +286,7 @@ func (b *builder) owners(res *Result) {
 
 // involved reports whether it is an item: a repository another owner lists
 // is one only when the user is its admin or has a clone of it, since
-// casebook can't act on the others (Court, 2026-10-20). Such a repo still
+// casebook can't act on the others (the user, 2026-10-20). Such a repo still
 // feeds its PRs, issues and branches, and its decision file stays: it
 // shows again once the repo qualifies. Admin not observed counts as
 // involved, and so does work pending: only a repo that is new or decided to

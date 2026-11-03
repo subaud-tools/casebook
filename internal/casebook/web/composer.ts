@@ -97,7 +97,7 @@ function threadName(body: string): string {
 }
 
 export function makeComposer(ctx: Ctx, dock: ComposerDock): ComposerHandle {
-  // context is what the page shows; override is Court's edit, held until send.
+  // context is what the page shows; override is the user's edit, held until send.
   let context: Attached = {};
   let contextTitle = '';
   let override: Attached | null = null;
@@ -128,7 +128,7 @@ export function makeComposer(ctx: Ctx, dock: ComposerDock): ComposerHandle {
     if (editing) return;
     const a = effective();
     // The page's job title names the job only while it is still that job
-    // (Court's edit may name another).
+    // (the user's edit may name another).
     const title = a.job && a.job === context.job ? contextTitle : '';
     value.textContent = isEmpty(a) ? 'nothing' : attachedLabel(a, title);
     value.toggleAttribute('data-empty', isEmpty(a));
@@ -236,7 +236,7 @@ export function makeComposer(ctx: Ctx, dock: ComposerDock): ComposerHandle {
   }
 
   // restoreSent puts a message that didn't go back in the field, in front of
-  // whatever Court typed while it was in flight, one space between them.
+  // whatever the user typed while it was in flight, one space between them.
   function restoreSent(sent: string): void {
     const typed = input.value.replace(/^\s+/, '');
     input.value = typed ? `${sent.replace(/\s+$/, '')} ${typed}` : sent;
@@ -255,7 +255,7 @@ export function makeComposer(ctx: Ctx, dock: ComposerDock): ComposerHandle {
     sending = true;
     note.textContent = '';
     // The field clears as the send starts, so it never holds sent text:
-    // anything typed from here on is Court's next message and stays, whatever
+    // anything typed from here on is the user's next message and stays, whatever
     // happens to this one. Only a send that fails puts its text back.
     input.value = '';
     fit();

@@ -186,7 +186,7 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 	plan, err := apply.Build(items, snap, now, builtAt, si)
 	if err != nil {
 		if errors.Is(err, apply.ErrStale) {
-			// 409 with a plain message — no command for Court (binding note,
+			// 409 with a plain message — no command for the user (binding note,
 			// decision 3).
 			reply(w, nil, httpError{
 				code: http.StatusConflict,
@@ -265,7 +265,7 @@ func (s *Server) postApplyPlan(w http.ResponseWriter, r *http.Request) {
 
 // heldKeys maps each item key with a step in an unfinished job (planned,
 // approved, running or paused) to that job, leaving out job except. With
-// startedOnly it counts only jobs Court has approved (approved, running or
+// startedOnly it counts only jobs the user has approved (approved, running or
 // paused): approving a plan checks against those, so of two plans that
 // overlap the first approved wins. Done, failed and cancelled jobs hold
 // nothing.
@@ -343,8 +343,8 @@ func heldMsg(key string, j apply.Job) string {
 
 // postApplyApprove is POST /api/apply/approve.
 // Input: {"plan_id":N,"session":"sid","keys":[...]}
-// keys, when sent (the page always sends them), are the items Court has
-// ticked and shown as he clicks: a stored plan whose items are not exactly
+// keys, when sent (the page always sends them), are the items the user has
+// ticked and shown as they click: a stored plan whose items are not exactly
 // those is refused (409), so an item unticked a moment before the click
 // never runs.
 // In order: approve the job, open batch card, dispatch agent job (idempotent),
@@ -363,7 +363,7 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 
 	// Validate session if provided: it must be known, and present. The plan's
 	// outward steps (archive, close, anything that posts) go to the session
-	// Court names, so one that has left can't take them. (A plan with
+	// the user names, so one that has left can't take them. (A plan with
 	// agent-lane steps and no session at all is the store's refusal.)
 	if in.Session != "" {
 		if _, err := s.session(ctx, in.Session); err != nil {
@@ -428,9 +428,9 @@ func (s *Server) postApplyApprove(w http.ResponseWriter, r *http.Request) {
 
 	s.publish(ctx, "job", map[string]any{"id": job.ID, "state": apply.JobApproved})
 
-	// Step 2: Count agent-lane steps. Approving is Court's go (and for what
-	// can't be undone, the page has already asked him to confirm): no
-	// second confirm before the agent starts (Court, 2026-10-18).
+	// Step 2: Count agent-lane steps. Approving is the user's go (and for what
+	// can't be undone, the page has already asked them to confirm): no
+	// second confirm before the agent starts (the user, 2026-10-18).
 	var agentCount int
 	for _, st := range job.Steps {
 		if st.Lane == apply.LaneAgent {
@@ -478,7 +478,7 @@ func sameKeySet(keys, planKeys []string) bool {
 	return len(got) == len(want)
 }
 
-// postApplyCancel is POST /api/apply/cancel {plan_id}: discard a plan Court
+// postApplyCancel is POST /api/apply/cancel {plan_id}: discard a plan the user
 // hasn't approved (planned → cancelled; Store.Cancel refuses anything else,
 // 409). An approved job is paused, not discarded.
 func (s *Server) postApplyCancel(w http.ResponseWriter, r *http.Request) {
@@ -719,7 +719,7 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	// the other gets a conflict so the restore command never runs twice.
 	//
 	// releaseUndo is a convenience closure that handles ReleaseUndoClaim
-	// errors: it logs them and attempts a best-effort detail update so Court
+	// errors: it logs them and attempts a best-effort detail update so the user
 	// can see the claim is still held.
 	releaseUndo := func(detail string) {
 		if err := s.Apply.ReleaseUndoClaim(ctx, step.ID, detail); err != nil {
@@ -740,7 +740,7 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	if step.Lane == apply.LaneAgent {
 		// Agent-lane: unarchive/reopen goes to the agent as a message.
 		if job.Session == "" {
-			// Release the claim so Court can retry after fixing the session.
+			// Release the claim so the user can retry after fixing the session.
 			releaseUndo("no session for agent-lane undo")
 			reply(w, nil, httpError{
 				code: http.StatusConflict,
@@ -765,7 +765,7 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Casebook-lane restore: a git restore runs locally via the runner's
 		// RunGit, a GitHub one through gh. If the restore fails, release the
-		// claim so Court can retry.
+		// claim so the user can retry.
 		if err := runRestoreCommand(ctx, step.Restore, runGit, s.App.Gh); err != nil {
 			releaseUndo("restore failed: " + err.Error())
 			reply(w, nil, bad("restore command failed: %v", err))
@@ -782,7 +782,7 @@ func (s *Server) postJobsUndo(w http.ResponseWriter, r *http.Request) {
 }
 
 // recheck re-reads keys on GitHub in the background and rebuilds, so the
-// items say where their copies are now, not at the last full sync (Court,
+// items say where their copies are now, not at the last full sync (the user,
 // 2026-10-20).
 func (s *Server) recheck(keys []string) {
 	var ks []item.Key
@@ -967,7 +967,7 @@ func (s *Server) answerText(ctx context.Context, card apply.NeedsYou, job apply.
 			s.publish(ctx, "step", map[string]any{"id": card.StepID, "job_id": job.ID, "text_set": true})
 		}
 		// Send a message to the job's session telling the agent to post exactly
-		// that text and close. Court confirms; casebook never runs gh itself.
+		// that text and close. The user confirms; casebook never runs gh itself.
 		if job.Session != "" {
 			body := fmt.Sprintf(
 				"%s approved text for job %d step %d [%s].\n"+

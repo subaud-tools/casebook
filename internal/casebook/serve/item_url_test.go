@@ -54,7 +54,7 @@ func TestItemURLPerKind(t *testing.T) {
 		}
 	}
 	// A worktree has no GitHub page.
-	if got := githubURL(item.WorktreeKey("mbp", "/home/court/hail")); got != "" {
+	if got := githubURL(item.WorktreeKey("mbp", "/home/user/hail")); got != "" {
 		t.Errorf("worktree: url %q, want empty", got)
 	}
 }

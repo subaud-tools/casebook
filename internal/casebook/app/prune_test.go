@@ -244,7 +244,7 @@ func TestGeneralize(t *testing.T) {
 		"copier._vcs.clone.v_abc":    "copier._vcs.clone.*",
 		"copier._vcs.clone._abc1":    "copier._vcs.clone._*",
 		"TestEvidenceExitCodes2_bad": "TestEvidenceExitCodes*",
-		"pytest-of-courtschuett":     "pytest-of-courtschuett",
+		"pytest-of-alice":            "pytest-of-alice",
 		"bridge-rebase":              "bridge-rebase",
 		"muda-audit-export":          "muda-audit-export",
 	} {

@@ -59,7 +59,7 @@ func TestDeclinedAndFailedSettleWithTheirText(t *testing.T) {
 		id    int64
 		state ThreadState
 		text  string
-	}{{m1.ID, Declined, "won't: it is Court's call"}, {m2.ID, Failed, "couldn't: gh is logged out"}} {
+	}{{m1.ID, Declined, "won't: it is the user's call"}, {m2.ID, Failed, "couldn't: gh is logged out"}} {
 		if _, _, err := q.Reply(ctx, "s1", []int64{c.id}, c.state, c.text); err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func TestDeclinedAndFailedSettleWithTheirText(t *testing.T) {
 		}
 	}
 	rs := replies(t, q, th)
-	if len(rs) != 2 || rs[0].Body != "won't: it is Court's call" || rs[0].ReplyTo != m1.ID || rs[1].Body != "couldn't: gh is logged out" {
+	if len(rs) != 2 || rs[0].Body != "won't: it is the user's call" || rs[0].ReplyTo != m1.ID || rs[1].Body != "couldn't: gh is logged out" {
 		t.Fatalf("replies %+v", rs)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +26,7 @@ import (
 
 // FormatVersion is the casebook repo format this binary reads and writes
 // (casebook.toml format_version). Documented in internal/casebook/FORMAT.md.
-const FormatVersion = 2
+const FormatVersion = 3
 
 const readme = "# casebook\n\nThis repository is written by `casebook sync`. Views appear here after the first sync.\n"
 
@@ -114,15 +115,20 @@ func Open(dir string) (*Repo, error) {
 }
 
 // Upgrade raises an older repo to FormatVersion with one commit ("upgrade
-// casebook repo to format N"). Format 2 only adds optional decision fields, so
-// no item file changes; older binaries refuse the repo afterwards. It does
-// not push. A repo already at FormatVersion is left alone.
+// casebook repo to format N"). Format 2 only added optional decision fields;
+// format 3 renames the user's value "court" to "user" in decided_by (a
+// conflict's too), a rule's created_by and an exclusion's by, in the same
+// commit. Older binaries refuse the repo afterwards. It does not push. A repo
+// already at FormatVersion is left alone.
 func (r *Repo) Upgrade(ctx context.Context) (bool, error) {
 	if r.Version >= FormatVersion {
 		return false, nil
 	}
 	b := fmt.Appendf(nil, "# casebook data repository. Format: internal/casebook/FORMAT.md in subaud-tools/casebook.\nformat_version = %d\n", FormatVersion)
 	if _, err := r.Batch(ctx, fmt.Sprintf("upgrade casebook repo to format %d", FormatVersion), func() error {
+		if err := r.renameUser(); err != nil {
+			return err
+		}
 		_, err := r.WriteFile("casebook.toml", b)
 		return err
 	}); err != nil {
@@ -130,6 +136,44 @@ func (r *Repo) Upgrade(ctx context.Context) (bool, error) {
 	}
 	r.Version = FormatVersion
 	return true, nil
+}
+
+// oldUser is a line holding the user's value before format 3: decided_by,
+// created_by or by set to exactly "court", at any indent.
+var oldUser = regexp.MustCompile(`(?m)^([ \t]*(?:decided_by|created_by|by)[ \t]*=[ \t]*)"court"([ \t]*)$`)
+
+// renameUser rewrites oldUser lines to "user" in every decision and rule
+// file, leaving every other byte as it was.
+func (r *Repo) renameUser() error {
+	var files []string
+	for _, root := range []string{"items", "rules"} {
+		err := filepath.WalkDir(r.abs(root), func(p string, d fs.DirEntry, err error) error {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.HasSuffix(p, ".toml") {
+				rel, _ := filepath.Rel(r.Dir, p)
+				files = append(files, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	for _, rel := range files {
+		old, err := r.ReadFile(rel)
+		if err != nil {
+			return err
+		}
+		if _, err := r.WriteFile(rel, oldUser.ReplaceAll(old, []byte(`${1}"user"${2}`))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repo) abs(rel string) string { return filepath.Join(r.Dir, filepath.FromSlash(rel)) }
@@ -256,7 +300,7 @@ type Decided struct {
 }
 
 // DecideAll validates every decision, writes their files and commits them
-// in one commit (Court, 2026-10-18: a group of 1,757 took six minutes at a
+// in one commit (the user, 2026-10-18: a group of 1,757 took six minutes at a
 // commit each). Nothing is written when one doesn't validate. It does not
 // push; call Sync.
 func (r *Repo) DecideAll(ctx context.Context, ds []Decided) error {

@@ -80,7 +80,7 @@ func TestBatchKeepsOtherCommitsOut(t *testing.T) {
 	var derr error
 	go func() {
 		defer close(decided)
-		derr = r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)))
+		derr = r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)))
 	}()
 	if returnsWithin(decided, 300*time.Millisecond) {
 		t.Error("the decide committed while the sync was still writing")
@@ -114,7 +114,7 @@ func TestTheWriteLockSpansProcesses(t *testing.T) {
 	decided := make(chan struct{})
 	go func() {
 		defer close(decided)
-		must(t, r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", at)))
+		must(t, r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", at)))
 	}()
 	if returnsWithin(decided, 300*time.Millisecond) {
 		t.Fatal("a decide committed while another process held casebook-data's lock")
@@ -158,7 +158,7 @@ func TestTempFilesAreNeverCommitted(t *testing.T) {
 	stray := filepath.Join(r.Dir, "items", "issue", "a", "b", ".1.toml-99.tmp")
 	must(t, os.MkdirAll(filepath.Dir(stray), 0o755))
 	must(t, os.WriteFile(stray, []byte("half"), 0o644))
-	must(t, r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())))
+	must(t, r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())))
 	if files := testgit.Git(t, r.Dir, "ls-files"); strings.Contains(files, ".tmp") {
 		t.Fatalf("a new repo committed a temp file:\n%s", files)
 	}
@@ -177,7 +177,7 @@ func TestTempFilesAreNeverCommitted(t *testing.T) {
 		t.Fatalf("EnsureIgnore again: %v %v, want nothing to do", again, err)
 	}
 	must(t, os.WriteFile(filepath.Join(old.Dir, ".README.md-7.tmp"), []byte("half"), 0o644))
-	must(t, old.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court", time.Now())))
+	must(t, old.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user", time.Now())))
 	if files := testgit.Git(t, old.Dir, "ls-files"); strings.Contains(files, ".tmp") {
 		t.Fatalf("an upgraded repo committed a temp file:\n%s", files)
 	}
@@ -193,10 +193,10 @@ func TestTempFilesAreNeverCommitted(t *testing.T) {
 func TestCancelledSyncNeverLeavesARebase(t *testing.T) {
 	a, b, _ := twoMachines(t)
 	at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
-	must(t, a.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court@a", at)))
+	must(t, a.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user@a", at)))
 	_, err := a.Sync(ctx)
 	must(t, err)
-	must(t, b.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Close, "court@b", at)))
+	must(t, b.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Close, "user@b", at)))
 
 	hold := testgit.HoldRebase(t, b.Dir)
 	sctx, cancel := context.WithCancel(ctx)

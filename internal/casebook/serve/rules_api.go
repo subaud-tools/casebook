@@ -27,7 +27,7 @@ func (s *Server) getRules(w http.ResponseWriter, r *http.Request) {
 			Matches: s.ruleMatches(ru), Excluded: len(ru.Exclude),
 		})
 	}
-	// A file that can't be read as a rule is listed too, as invalid: Court
+	// A file that can't be read as a rule is listed too, as invalid: the user
 	// sees it and can replace it from the page.
 	for _, err := range errs {
 		var fe *store.RuleFileError
@@ -135,8 +135,8 @@ func kindNames(match []rules.Condition) []string {
 
 // postRulesDraft handles POST /api/rules/draft.
 // Creates or edits a draft rule. Body is a rules.Rule; status must be "draft".
-// The user is always "court" (the config user). Commit: "rule <id> created by court"
-// or "rule <id> edited by court".
+// The user is always the config user ("user" when unset). Commit: "rule <id>
+// created by <user>" or "rule <id> edited by <user>".
 func (s *Server) postRulesDraft(w http.ResponseWriter, r *http.Request) {
 	var in rules.Rule
 	if err := decode(r, &in); err != nil {
@@ -151,7 +151,7 @@ func (s *Server) postRulesDraft(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 
 	// Conditions serve refuses are refused before touching disk; the
@@ -201,7 +201,7 @@ func (s *Server) postRulesDraft(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Edit existing draft. An active rule is edited only when it is
 		// invalid (rebuild skips it): saving the fix makes it a draft, for
-		// Court to activate again.
+		// the user to activate again.
 		if existing.Status == rules.StatusActive && existing.Validate() == nil {
 			reply(w, nil, bad("cannot edit an active rule via draft endpoint; deactivate it first"))
 			return
@@ -227,8 +227,8 @@ func (s *Server) postRulesDraft(w http.ResponseWriter, r *http.Request) {
 	reply(w, s.ruleDetail(ctx, in), nil)
 }
 
-// postRulesSave handles POST /api/rules/save: a rule Court saves is on
-// (Court, 2026-10-17: saving turns a rule on; there is no separate
+// postRulesSave handles POST /api/rules/save: a rule the user saves is on
+// (the user, 2026-10-17: saving turns a rule on; there is no separate
 // activate). The whole rule must be valid; ?create=1 never overwrites one,
 // ?version= saves over exactly the copy the page read. It is evaluated at
 // once, so its proposals are there when the page shows it.
@@ -250,7 +250,7 @@ func (s *Server) postRulesSave(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 	existing, err := s.App.Repo.ReadRule(in.ID)
 	var fe *store.RuleFileError
@@ -356,7 +356,7 @@ func (s *Server) postRulesExclude(w http.ResponseWriter, r *http.Request) {
 
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 
 	// Add exclusion if not already present.
@@ -419,7 +419,7 @@ func (s *Server) postRulesInclude(w http.ResponseWriter, r *http.Request) {
 
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 
 	var kept []rules.Exclusion
@@ -521,7 +521,7 @@ func (s *Server) postRulesActivate(w http.ResponseWriter, r *http.Request) {
 
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 
 	if err := ru.Validate(); err != nil {
@@ -570,7 +570,7 @@ func (s *Server) postRulesDeactivate(w http.ResponseWriter, r *http.Request) {
 
 	by := s.App.Cfg.User
 	if by == "" {
-		by = "court"
+		by = "user"
 	}
 
 	ru.Status = rules.StatusDraft
@@ -661,8 +661,8 @@ func (s *Server) agentRuleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A rule an agent saves is on, as one Court saves is (Court, 2026-10-17:
-	// every rule is on once saved; its recommendations still wait for him).
+	// A rule an agent saves is on, as one the user saves is (the user, 2026-10-17:
+	// every rule is on once saved; its recommendations still wait for them).
 	// It must be complete: one serve holds invalid is refused with the
 	// reason, and nothing is written.
 	in.Rule.Status = rules.StatusActive
@@ -744,7 +744,7 @@ func (s *Server) ruleDetail(ctx context.Context, ru rules.Rule) RuleDetailView {
 
 // editedAt is a saved draft's edited_at: now when its conditions or its
 // proposal changed, else the existing one (spec §4.1). A re-save or a rename
-// must not re-open the items Court rejected for the rule (§4.2).
+// must not re-open the items the user rejected for the rule (§4.2).
 func editedAt(existing, next rules.Rule, now time.Time) time.Time {
 	if rules.SameMeaning(existing, next) {
 		return existing.EditedAt

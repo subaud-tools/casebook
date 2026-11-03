@@ -10,7 +10,7 @@ import (
 const specExample = `id = "landed-branches"
 name = "Landed branches → delete"
 status = "draft"
-created_by = "court"
+created_by = "user"
 created_at = 2026-09-27T10:00:00Z
 edited_at = 2026-09-27T10:00:00Z
 
@@ -37,7 +37,7 @@ note = "landed ({how}); restore tip {tip}"
 [[exclude]]
 key = "branch:schuettc/galley@feat/headcount-licensing"
 reason = "keep for reference"
-by = "court"
+by = "user"
 at = 2026-09-27T10:05:00Z
 `
 
@@ -55,7 +55,7 @@ func TestDecodeEncodeRoundTripsTheSpecExample(t *testing.T) {
 	if r.Status != StatusDraft {
 		t.Errorf("Status = %q, want %q", r.Status, StatusDraft)
 	}
-	if r.CreatedBy != "court" {
+	if r.CreatedBy != "user" {
 		t.Errorf("CreatedBy = %q", r.CreatedBy)
 	}
 	wantTime := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
@@ -92,7 +92,7 @@ func TestDecodeEncodeRoundTripsTheSpecExample(t *testing.T) {
 	if r.Exclude[0].Reason != "keep for reference" {
 		t.Errorf("Exclude[0].Reason = %q", r.Exclude[0].Reason)
 	}
-	if r.Exclude[0].By != "court" {
+	if r.Exclude[0].By != "user" {
 		t.Errorf("Exclude[0].By = %q", r.Exclude[0].By)
 	}
 

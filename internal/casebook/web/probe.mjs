@@ -2,9 +2,9 @@
 //
 // Spawns real seeded casebook serves (via serve.mjs), opens their pages in
 // headless Chrome (playwright-core), and checks what the page must never
-// get wrong (Court, 2026-10-18; what can be seen is checked by looking):
+// get wrong (the user, 2026-10-18; what can be seen is checked by looking):
 //
-//   1. nothing runs without Court's click, and what runs is exactly what
+//   1. nothing runs without the user's click, and what runs is exactly what
 //      review showed                                  (probe-apply.mjs)
 //   2. decisions aren't lost or doubled               (probe-decide.mjs)
 //   3. the page works end to end without errors      (the e2e group below,
@@ -19,7 +19,7 @@
 //
 // BROWSER SAFETY: all serve startups go through serve.mjs which enforces
 // --no-open and CASEBOOK_NO_BROWSER=1 (it throws at module load without
-// --no-open), so no probe can open Court's browser.
+// --no-open), so no probe can open the user's browser.
 
 import {
   check,
@@ -88,7 +88,7 @@ process.on('exit', stopServes);
 
 // ---- the page end to end ----------------------------------------------------
 //
-// One pass over a serve of its own, as Court uses it: decide loads with its
+// One pass over a serve of its own, as the user uses it: decide loads with its
 // groups collapsed, one opens to its rows, an item opens; a decision waits
 // in review, its group opens there and runs; run shows the job and its
 // progress as the agent reports.
@@ -285,7 +285,7 @@ async function e2eScenario(browser) {
 
 // ---- each message's state ---------------------------------------------------
 //
-// A thread holding one of Court's messages in each of msgstate's states,
+// A thread holding one of the user's messages in each of msgstate's states,
 // reached through the agent API as a session reaches them (the harness's
 // reports and the agent's replies): the dock shows each in the kit's pill
 // with msgstate's label, and the line under it.
@@ -345,7 +345,7 @@ async function messagesScenario(browser) {
     await report('landed', (await take()).report);
     await reply(ids.working, 'working', 'checking CI on #671');
     await reply(ids.answered, 'answered', 'done');
-    await reply(ids.declined, 'declined', "won't: Court's call");
+    await reply(ids.declined, 'declined', "won't: the user's call");
     await reply(ids.failed, 'failed', "couldn't: gh is logged out");
     // Sent mid-turn: it waits behind the delivery in flight.
     ids.sent = await send('sent while the agent works');
@@ -397,7 +397,7 @@ async function messagesScenario(browser) {
 }
 
 // A stuck delivery: its message keeps the kit's pill and the agent's line,
-// with the stuck text and Court's release and move buttons beside them.
+// with the stuck text and the user's release and move buttons beside them.
 async function stuckScenario(browser) {
   console.log('\nscenario: a stuck message keeps its pill');
   process.env.CASEBOOK_STUCK_AFTER = '1s';
@@ -604,7 +604,7 @@ async function run() {
   browser.newContext = async (...args) => {
     const c = await newContext(...args);
     // The agent pane opens on a click; every other scenario finds it open,
-    // as a tab where Court opened it does (dock.ts keeps that in
+    // as a tab where the user opened it does (dock.ts keeps that in
     // sessionStorage).
     await c.addInitScript(() => {
       try {

@@ -108,7 +108,7 @@ const PAST: Record<string, string> = {
   'issue-close': 'closed',
 };
 
-/** The verb a paused step would do if Court resumes it: "close anyway". */
+/** The verb a paused step would do if the user resumes it: "close anyway". */
 const RESUME: Record<string, string> = {
   'branch-delete-local': 'delete',
   'branch-delete-remote': 'delete',
@@ -278,7 +278,7 @@ export interface StepMark {
 export function stepMark(s: JobStep, next: boolean): StepMark {
   const past = PAST[s.action] ?? 'done';
   // The reason gets its own line: beside the key, a long one (a path)
-  // squeezed the key to one character wide (Court, 2026-10-18).
+  // squeezed the key to one character wide (the user, 2026-10-18).
   const why = (glyph: string, text: string, tone: Tone): StepMark =>
     s.detail ? { glyph, text, why: s.detail, tone } : { glyph, text, tone };
   if (s.undone_at) return { glyph: '\u21ba', text: 'undone', tone: 'muted' };
@@ -581,7 +581,7 @@ export function reviewLine(
   const d = it.decision?.disposition ?? '';
   const stopping = (it.holds ?? []).filter((x) => (x.stops ?? []).includes(d));
   // A hold on one half (a local copy, or GitHub's) is not the item held:
-  // the other half still runs (Court, 2026-10-20).
+  // the other half still runs (the user, 2026-10-20).
   const whole = stopping.find((x) => !x.local && !x.remote);
   if (whole) return { text: `held: ${whole.text}`, tone: 'agent' };
   if (it.kind === 'branch') {
@@ -622,9 +622,9 @@ export function reviewLine(
 }
 
 /**
- * stepLine is a step's command as it reads to Court, under the key line
+ * stepLine is a step's command as it reads to the user, under the key line
  * that names the item: what it does and the commit it insists on, rather than the GraphQL or git it runs
- * (Court, 2026-10-20). The exact command stays in the title (hover).
+ * (the user, 2026-10-20). The exact command stays in the title (hover).
  */
 export function stepLine(s: {
   action: string;
@@ -734,7 +734,7 @@ const UNFINISHED = new Set(['pending', 'running', 'reported']);
 
 /**
  * standsStep is the step that says where an item stands in its job: the
- * first that needs Court, else the first not finished, else the last.
+ * first that needs the user, else the first not finished, else the last.
  */
 export function standsStep(m: RunMark): JobStep {
   const steps = m.steps ?? [];
@@ -759,7 +759,7 @@ export function ranLine(
   const mark = stepMark(s, false);
   const stopped = NEEDS.has(s.state) || s.state === 'skipped';
   const what = stopped ? `${actionVerb(s.action)} ${mark.text}` : mark.text;
-  // What still waits for another Mac, after what ran (Court, 2026-10-20).
+  // What still waits for another Mac, after what ran (the user, 2026-10-20).
   const waits = holds
     .filter((x) => x.kind === 'other-mac')
     .map((x) => ` \u00b7 local copy waits for ${x.machine}`)
@@ -787,7 +787,7 @@ export function aroundSteps(
 /**
  * runBulk is the steps each of run's buttons acts on for the ticked items
  * (their marks), every step of each item, not one: skip covers each step
- * that needs Court in a job still open, when every one of them has an open
+ * that needs the user in a job still open, when every one of them has an open
  * failed or paused card; hand to agent the same, open failed cards only;
  * undo every step that can be undone, when every item has one. Empty: the
  * button doesn't fit them all.

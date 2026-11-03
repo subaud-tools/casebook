@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Court asks from the list with nothing open or ticked ("ask agent to
+// The user asks from the list with nothing open or ticked ("ask agent to
 // suggest rules"): the message carries the list as it is narrowed (its
 // filters, rule, search and group), not thousands of keys, and the agent
 // reads it in the words casebook_attention takes.
@@ -43,7 +43,7 @@ func TestAttachedListReachesTheAgent(t *testing.T) {
 	}
 }
 
-// A draft previewing on the page (review 2026-10-17): the list Court sees
+// A draft previewing on the page (review 2026-10-17): the list the user sees
 // is the draft's conditions, and the agent reads them as match.
 func TestAttachedDraftListReachesTheAgent(t *testing.T) {
 	const m = `[{"field":"kind","op":"is","value":"issue"}]`

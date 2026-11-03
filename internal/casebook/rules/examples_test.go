@@ -6,7 +6,7 @@ import (
 )
 
 // TestExamplesAreValidAndOn: the starter rules validate, are on, and are
-// the ones Court approved (2026-10-17; quiet clean worktrees and old org
+// the ones the user approved (2026-10-17; quiet clean worktrees and old org
 // repos 2026-10-18).
 func TestExamplesAreValidAndOn(t *testing.T) {
 	var ids []string

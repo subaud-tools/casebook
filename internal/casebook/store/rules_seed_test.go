@@ -39,7 +39,7 @@ func TestTidySeedsExampleRulesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	testgit.Commit(t, r.Dir, "rules/landed-branches.toml", string(b))
-	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	subj := strings.Split(testgit.Git(t, r.Dir, "log", "-2", "--format=%s"), "\n")
@@ -54,7 +54,7 @@ func TestTidySeedsExampleRulesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	testgit.Git(t, r.Dir, "commit", "-q", "-am", "delete quiet-bot-prs")
-	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(r.Dir, "rules", "quiet-bot-prs.toml")); !os.IsNotExist(err) {
@@ -63,7 +63,7 @@ func TestTidySeedsExampleRulesOnce(t *testing.T) {
 }
 
 // shippedDormantRepos is rules/dormant-repos.toml as casebook 0.10 seeded it
-// (Court's casebook-data has it unchanged).
+// (the user's casebook-data has it unchanged).
 const shippedDormantRepos = `# casebook standing rule. Format: internal/casebook/FORMAT.md in subaud-tools/tackle.
 id = "dormant-repos"
 name = "Repos not pushed in a year"
@@ -108,7 +108,7 @@ func olderRules(t *testing.T, r *Repo, dormant string) {
 func TestTidyReplacesTheShippedDormantReposRule(t *testing.T) {
 	r, _ := newStore(t)
 	olderRules(t, r, shippedDormantRepos)
-	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	subj := strings.Split(testgit.Git(t, r.Dir, "log", "-2", "--format=%s"), "\n")
@@ -128,14 +128,14 @@ func TestTidyReplacesTheShippedDormantReposRule(t *testing.T) {
 			t.Fatalf("%s: %+v %v, want it on, by casebook", id, ru, err)
 		}
 	}
-	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if n := strings.Count(testgit.Git(t, r.Dir, "log", "--format=%s"), "replace dormant-repos"); n != 1 {
 		t.Fatalf("replaced %d times", n)
 	}
 
-	// A rule of Court's under a new id stays his.
+	// A rule of the user's under a new id stays theirs.
 	r, _ = newStore(t)
 	olderRules(t, r, shippedDormantRepos)
 	mine := rules.Rule{ID: "your-old-forks", Name: "Mine", Status: rules.StatusDraft, Match: []rules.Condition{{Field: "kind", Op: "is", Value: "repo"}}, Propose: rules.RuleAction{Disposition: "keep"}}
@@ -144,7 +144,7 @@ func TestTidyReplacesTheShippedDormantReposRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	testgit.Commit(t, r.Dir, "rules/your-old-forks.toml", string(b))
-	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if kept, _ := r.ReadRule("your-old-forks"); kept == nil || kept.Name != "Mine" {
@@ -167,7 +167,7 @@ func TestTidyKeepsAnEditedDormantReposRule(t *testing.T) {
 		"another condition": func(s string) string { return strings.Replace(s, `"52w"`, `"104w"`, 1) },
 		"by pi":             func(s string) string { return strings.Replace(s, `created_by = "casebook"`, `created_by = "pi"`, 1) },
 		"an exclusion": func(s string) string {
-			return s + "\n[[exclude]]\n  key = \"repo:a/b\"\n  by = \"court\"\n  at = 2026-10-17T19:00:00Z\n"
+			return s + "\n[[exclude]]\n  key = \"repo:a/b\"\n  by = \"user\"\n  at = 2026-10-17T19:00:00Z\n"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestTidyKeepsAnEditedDormantReposRule(t *testing.T) {
 				t.Fatal("the edit changed nothing")
 			}
 			olderRules(t, r, content)
-			if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court", time.Now())); err != nil {
+			if err := r.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user", time.Now())); err != nil {
 				t.Fatal(err)
 			}
 			got, err := os.ReadFile(filepath.Join(r.Dir, "rules", "dormant-repos.toml"))
@@ -206,9 +206,9 @@ func TestTwoMachinesReplaceDormantReposAndStillSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	must(t, a.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "court@a", time.Now())))
+	must(t, a.Decide(ctx, item.IssueKey("a/b", 1), dec(item.Keep, "user@a", time.Now())))
 	time.Sleep(1100 * time.Millisecond) // the machines migrate a second apart
-	must(t, b.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court@b", time.Now())))
+	must(t, b.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user@b", time.Now())))
 	if _, err := a.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}

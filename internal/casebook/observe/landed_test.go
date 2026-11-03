@@ -416,7 +416,7 @@ func TestTipLandedSharedDefinition(t *testing.T) {
 }
 
 // TestLongLivedBranchesAreNeverLanded: dev is an ancestor of main and the head
-// of a merged dev → main PR, yet it is not landed: it lives on (Court,
+// of a merged dev → main PR, yet it is not landed: it lives on (the user,
 // 2026-10-18). So is the repo's own default branch.
 func TestLongLivedBranchesAreNeverLanded(t *testing.T) {
 	dir, tip, mainTip := setupAncestorRepo(t)

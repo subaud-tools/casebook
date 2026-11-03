@@ -21,7 +21,7 @@ const (
 
 // PurposeLookInto is the purpose the page posts the ask with
 // (POST /api/messages "purpose"). It, not the words, is how serve knows a
-// session is looking into the item: a message Court types with the same
+// session is looking into the item: a message the user types with the same
 // words is just a message.
 const PurposeLookInto = "look-into"
 
@@ -47,7 +47,7 @@ type LookIntoVocab struct {
 	MessageMany string `json:"message_many"`
 }
 
-// Looking says a session is looking into an item: Court asked it to (the
+// Looking says a session is looking into an item: the user asked it to (the
 // message), and the message is queued or being worked on, not yet
 // answered, declined or failed.
 type Looking struct {

@@ -80,9 +80,9 @@ func diskEditedAt(t *testing.T, r *rig, id string) time.Time {
 }
 
 // Spec §4.1: edited_at is the last edit of the conditions or the proposal.
-// Court re-saving an unchanged draft, or only renaming it, changes neither,
-// so his rejections for the rule stand (§4.2).
-func TestCourtUnchangedDraftKeepsEditedAt(t *testing.T) {
+// The user re-saving an unchanged draft, or only renaming it, changes neither,
+// so their rejections for the rule stand (§4.2).
+func TestUserUnchangedDraftKeepsEditedAt(t *testing.T) {
 	r := newRig(t)
 	c := useClock(r)
 	draft := map[string]any{

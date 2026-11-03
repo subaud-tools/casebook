@@ -9,7 +9,7 @@ import (
 )
 
 // TestCancelDiscardsAnUnapprovedPlan: POST /api/apply/cancel {plan_id}
-// discards a plan Court hasn't approved (Store.Cancel: planned → cancelled)
+// discards a plan the user hasn't approved (Store.Cancel: planned → cancelled)
 // and announces it; an approved job is not a plan and is refused (409), as
 // is an unknown one (404).
 func TestCancelDiscardsAnUnapprovedPlan(t *testing.T) {

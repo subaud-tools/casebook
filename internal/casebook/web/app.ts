@@ -45,7 +45,7 @@ export interface Ctx {
   on(type: string, cb: (data: unknown) => void): void;
   setPrimary(p: Primary | null): void;
   /**
-   * setAttached sets what goes with Court's next message: the composer's
+   * setAttached sets what goes with the user's next message: the composer's
    * `attached:` line. Each section calls it when its context changes and
    * when it is shown: Attention with the selection's keys (or the open item),
    * Rules (Task 8) with {rule: id}, Apply (Task 9) with {job: id}.
@@ -63,7 +63,7 @@ export interface Ctx {
   onAgentName(cb: (name: string) => void): void;
   /**
    * The dock's session when it was chosen: the session that opened the page
-   * (the URL's ?session=) or the one Court picked in the dock ('' until
+   * (the URL's ?session=) or the one the user picked in the dock ('' until
    * then; the dock attaching to the only session here on its own is not a
    * choice). To apply offers it for a plan's outward steps.
    */
@@ -713,7 +713,7 @@ function start(first: SummaryView | null): void {
     summary = s;
     const counts = s.counts ?? {};
     // 'all' is everything to decide; 'to-apply' the decided items waiting
-    // in review. run's count (jobs running or needing Court) is the apply
+    // in review. run's count (jobs running or needing the user) is the apply
     // section's own (it has the jobs).
     handle.setCount('decide', counts['all'] ?? 0);
     handle.setCount('review', counts['to-apply'] ?? 0);

@@ -63,11 +63,11 @@ func TestTidyRemovesPolicyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := item.IssueKey("a/b", 1)
-	if err := r.Decide(ctx, k, dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, k, dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	subj := strings.Split(testgit.Git(t, r.Dir, "log", "-2", "--format=%s"), "\n")
-	if len(subj) != 2 || !strings.HasPrefix(subj[0], "decide issue:a/b#1") || !strings.HasSuffix(subj[0], " by court") ||
+	if len(subj) != 2 || !strings.HasPrefix(subj[0], "decide issue:a/b#1") || !strings.HasSuffix(subj[0], " by user") ||
 		subj[1] != "remove policy.toml: casebook no longer flags by age" {
 		t.Fatalf("log %q", subj)
 	}
@@ -78,7 +78,7 @@ func TestTidyRemovesPolicyOnce(t *testing.T) {
 		t.Errorf("policy.toml still there: %v", err)
 	}
 	before := testgit.Git(t, r.Dir, "rev-parse", "HEAD")
-	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "court", time.Now())); err != nil {
+	if err := r.Decide(ctx, item.IssueKey("a/b", 2), dec(item.Keep, "user", time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if n := testgit.Git(t, r.Dir, "rev-list", "--count", before+"..HEAD"); n != "1" {
@@ -99,7 +99,7 @@ func TestOpenRejectsNewerFormat(t *testing.T) {
 func TestDecideWritesFileAndCommit(t *testing.T) {
 	r, _ := newStore(t)
 	k, _ := item.ParseKey("branch:schuettc/hail@feat/client")
-	d := dec(item.Keep, "court", time.Now())
+	d := dec(item.Keep, "user", time.Now())
 	d.Note = "wip client"
 	if err := r.Decide(ctx, k, d); err != nil {
 		t.Fatal(err)
@@ -109,10 +109,10 @@ func TestDecideWritesFileAndCommit(t *testing.T) {
 		t.Fatalf("got %+v %v", got, err)
 	}
 	subj := testgit.Git(t, r.Dir, "log", "-1", "--format=%s")
-	if subj != `decide branch:schuettc/hail@feat/client → keep ("wip client") by court` {
+	if subj != `decide branch:schuettc/hail@feat/client → keep ("wip client") by user` {
 		t.Errorf("subject %q", subj)
 	}
-	if err := r.Decide(ctx, k, dec(item.Archive, "court", time.Now())); err == nil {
+	if err := r.Decide(ctx, k, dec(item.Archive, "user", time.Now())); err == nil {
 		t.Error("archive accepted for a branch")
 	}
 	all, errs := r.Decisions()
@@ -197,7 +197,7 @@ func TestWriteReadRuleCommits(t *testing.T) {
 		ID:        "landed-branches",
 		Name:      "Landed branches → delete",
 		Status:    rules.StatusActive,
-		CreatedBy: "court",
+		CreatedBy: "user",
 		CreatedAt: now,
 		EditedAt:  now,
 		Match: []rules.Condition{
@@ -209,7 +209,7 @@ func TestWriteReadRuleCommits(t *testing.T) {
 			Note:        "landed ({how}); restore tip {tip}",
 		},
 	}
-	msg := "rule landed-branches → active by court"
+	msg := "rule landed-branches → active by user"
 	if err := r.WriteRule(ctx, ru, msg); err != nil {
 		t.Fatalf("WriteRule: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestWriteReadRuleCommits(t *testing.T) {
 	// (a new repo also has the example rules)
 	n := 0
 	for _, ru := range all {
-		if ru.ID == "landed-branches" && ru.CreatedBy == "court" {
+		if ru.ID == "landed-branches" && ru.CreatedBy == "user" {
 			n++
 		}
 	}
@@ -252,7 +252,7 @@ func TestWriteReadRuleCommits(t *testing.T) {
 	}
 
 	// DeleteRule removes it and commits
-	delMsg := "rule landed-branches deactivated by court"
+	delMsg := "rule landed-branches deactivated by user"
 	if err := r.DeleteRule(ctx, "landed-branches", delMsg); err != nil {
 		t.Fatalf("DeleteRule: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestConcurrentDecidesCommitOneEach(t *testing.T) {
 	at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < n; i++ {
 		go func(i int) {
-			errs <- r.Decide(ctx, item.IssueKey("a/b", 100+i), dec(item.Keep, "court", at))
+			errs <- r.Decide(ctx, item.IssueKey("a/b", 100+i), dec(item.Keep, "user", at))
 		}(i)
 	}
 	for i := 0; i < n; i++ {

@@ -96,8 +96,8 @@ func TestRefusalThatSaysNonFastForwardIsNotARace(t *testing.T) {
 // fetches, rebases onto the other machine's commit and pushes again.
 func TestPushRaceRebasesAndRetries(t *testing.T) {
 	a, b, remote := twoMachines(t)
-	must(t, b.Decide(ctx, item.RepoKey("b/b"), dec(item.Keep, "court@b", time.Now())))
-	must(t, a.Decide(ctx, item.RepoKey("a/a"), dec(item.Keep, "court@a", time.Now())))
+	must(t, b.Decide(ctx, item.RepoKey("b/b"), dec(item.Keep, "user@b", time.Now())))
+	must(t, a.Decide(ctx, item.RepoKey("a/a"), dec(item.Keep, "user@a", time.Now())))
 
 	// a's receive-pack: on its first run, b pushes first, so a's push
 	// finds a remote that moved after a's fetch.

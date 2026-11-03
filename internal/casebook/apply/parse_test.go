@@ -9,13 +9,13 @@ import (
 // space and a single-quoted branch name, exactly as RestoreFor produces.
 func TestShellSplitRestoreCommand(t *testing.T) {
 	// A typical restore command produced by RestoreFor for branch-delete-local:
-	// git -C '/home/court/my repo' branch 'feat/thing' deadbeef1234
-	cmd := "git -C '/home/court/my repo' branch 'feat/thing' deadbeef1234"
+	// git -C '/home/user/my repo' branch 'feat/thing' deadbeef1234
+	cmd := "git -C '/home/user/my repo' branch 'feat/thing' deadbeef1234"
 	words, err := ShellSplit(cmd)
 	if err != nil {
 		t.Fatalf("ShellSplit(%q): %v", cmd, err)
 	}
-	want := []string{"git", "-C", "/home/court/my repo", "branch", "feat/thing", "deadbeef1234"}
+	want := []string{"git", "-C", "/home/user/my repo", "branch", "feat/thing", "deadbeef1234"}
 	if len(words) != len(want) {
 		t.Fatalf("len(words) = %d; want %d; got %v", len(words), len(want), words)
 	}
@@ -47,7 +47,7 @@ func TestShellSplitDoubleQuotes(t *testing.T) {
 // TestShellSplitUnterminatedSingleQuote verifies that an unterminated single
 // quote returns an error.
 func TestShellSplitUnterminatedSingleQuote(t *testing.T) {
-	_, err := ShellSplit("git -C '/home/court")
+	_, err := ShellSplit("git -C '/home/user")
 	if err == nil {
 		t.Fatal("expected error for unterminated single quote")
 	}

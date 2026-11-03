@@ -8,7 +8,7 @@ import (
 
 // TestMain points casebook's state folder (github.json, the sync lock) at a
 // temp dir for the whole package: serve re-reads GitHub after a delete or an
-// undo and saves the cache there, and a test must never write Court's.
+// undo and saves the cache there, and a test must never write the user's.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "casebook-serve-state-")
 	if err != nil {

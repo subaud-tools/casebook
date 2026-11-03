@@ -6,6 +6,12 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.26.0
+
+### Changed
+- casebook stores the person using it as `"user"` instead of a personal name: the data repo moves to format 3 in one commit (`upgrade casebook repo to format 3`), rewriting `decided_by`, `created_by` and `by` values of `"court"`; `casebook.db` moves to schema 6, rewriting stored message authors. A casebook older than 0.26.0 refuses a format-3 repo, so update every machine that syncs the same data repo.
+- When no user is configured, rules and filters are credited to `"user"`. Comments, docs and tests say "the user" instead of a personal name.
+
 ## 0.25.0
 
 ### Added

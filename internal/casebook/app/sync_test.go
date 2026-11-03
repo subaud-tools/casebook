@@ -331,7 +331,7 @@ func TestSyncRateLimitInRefsSkipsMergedPRs(t *testing.T) {
 	if err != nil || !before.MergedPRs["schuettc/hail"].Fetched {
 		t.Fatalf("first sync merged lists %+v %v", before.MergedPRs, err)
 	}
-	if _, _, err := r.app.Decide(ctx, "pr:a/b#1", "wait", DecideOptions{Until: "date(2026-10-01)", By: "court"}); err != nil {
+	if _, _, err := r.app.Decide(ctx, "pr:a/b#1", "wait", DecideOptions{Until: "date(2026-10-01)", By: "user"}); err != nil {
 		t.Fatal(err)
 	}
 	gh := &rateLimitGh{match: func(p string) bool { return p == "repos/a/b/pulls/1" }}

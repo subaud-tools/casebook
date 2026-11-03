@@ -7,7 +7,7 @@ import (
 )
 
 // TestToApplyViewListsDecidedItems: the page's To apply section lists the
-// decided items waiting to be applied (spec §5.1: Court selects decided items
+// decided items waiting to be applied (spec §5.1: the user selects decided items
 // in the to-apply state, or applies all), and the bar counts them
 // ("to apply N", spec §3.1). They are not attention items, so the view reads
 // every item, not the attention set.

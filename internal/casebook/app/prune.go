@@ -371,7 +371,7 @@ func tempPrefix(temp *temppath.Matcher, p string) string {
 // or a later mixed-case one; the cut becomes "*". A first token keeps its
 // letters before the first digit. casebook-probe-48603-x → casebook-probe-*,
 // tmp1jyhsb7j → tmp*, tmp.AbCdEf → tmp.*, copier._vcs.clone.v_k3j2 →
-// copier._vcs.clone.*, TestFoo2_bad → TestFoo*, pytest-of-court stays.
+// copier._vcs.clone.*, TestFoo2_bad → TestFoo*, pytest-of-alice stays.
 func generalize(seg string) string {
 	first := true
 	for start := 0; start < len(seg); {

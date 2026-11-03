@@ -2,7 +2,7 @@
 //
 // A browser keeps at most six connections open to one site, and each tab's
 // live stream holds one for good: with six tabs open, every other request of
-// every tab waited (Court, 2026-10-17). So the tabs share one stream: the tab
+// every tab waited (the user, 2026-10-17). So the tabs share one stream: the tab
 // holding a lock opens the real EventSource and passes each event to the
 // others over a BroadcastChannel; when it closes, the next tab takes the lock
 // and its own stream.

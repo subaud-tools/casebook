@@ -1,4 +1,4 @@
-// shared-stream.test.ts — every tab shares one live connection (Court,
+// shared-stream.test.ts — every tab shares one live connection (the user,
 // 2026-10-17: seven tabs used the browser's six connections and the page
 // stopped loading).
 
@@ -138,7 +138,7 @@ test('a stream error at the leader reaches every tab', async () => {
 });
 
 // A tab Chrome froze in the background misses the events another tab
-// passed on (Court, 2026-10-18: a job stayed "0 of 1" after it was done).
+// passed on (the user, 2026-10-18: a job stayed "0 of 1" after it was done).
 // When it wakes it errs, so live() reads what it missed from its cursor.
 test('a following tab that wakes asks live() to catch up', async () => {
   const b = browser();
@@ -159,7 +159,7 @@ test('a following tab that wakes asks live() to catch up', async () => {
 });
 
 // A tab that follows another's stream joins after its own cursor: what
-// happened between (Court's own decisions in another tab) came over the
+// happened between (the user's own decisions in another tab) came over the
 // channel before it listened (review, 2026-10-18). Told "open", it reads
 // /api/state?since=<its cursor> itself, holding what is passed on meanwhile.
 function follower(since: string) {

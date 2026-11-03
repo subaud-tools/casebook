@@ -109,7 +109,7 @@ func cloneRemote(c *Clone) string {
 // LongLived reports whether a branch lives on rather than landing: the repo's
 // default branch (def), or one named main, master, dev, develop or staging.
 // It is never landed and casebook never deletes it: a dev → main release PR
-// made dev look landed, and its deletes reached a shared repo (Court,
+// made dev look landed, and its deletes reached a shared repo (the user,
 // 2026-10-18).
 func LongLived(name, def string) bool {
 	switch name {

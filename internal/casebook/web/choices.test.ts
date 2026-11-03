@@ -397,7 +397,7 @@ describe('sessionName', () => {
     id: 'abc',
     harness: 'pi',
     label: '',
-    cwd: '/home/court/tools-workspace',
+    cwd: '/home/user/tools-workspace',
     pid: 1,
     first_seen: '',
     last_seen: '',

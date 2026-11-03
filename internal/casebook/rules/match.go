@@ -21,7 +21,7 @@ type Match struct {
 }
 
 // TrackRecord summarises how a rule's past proposals fared.
-// DecidedDifferently counts the items Court decided another way than the
+// DecidedDifferently counts the items the user decided another way than the
 // rule recommended: they count against it.
 type TrackRecord struct {
 	Accepted           int `json:"accepted"`

@@ -29,7 +29,7 @@ export function trackRecord(r: TrackRecord): string {
 
 /**
  * authorOf names a rule's author. serve writes an agent's rules as
- * "<harness>:<session>" (the agent's source) and Court's as his user name.
+ * "<harness>:<session>" (the agent's source) and the user's as their user name.
  */
 export function authorOf(createdBy: string): { agent: boolean; name: string } {
   const i = createdBy.indexOf(':');
@@ -57,7 +57,7 @@ export function matchesHeading(
 
 /**
  * conditionErrorIndex reads which condition serve's validation error names,
- * as the row's index (-1: none). serve counts conditions from 1, as Court
+ * as the row's index (-1: none). serve counts conditions from 1, as the user
  * and the agent do ("condition 2:" is the second row, index 1).
  */
 export function conditionErrorIndex(message: string): number {

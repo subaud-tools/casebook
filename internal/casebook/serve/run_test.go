@@ -107,9 +107,9 @@ func runOnceSession(t *testing.T, r *apptest.Rig, opened *[]string) (pageserve.E
 	}
 }
 
-// TestRestartReopensThePageForItsAgent (Court, 2026-10-18: every restart left
+// TestRestartReopensThePageForItsAgent (the user, 2026-10-18: every restart left
 // the page with no agent): the page an agent's tab had open is reopened for
-// that agent, so the tab can still run what Court approves.
+// that agent, so the tab can still run what the user approves.
 func TestRestartReopensThePageForItsAgent(t *testing.T) {
 	r := apptest.New(t)
 	var opened []string

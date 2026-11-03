@@ -1,6 +1,6 @@
 package rules
 
-// Examples are the starter rules a new casebook-data gets, on (Court,
+// Examples are the starter rules a new casebook-data gets, on (the user,
 // 2026-10-17: examples start on; a rule is on once saved). They are ordinary
 // files from then on: edited, turned off or deleted like any other.
 func Examples() []Rule {
@@ -48,7 +48,7 @@ func Examples() []Rule {
 		},
 		{
 			// Nothing in it is lost: no changes, nothing unpushed; removing
-			// it can be undone (Court, 2026-10-18).
+			// it can be undone (the user, 2026-10-18).
 			ID:   "quiet-clean-worktrees",
 			Name: "Quiet clean worktrees",
 			Match: []Condition{

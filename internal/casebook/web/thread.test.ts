@@ -19,7 +19,7 @@ function msg(
   return {
     id,
     thread_id: 1,
-    author: 'court',
+    author: 'user',
     body: `m${id}`,
     attached: {},
     state: 'sent',

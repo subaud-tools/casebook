@@ -44,7 +44,7 @@ func TestActivateAndSaveRefuseAStaleVersion(t *testing.T) {
 		t.Fatal("GET /api/rule carries no version")
 	}
 	agentDraft("delete")
-	// Saved by the agent it is on; Court turned it off, to turn on again.
+	// Saved by the agent it is on; the user turned it off, to turn on again.
 	if code := r.do(t, "POST", "/api/rules/deactivate", map[string]any{"id": "agent-arch"}, nil); code != 200 {
 		t.Fatalf("deactivate %d", code)
 	}
@@ -56,7 +56,7 @@ func TestActivateAndSaveRefuseAStaleVersion(t *testing.T) {
 	var out map[string]any
 	code := r.do(t, "POST", "/api/rules/activate", map[string]any{"id": "agent-arch", "version": seen.Version}, &out)
 	if code != 409 {
-		t.Fatalf("activate with the version Court saw: want 409, got %d (%v)", code, out)
+		t.Fatalf("activate with the version the user saw: want 409, got %d (%v)", code, out)
 	}
 	if msg, _ := out["error"].(string); !strings.Contains(msg, "changed") {
 		t.Errorf("409 message %q does not say the rule changed", msg)
@@ -65,7 +65,7 @@ func TestActivateAndSaveRefuseAStaleVersion(t *testing.T) {
 		t.Fatalf("a refused activate left the rule %q", ru.Status)
 	}
 
-	// Saving Court's edits over the agent's, from the stale version: refused.
+	// Saving the user's edits over the agent's, from the stale version: refused.
 	body := map[string]any{
 		"id":      "agent-arch",
 		"name":    "Dormant repos",

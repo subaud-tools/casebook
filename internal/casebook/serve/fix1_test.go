@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,7 +24,7 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 }
 
 // The job body tells the agent to start: approving was the user's go
-// (Court, 2026-10-18: no second confirm), and names no batch to wait for.
+// (the user, 2026-10-18: no second confirm), and names no batch to wait for.
 func TestBuildJobBodyTellsAgentToStart(t *testing.T) {
 	r := newRig(t)
 	job, err := r.s.Apply.Create(ctx, agentTestPlan(), "mbp")
@@ -385,7 +386,7 @@ func TestAgentTextNamesTheConfiguredUser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(body, want) || strings.Contains(body, "Court") {
+		if !strings.Contains(body, want) || regexp.MustCompile(`(?i)\bcourt\b`).MatchString(body) {
 			t.Errorf("user %q: job body\n%s\nwant %q", user, body, want)
 		}
 		if got := r.s.userSubject(); user == "" && got != "The user" || user != "" && got != user {

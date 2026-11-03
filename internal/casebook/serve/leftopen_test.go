@@ -171,17 +171,17 @@ func TestLeftOpenPagesWithLeftOffset(t *testing.T) {
 
 // TestNewActivityBringsAKeptItemBack: someone else's comment newer than the
 // decision moves the item back up, needing a decision and saying why;
-// Court's own doesn't.
+// the user's own doesn't.
 func TestNewActivityBringsAKeptItemBack(t *testing.T) {
 	r := newRig(t)
 	const key = "issue:schuettc/hail#4"
 	counted := r.summary(t).Counts[ViewDue]
 	d := r.decideOne(t, key, "keep")
 
-	// Court's own reply: still left open.
+	// The user's own reply: still left open.
 	r.comment(t, "issue", 4, "schuettc", d.DecidedAt.Add(time.Minute))
 	if v := r.view(t, ViewNew); !slices.Contains(v.leftKeys(), key) {
-		t.Fatalf("Court's own comment brought it back: items %v left open %v", v.keys(), v.leftKeys())
+		t.Fatalf("the user's own comment brought it back: items %v left open %v", v.keys(), v.leftKeys())
 	}
 
 	r.comment(t, "issue", 4, "alice", d.DecidedAt.Add(2*time.Minute))

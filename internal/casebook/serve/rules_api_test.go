@@ -22,13 +22,13 @@ func newRuleRig(t *testing.T) (*rig, rules.Rule) {
 		ID:        "kind-repo",
 		Name:      "Repos rule",
 		Status:    rules.StatusDraft,
-		CreatedBy: "court",
+		CreatedBy: "user",
 		CreatedAt: r.s.Now(),
 		EditedAt:  r.s.Now(),
 		Match:     []rules.Condition{{Field: "kind", Op: "is", Value: "repo"}},
 		Propose:   rules.RuleAction{Disposition: "archive"},
 	}
-	if err := r.App.Repo.WriteRule(ctx, ru, "rule kind-repo created by court"); err != nil {
+	if err := r.App.Repo.WriteRule(ctx, ru, "rule kind-repo created by user"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.s.rebuild(ctx); err != nil {
@@ -248,7 +248,7 @@ func TestDraftEndpointCreatesAndEdits(t *testing.T) {
 		"id":         "my-rule",
 		"name":       "My Rule",
 		"status":     "draft",
-		"created_by": "court",
+		"created_by": "user",
 		"match":      []map[string]any{{"field": "kind", "op": "is", "value": "pr"}},
 		"propose":    map[string]any{"disposition": "close"},
 	}, &detail)
@@ -265,7 +265,7 @@ func TestDraftEndpointCreatesAndEdits(t *testing.T) {
 		"id":         "my-rule",
 		"name":       "My Rule v2",
 		"status":     "draft",
-		"created_by": "court",
+		"created_by": "user",
 		"match":      []map[string]any{{"field": "kind", "op": "is", "value": "issue"}},
 		"propose":    map[string]any{"disposition": "close"},
 	}, &detail2)
@@ -278,7 +278,7 @@ func TestDraftEndpointCreatesAndEdits(t *testing.T) {
 }
 
 // TestAgentRuleSaveIsOn: a rule an agent saves is on at once, records who
-// made it, and has proposed; the agent can edit it again (Court,
+// made it, and has proposed; the agent can edit it again (the user,
 // 2026-10-17: every rule is on once saved).
 func TestAgentRuleSaveIsOn(t *testing.T) {
 	r := newRig(t)
@@ -395,43 +395,43 @@ func TestIncludeRemovesExclusion(t *testing.T) {
 
 // TestAgentCannotEditOtherAgentsDraft checks Fix 3: an agent session may only
 // edit drafts it created itself; editing another author's draft is 400 naming
-// the author. The page (Court) may edit any draft.
+// the author. The page (the user) may edit any draft.
 func TestAgentCannotEditOtherAgentsDraft(t *testing.T) {
 	r := newRig(t)
 	r.attach(t, "s1")
 	r.attach(t, "s2")
 
-	// Court creates a draft.
+	// The user creates a draft.
 	var detail RuleDetailView
 	code := r.do(t, "POST", "/api/rules/draft", map[string]any{
-		"id":      "court-rule",
-		"name":    "Court rule",
+		"id":      "user-rule",
+		"name":    "the user rule",
 		"status":  "draft",
 		"match":   []map[string]any{{"field": "kind", "op": "is", "value": "pr"}},
 		"propose": map[string]any{"disposition": "close"},
 	}, &detail)
 	if code != 200 {
-		t.Fatalf("court draft create %d", code)
+		t.Fatalf("user draft create %d", code)
 	}
 
-	// Session s1 tries to edit court's draft → 400 naming "court".
+	// Session s1 tries to edit user's draft → 400 naming "user".
 	var out map[string]any
 	code = r.do(t, "POST", "/api/agent/rule-save", map[string]any{
 		"session": "s1",
 		"rule": map[string]any{
-			"id":      "court-rule",
-			"name":    "Court rule hacked",
+			"id":      "user-rule",
+			"name":    "the user rule hacked",
 			"status":  "draft",
 			"match":   []map[string]any{{"field": "kind", "op": "is", "value": "pr"}},
 			"propose": map[string]any{"disposition": "close"},
 		},
 	}, &out)
 	if code != 400 {
-		t.Fatalf("s1 edit court draft: want 400, got %d", code)
+		t.Fatalf("s1 edit user draft: want 400, got %d", code)
 	}
-	// Error message must name the author ("court").
-	if msg, _ := out["error"].(string); !strings.Contains(msg, "court") {
-		t.Fatalf("error %q must name the author (court)", msg)
+	// Error message must name the author ("user").
+	if msg, _ := out["error"].(string); !strings.Contains(msg, "user") {
+		t.Fatalf("error %q must name the author (user)", msg)
 	}
 
 	// Session s1 creates its own draft.
@@ -488,20 +488,20 @@ func TestAgentCannotEditOtherAgentsDraft(t *testing.T) {
 		t.Fatalf("rule name %q", detail3.Rule.Name)
 	}
 
-	// Court may edit any rule (including s1's).
+	// The user may edit any rule (including s1's).
 	var detail4 RuleDetailView
 	code = r.do(t, "POST", "/api/rules/save", map[string]any{
 		"id":      "s1-rule",
-		"name":    "s1 rule fixed by court",
+		"name":    "s1 rule fixed by user",
 		"status":  "draft",
 		"match":   []map[string]any{{"field": "kind", "op": "is", "value": "pr"}},
 		"propose": map[string]any{"disposition": "close"},
 	}, &detail4)
 	if code != 200 {
-		t.Fatalf("court edit s1 draft %d", code)
+		t.Fatalf("user edit s1 draft %d", code)
 	}
-	if detail4.Rule.Name != "s1 rule fixed by court" {
-		t.Fatalf("court edit: rule name %q", detail4.Rule.Name)
+	if detail4.Rule.Name != "s1 rule fixed by user" {
+		t.Fatalf("user edit: rule name %q", detail4.Rule.Name)
 	}
 }
 
@@ -755,7 +755,7 @@ func TestEditingARuleWithdrawsWhatItNoLongerRecommends(t *testing.T) {
 	}
 }
 
-// TestDeletedRulesRecommendationsAreWithdrawn: as on Court's casebook-data,
+// TestDeletedRulesRecommendationsAreWithdrawn: as on the user's casebook-data,
 // an unedited shipped dormant-repos with a pending recommendation; the next
 // write replaces it with your-old-repos and your-old-forks, and the rebuild
 // withdraws what the deleted rule recommended while the new one recommends.

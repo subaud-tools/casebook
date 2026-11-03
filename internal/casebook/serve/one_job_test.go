@@ -303,7 +303,7 @@ func TestConcurrentPlansAndApprovesKeepAnItemInOneJob(t *testing.T) {
 	}
 }
 
-// TestPreviewMakesNoPlan (Court, 2026-10-17: two tabs reviewing one group
+// TestPreviewMakesNoPlan (the user, 2026-10-17: two tabs reviewing one group
 // cancelled each other's plans): preview builds the plan to show and stores
 // nothing: no job is made and no plan holding the keys is cancelled.
 func TestPreviewMakesNoPlan(t *testing.T) {
@@ -330,7 +330,7 @@ func TestPreviewMakesNoPlan(t *testing.T) {
 	}
 }
 
-// TestAVerifiedItemLeavesReview (Court, 2026-10-17: nine repos deleted and
+// TestAVerifiedItemLeavesReview (the user, 2026-10-17: nine repos deleted and
 // still listed in review): an item whose step casebook verified since the
 // last sync leaves review and its count at once; the next sync, which sees
 // it gone, takes over. An item whose step failed stays.

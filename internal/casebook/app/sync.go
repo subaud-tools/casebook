@@ -165,7 +165,7 @@ func (a *App) Sync(ctx context.Context, o SyncOptions) (SyncReport, error) {
 
 // RecheckRefs re-reads keys on GitHub into the cache (observe.LookupRefs):
 // after a GitHub branch delete is verified or undone, so the item says where
-// its copies are now (Court, 2026-10-20). A sync running now re-reads them
+// its copies are now (the user, 2026-10-20). A sync running now re-reads them
 // all anyway, so a busy lock is not an error.
 func (a *App) RecheckRefs(ctx context.Context, keys []item.Key) error {
 	if len(keys) == 0 {

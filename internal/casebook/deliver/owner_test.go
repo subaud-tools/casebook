@@ -176,7 +176,7 @@ func TestWorkerIsASessionWhoseParentIsLiveInItsProcess(t *testing.T) {
 	}
 }
 
-// Eligible sessions are the ones the page may offer Court: live and not
+// Eligible sessions are the ones the page may offer the user: live and not
 // workers. Left and worker sessions stay in the list (their threads and the
 // move-to path need them) but are not eligible.
 func TestEligibleIsLiveAndNotAWorker(t *testing.T) {

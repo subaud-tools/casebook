@@ -1,4 +1,4 @@
-// rule-editor.ts — rules on decide's list (Court, 2026-10-17: a rule is a
+// rule-editor.ts — rules on decide's list (the user, 2026-10-17: a rule is a
 // filter that recommends; both live with the items, one editor, one
 // preview).
 //

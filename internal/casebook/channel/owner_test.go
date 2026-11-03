@@ -107,7 +107,7 @@ func TestOpenSendsTheChannelsSession(t *testing.T) {
 
 // A new channel against a serve started before sessions could own a page:
 // that serve refuses the "session" field (400 unknown field). casebook_open
-// opens the page anyway, without the session (the page then asks Court to
+// opens the page anyway, without the session (the page then asks the user to
 // choose), and says a serve restart is needed to attach it.
 func TestOpenAgainstAnOldServeRetriesWithoutTheSession(t *testing.T) {
 	var mu sync.Mutex

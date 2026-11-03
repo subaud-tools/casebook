@@ -199,7 +199,7 @@ export function makeWalkthrough(ctx: Ctx): { start(): void } {
     // pushed counts the history entries the walkthrough's own navigation
     // made (going to decide, opening the first item): the end goes back
     // over them, so it leaves no history. An address change while no step
-    // is getting ready is Court's (Back, a link, the address bar): it ends
+    // is getting ready is the user's (Back, a link, the address bar): it ends
     // the walkthrough there.
     let pushed = 0;
     function onHash(): void {
@@ -274,7 +274,7 @@ export function makeWalkthrough(ctx: Ctx): { start(): void } {
     }
 
     // finish ends it; restore (done, skip, Esc) goes back to where it
-    // started, Court's own navigation (restore false) stays where he went.
+    // started, the user's own navigation (restore false) stays where they went.
     function finish(restore = true): void {
       if (ended) return;
       ended = true;

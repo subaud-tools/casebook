@@ -14,7 +14,7 @@ import (
 // step (§5.5). It returns an item.Observed that Verify can use to promote a
 // reported step to verified, or flag it as drift.
 //
-// Each is a REST read (casebook reads GitHub through REST only, Court,
+// Each is a REST read (casebook reads GitHub through REST only, the user,
 // 2026-10-20). For pr-close and pr-merge, the PR's state; for issue-close,
 // the issue's; for repo-archive, the repo's archived flag; for repo-delete,
 // a 404 for the repo.

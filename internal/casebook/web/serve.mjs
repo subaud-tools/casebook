@@ -30,9 +30,9 @@ const repoRoot = resolve(here, '../../..');
 //
 // Every git the probe runs (its fixtures, its checks, the serves it starts,
 // the binary's build) runs with no global or system config (so none of
-// Court's hooks) and with CASEBOOK_DISABLE=1, which casebook's own git hook
+// the user's hooks) and with CASEBOOK_DISABLE=1, which casebook's own git hook
 // shims (~/.config/casebook/hooks) honour: nothing the probe does records
-// into Court's casebook. A guard enforces it: at load, a git shim goes first
+// into the user's casebook. A guard enforces it: at load, a git shim goes first
 // on this process's PATH (every child inherits it), logs each call with the
 // environment it ran in, and refuses one without that environment. The probe
 // checks the log (gitGuard()).
@@ -116,7 +116,7 @@ export async function seenWalkthrough(context) {
 }
 
 /**
- * openGroups opens decide's groups, as Court does: every group starts
+ * openGroups opens decide's groups, as the user does: every group starts
  * collapsed (serve sends only the open groups' rows, open=), so a probe
  * that reads rows opens them first. One at a time, each waited for (a
  * click reloads the list; a second click before it repaints would close
@@ -318,7 +318,7 @@ function setupHome(seedRepos = [], seedClones = []) {
 // verification reads the way apptest.FakeGh does and refusing anything else.
 // Nothing the probe starts can reach GitHub: were the fake bypassed, the serve's environment sends a real gh
 // to a host that doesn't exist (GH_HOST, a .invalid name) with a token
-// that isn't one, and no config of Court's (GH_CONFIG_DIR): it fails closed.
+// that isn't one, and no config of the user's (GH_CONFIG_DIR): it fails closed.
 //
 // git is real, and hermetic (HERMETIC_GIT above), and every repository it
 // touches is under the probe's temp home.
@@ -436,7 +436,7 @@ export async function startServe(opts = {}) {
       ...process.env,
       CASEBOOK_HOME: home,
       HOME: home,
-      // The fake gh first on PATH (then the git guard); git without Court's
+      // The fake gh first on PATH (then the git guard); git without the user's
       // config; a real gh, were it reached, fails closed.
       PATH: `${join(home, 'bin')}:${process.env.PATH}`,
       ...HERMETIC_GIT,

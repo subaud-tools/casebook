@@ -5,7 +5,7 @@
 // delivery in flight. A delivery goes out only when nothing is in flight, and
 // it carries everything queued so far, in order, batches intact. It ends when
 // the agent settles every message in it, when the harness reports the turn
-// settled, or when Court releases it. Messages sent meanwhile wait: there is
+// settled, or when the user releases it. Messages sent meanwhile wait: there is
 // no interrupt.
 package deliver
 
@@ -26,11 +26,11 @@ import (
 )
 
 // ThreadState is what a message row's state can be: a draft (a batch not
-// sent yet, before the lifecycle), one of msgstate's states for Court's
+// sent yet, before the lifecycle), one of msgstate's states for the user's
 // messages, or one of the rows the agent and serve write.
 type ThreadState string
 
-// Message states. Court's sent messages follow tools-common's msgstate; a
+// Message states. The user's sent messages follow tools-common's msgstate; a
 // queued message is sent with no delivery yet.
 const (
 	Draft      ThreadState = "draft" // in a batch tray, not sent
@@ -82,14 +82,14 @@ type Session struct {
 	Queued    int       `json:"queued"`         // count of queued (unsent) messages
 	Left      bool      `json:"left,omitempty"` // last_seen > LeftAfter, or the harness said it ended (server-computed)
 	// Name is the name the session's harness knows it by: pi's session
-	// name (Court renames sessions; pi-casebook reports each rename), ""
+	// name (the user renames sessions; pi-casebook reports each rename), ""
 	// when it has none (Claude Code, an unnamed pi session). The page shows
 	// the folder then.
 	Name string `json:"name"`
 	// Worker: a session whose parent session is live in the same harness
 	// process (a pi-subagents worker). Server-computed; see sessionCols.
 	Worker bool `json:"worker"`
-	// Eligible: the page may offer this session to Court, attach to it on
+	// Eligible: the page may offer this session to the user, attach to it on
 	// its own when it is the only one, and send to it: live and not a
 	// worker. Server-computed.
 	Eligible bool `json:"eligible"`
@@ -127,7 +127,7 @@ type Thread struct {
 }
 
 // Attached is what a message refers to, captured when it was written, so
-// "these" still means what Court meant.
+// "these" still means what the user meant.
 type Attached struct {
 	Keys []string `json:"keys,omitempty"` // selected items
 	Open string   `json:"open,omitempty"` // the open item
@@ -169,7 +169,7 @@ type WorkedView struct {
 type Message struct {
 	ID         int64    `json:"id"`
 	ThreadID   int64    `json:"thread_id"`
-	Author     string   `json:"author"` // "court" or the session id
+	Author     string   `json:"author"` // "user" or the session id
 	Body       string   `json:"body"`
 	Attached   Attached `json:"attached"`
 	BatchID    int64    `json:"batch_id,omitempty"`
@@ -177,7 +177,7 @@ type Message struct {
 	DeliveryID int64    `json:"delivery_id,omitempty"`
 	ReplyTo    int64    `json:"reply_to,omitempty"`
 	// Purpose is what the page posted the message for: '' for a message
-	// Court wrote, "look-into" for "Look into it" (one item or a group).
+	// the user wrote, "look-into" for "Look into it" (one item or a group).
 	Purpose string      `json:"purpose,omitempty"`
 	State   ThreadState `json:"state"`
 	// Line is the agent's one line on what it is doing, while the message
@@ -196,7 +196,7 @@ type Message struct {
 // failed.
 func Final(state ThreadState) bool { return msgstate.Final(msgstate.State(state)) }
 
-// unsettled is the SQL list of Court's message states still open in a
+// unsettled is the SQL list of the user's message states still open in a
 // delivery: sent, with the agent, or working.
 const unsettled = "('sent', 'with_agent', 'working')"
 
@@ -360,7 +360,7 @@ const pruneSQL = `DELETE FROM sessions WHERE id IN (SELECT s.id FROM sessions s 
 // ended (pi's in-process /fork replaces it: pi-casebook reports the old
 // session ended, so its last heartbeat window doesn't count). So a fork,
 // even one running subagents of its own, is not a worker; its subagents
-// are. Measured 2026-10-06 on Court's machine: pi 92602 hosted 01a10e0b
+// are. Measured 2026-10-06 on the user's machine: pi 92602 hosted 01a10e0b
 // (no parentSession) and four worker#<hex> sessions whose parentSession
 // named it; the forked bettor-help-workspace/platform ran alone in pi 24023.
 const sessionCols = `s.id, s.harness, s.label, s.cwd, s.pid, s.first_seen, s.last_seen, s.looked_at, s.name, s.ended_at != 0,
@@ -416,12 +416,12 @@ func (q *Queue) MoveSession(ctx context.Context, from, to string) (threads int, 
 			if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = 'moved', finished_at = ? WHERE id = ?", now, did); err != nil {
 				return err
 			}
-			// Requeue its unsettled court messages so they reach the target.
+			// Requeue the user's unsettled messages so they reach the target.
 			// queued_at is kept: the rescued messages were sent first, so they
 			// stay first in the target's delivery. A takeover: it asks no
 			// msgstate.Allowed.
 			if _, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
-				WHERE delivery_id = ? AND author = 'court' AND state NOT IN ('answered', 'declined', 'failed')`, did); err != nil {
+				WHERE delivery_id = ? AND author = 'user' AND state NOT IN ('answered', 'declined', 'failed')`, did); err != nil {
 				return err
 			}
 			movedDeliveryID = did
@@ -521,13 +521,13 @@ func (q *Queue) messages(ctx context.Context, where string, args ...any) ([]Mess
 	return out, rows.Err()
 }
 
-// Underway lists Court's messages posted for purpose and not yet settled
+// Underway lists the user's messages posted for purpose and not yet settled
 // (sent, with the agent or being worked on: no draft, nothing final), each
 // with the session its thread belongs to, oldest first.
 func (q *Queue) Underway(ctx context.Context, purpose string) ([]UnderwayMessage, error) {
 	rows, err := q.DB.QueryContext(ctx, `SELECT m.id, m.body, m.attached, t.session_id
 		FROM messages m JOIN threads t ON t.id = m.thread_id
-		WHERE m.author = 'court' AND m.purpose = ? AND m.state IN `+unsettled+` ORDER BY m.id`,
+		WHERE m.author = 'user' AND m.purpose = ? AND m.state IN `+unsettled+` ORDER BY m.id`,
 		purpose)
 	if err != nil {
 		return nil, err
@@ -570,7 +570,7 @@ func (q *Queue) Message(ctx context.Context, id int64) (Message, error) {
 	return m, err
 }
 
-// Post adds Court's message to a thread: sent, queued for delivery, or, with
+// Post adds the user's message to a thread: sent, queued for delivery, or, with
 // toBatch, appended to the thread's draft batch (created if needed).
 func (q *Queue) Post(ctx context.Context, thread int64, body string, att Attached, toBatch bool) (Message, error) {
 	return q.PostFor(ctx, thread, body, att, toBatch, "")
@@ -610,7 +610,7 @@ func (q *Queue) PostFor(ctx context.Context, thread int64, body string, att Atta
 			state, queued = Draft, 0
 		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO messages(thread_id, author, body, attached, batch_id, batch_pos, purpose, state, created_at, queued_at)
-			VALUES (?, 'court', ?, ?, ?, ?, ?, ?, ?, ?)`, thread, body, attJSON, batch, pos, purpose, state, now, queued)
+			VALUES (?, 'user', ?, ?, ?, ?, ?, ?, ?, ?)`, thread, body, attJSON, batch, pos, purpose, state, now, queued)
 		if err != nil {
 			return err
 		}
@@ -766,7 +766,7 @@ func (q *Queue) Delivery(ctx context.Context, id int64) (Delivery, error) {
 	}
 	d.SentAt, d.TouchedAt, d.FinishedAt, d.ShownAt = tm(sent), tm(touched), tm(fin), tm(shown)
 	d.Stuck = d.State == InFlight && q.Now().Sub(d.TouchedAt) > q.stuckAfter()
-	d.Messages, err = q.messages(ctx, "delivery_id = ? AND author = 'court' ORDER BY queued_at, COALESCE(batch_id, 0), batch_pos, id", id)
+	d.Messages, err = q.messages(ctx, "delivery_id = ? AND author = 'user' ORDER BY queued_at, COALESCE(batch_id, 0), batch_pos, id", id)
 	return d, err
 }
 
@@ -804,7 +804,7 @@ func (q *Queue) Next(ctx context.Context, session string) (*Delivery, error) {
 		// sent: serve hands the delivery to the channel's long-poll, and only
 		// the harness's landed report (or the agent's reply) says it reached
 		// the agent. If that response is lost the delivery stays in flight
-		// until the agent settles it, Court releases or moves it (stuck after
+		// until the agent settles it, the user releases or moves it (stuck after
 		// StuckAfter), or serve restarts (its messages are sent again).
 		res, err := tx.ExecContext(ctx, "INSERT INTO deliveries(session_id, state, sent_at, touched_at, token) VALUES (?, 'inflight', ?, ?, ?)", session, now, now, reportToken())
 		if err != nil {
@@ -903,11 +903,11 @@ func tokenDelivery(ctx context.Context, tx *sql.Tx, session, token string) (int6
 	return id, err
 }
 
-// move moves each of Court's messages in delivery to to, when
+// move moves each of the user's messages in delivery to to, when
 // msgstate.Allowed draws the move from its state; a refused move is skipped.
 // It returns the ids it moved.
 func move(ctx context.Context, tx *sql.Tx, now, delivery int64, to ThreadState) ([]int64, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id, state FROM messages WHERE delivery_id = ? AND author = 'court' ORDER BY id", delivery)
+	rows, err := tx.QueryContext(ctx, "SELECT id, state FROM messages WHERE delivery_id = ? AND author = 'user' ORDER BY id", delivery)
 	if err != nil {
 		return nil, err
 	}
@@ -1017,7 +1017,7 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state Th
 			var did, tid int64
 			var st ThreadState
 			err := tx.QueryRowContext(ctx, `SELECT COALESCE(m.delivery_id, 0), m.thread_id, m.state FROM messages m JOIN threads t ON t.id = m.thread_id
-				WHERE m.id = ? AND m.author = 'court' AND t.session_id = ?`, id, session).Scan(&did, &tid, &st)
+				WHERE m.id = ? AND m.author = 'user' AND t.session_id = ?`, id, session).Scan(&did, &tid, &st)
 			if errors.Is(err, sql.ErrNoRows) || did == 0 {
 				return fmt.Errorf("message %d: %w (not delivered to %s)", id, ErrNotFound, session)
 			}
@@ -1082,7 +1082,7 @@ func (q *Queue) Reply(ctx context.Context, session string, ids []int64, state Th
 				return err
 			}
 			var open int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE delivery_id = ? AND author = 'court'
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE delivery_id = ? AND author = 'user'
 				AND state IN `+unsettled, did).Scan(&open); err != nil {
 				return err
 			}
@@ -1110,7 +1110,7 @@ func closeDelivery(ctx context.Context, tx *sql.Tx, now int64, id int64, dState 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE messages SET state = ?, settled_at = ? WHERE delivery_id = ? AND author = 'court'
+	_, err = tx.ExecContext(ctx, `UPDATE messages SET state = ?, settled_at = ? WHERE delivery_id = ? AND author = 'user'
 		AND state IN `+unsettled, msgState, now, id)
 	return err
 }
@@ -1168,7 +1168,7 @@ func (q *Queue) Settled(ctx context.Context, session string, shownIDs []int64) (
 	return &out, err
 }
 
-// Release is Court ending a delivery by hand (a stuck turn): every unsettled
+// Release is the user ending a delivery by hand (a stuck turn): every unsettled
 // message, one still sent included (a stuck delivery is usually one that
 // never landed), lands on no_reply. A takeover: it asks no msgstate.Allowed.
 func (q *Queue) Release(ctx context.Context, id int64) error {
@@ -1193,7 +1193,7 @@ func (q *Queue) MoveDelivery(ctx context.Context, id int64, session string) erro
 		}
 		// queued_at is kept, so moved messages keep their place in line.
 		_, err = tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
-			WHERE delivery_id = ? AND author = 'court' AND state NOT IN ('answered', 'declined', 'failed')`, id)
+			WHERE delivery_id = ? AND author = 'user' AND state NOT IN ('answered', 'declined', 'failed')`, id)
 		return err
 	})
 }
@@ -1242,7 +1242,7 @@ func (q *Queue) Interrupt(ctx context.Context) ([]Interruption, error) {
 				return err
 			}
 			_, err := tx.ExecContext(ctx, `UPDATE messages SET state = 'sent', delivery_id = NULL, settled_at = 0, line = ''
-				WHERE delivery_id = ? AND author = 'court' AND state IN `+unsettled, out[i].Delivery)
+				WHERE delivery_id = ? AND author = 'user' AND state IN `+unsettled, out[i].Delivery)
 			return err
 		})
 		if err != nil {
@@ -1254,7 +1254,7 @@ func (q *Queue) Interrupt(ctx context.Context) ([]Interruption, error) {
 
 // unsettledMessages lists a delivery's unsettled messages, by id.
 func (q *Queue) unsettledMessages(ctx context.Context, delivery int64) ([]int64, error) {
-	rows, err := q.DB.QueryContext(ctx, "SELECT id FROM messages WHERE delivery_id = ? AND author = 'court' AND state IN "+unsettled+" ORDER BY id", delivery)
+	rows, err := q.DB.QueryContext(ctx, "SELECT id FROM messages WHERE delivery_id = ? AND author = 'user' AND state IN "+unsettled+" ORDER BY id", delivery)
 	if err != nil {
 		return nil, err
 	}
@@ -1277,7 +1277,7 @@ func (q *Queue) Resend(ctx context.Context, ids []int64) (int, error) {
 	n := 0
 	for _, id := range ids {
 		var st ThreadState
-		err := q.DB.QueryRowContext(ctx, "SELECT state FROM messages WHERE id = ? AND author = 'court'", id).Scan(&st)
+		err := q.DB.QueryRowContext(ctx, "SELECT state FROM messages WHERE id = ? AND author = 'user'", id).Scan(&st)
 		if errors.Is(err, sql.ErrNoRows) || err == nil && !msgstate.Allowed(msgstate.State(st), msgstate.Sent) {
 			continue
 		}
