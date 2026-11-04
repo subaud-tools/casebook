@@ -6,6 +6,14 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.27.0
+
+### Changed
+- tools-common 0.63.0 (from 0.38.0). The channel takes pi's `activity` report instead of logging it as ignored on every turn, and serve marks itself stale once an install replaces its binary, so the next tool call starts the new one.
+
+### Removed
+- serve's 8-hour idle exit and the open page holding it up: tools-common's serve never exits for being idle.
+
 ## 0.26.0
 
 ### Changed

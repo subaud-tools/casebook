@@ -879,8 +879,7 @@ var ErrNotRunning = pageserve.ErrNotRunning
 // Options configures Run.
 type Options struct {
 	Version string
-	Port    int           // 0: remembered, else free
-	Idle    time.Duration // shut down after this long with no API traffic and no open tab (0: never)
+	Port    int // 0: remembered, else free
 	// Ready is called once listening. pageWasOpen: a tab was connected when
 	// the previous serve went away (a stop, an upgrade or a crash), so the
 	// caller should open the page again; the old tab's token died with it.
@@ -893,11 +892,10 @@ type Options struct {
 	Started func(*Server, pageserve.Entry) // test hook
 }
 
-// Run serves until ctx ends, /api/stop, or the idle limit, through
-// pageserve.Run: it writes the entry while running and removes it on the way
-// out. casebook's own are the API, the page's event stream (its bus), the
-// entry's StartedAt (this serve's, which /api/agent/interrupted names) and
-// Reopened, and an open tab keeping serve past the idle limit.
+// Run serves until ctx ends or /api/stop, through pageserve.Run: it writes
+// the entry while running and removes it on the way out. casebook's own are
+// the API, the page's event stream (its bus) and the entry's StartedAt (this
+// serve's, which /api/agent/interrupted names) and Reopened.
 func Run(ctx context.Context, a *app.App, o Options) error {
 	if o.Log == nil {
 		o.Log = io.Discard
@@ -927,11 +925,10 @@ func Run(ctx context.Context, a *app.App, o Options) error {
 	}
 	var entry pageserve.Entry
 	err = pageserve.Run(ctx, pageserve.Options{
-		Live: Live(), Assets: page.With(assetsFS), API: s.Handler(), Port: o.Port, Idle: o.Idle, Version: o.Version, Log: o.Log,
+		Live: Live(), Assets: page.With(assetsFS), API: s.Handler(), Port: o.Port, Version: o.Version, Log: o.Log,
 		Stream: s.pageStream,
-		Busy:   s.PageOpen,
 		OnStart: func(sctx context.Context, url string) {
-			// serve stops (POST /api/stop, the idle limit) by ending sctx:
+			// serve stops (POST /api/stop) by ending sctx:
 			// casebook's lanes, pushes and page streams end with it.
 			context.AfterFunc(sctx, cancel)
 			if o.Open != nil {
