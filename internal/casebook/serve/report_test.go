@@ -153,3 +153,16 @@ func TestAnActivityReportIsTakenAndMovesNothing(t *testing.T) {
 		t.Fatalf("activity moved the delivery: held %v, message %s", d.Held, r.stateOf(t, m.ID))
 	}
 }
+
+// An event a newer harness sends that casebook doesn't know yet is taken and
+// ignored, not refused: a 400 would reach the harness's stderr every turn.
+func TestAnUnknownReportEventIsTakenAndMovesNothing(t *testing.T) {
+	r := newRig(t)
+	th := r.attach(t, "s1")
+	m, w := r.handOver(t, th, "check CI")
+	r.report(t, "s1", "future_event", "")
+	r.report(t, "s1", "future_event", w.Report)
+	if d, _ := r.s.Queue.Delivery(ctx, w.Delivery.ID); d.Held || r.stateOf(t, m.ID) != "sent" {
+		t.Fatalf("an unknown event moved the delivery: held %v, message %s", d.Held, r.stateOf(t, m.ID))
+	}
+}
