@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.27.2
+
+### Fixed
+- A report event casebook doesn't know yet (one a newer pi adds) is taken and ignored: the channel drops it without a log line (tools-common 0.66.0), and serve answers 204 instead of a 400 the channel logged on every turn.
+
 ## 0.27.1
 
 ### Fixed

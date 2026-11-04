@@ -604,7 +604,8 @@ func (s *Server) agentSettled(w http.ResponseWriter, r *http.Request) {
 // agentReport is POST /api/agent/report: the harness says the delivery with
 // token is held while the agent is mid-turn, or landed in the agent's turn,
 // or that the session's turn ended; an activity report (the session started
-// or stopped working) is taken and moves nothing. Each message move is one
+// or stopped working), or an event casebook doesn't know, is taken and moves
+// nothing. Each message move is one
 // msgstate.Allowed draws; a move it refuses is skipped, so a late landed
 // leaves a working message working. An unknown token, or another session's,
 // moves nothing.
@@ -658,10 +659,9 @@ func (s *Server) agentReport(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	case channelmcp.ReportActivity: // whether the session is working: no use for it yet
 	default:
-		reply(w, nil, bad("event %q: want held, landed, turn_ended or activity", in.Event))
-		return
+		// activity (whether the session is working: no use for it yet), or an
+		// event a newer harness added: taken and moves nothing.
 	}
 	reply(w, out, nil)
 }
