@@ -85,7 +85,7 @@ func serveForeground(ctx context.Context, port int, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return serve.Run(ctx, a, serve.Options{Version: version.Number(), Port: port, Idle: 8 * time.Hour, Log: errw,
+	return serve.Run(ctx, a, serve.Options{Version: version.Number(), Port: port, Log: errw,
 		Ready: func(url string, pageWasOpen bool, session string) {
 			if pageWasOpen {
 				_ = openBrowser(url + serve.SessionQuery(session))
