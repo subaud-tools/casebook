@@ -6,6 +6,11 @@ name, as they were there. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 0.27.1
+
+### Fixed
+- serve takes the channel's `activity` report (the session started or stopped working) instead of refusing it with a 400, which the channel logged as `report activity: ... want held, landed or turn_ended` each time the session started or stopped working.
+
 ## 0.27.0
 
 ### Changed

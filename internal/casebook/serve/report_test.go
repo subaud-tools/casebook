@@ -142,3 +142,14 @@ func TestTheSettledBridgeEndsAShownDelivery(t *testing.T) {
 		t.Fatalf("delivery %s, message %s; want done and no_reply", d.State, r.stateOf(t, m.ID))
 	}
 }
+
+func TestAnActivityReportIsTakenAndMovesNothing(t *testing.T) {
+	r := newRig(t)
+	th := r.attach(t, "s1")
+	m, w := r.handOver(t, th, "check CI")
+	r.report(t, "s1", "activity", "working")
+	r.report(t, "s1", "activity", "idle")
+	if d, _ := r.s.Queue.Delivery(ctx, w.Delivery.ID); d.Held || r.stateOf(t, m.ID) != "sent" {
+		t.Fatalf("activity moved the delivery: held %v, message %s", d.Held, r.stateOf(t, m.ID))
+	}
+}
